@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>游戏站批量建站工具</title>
+    <link rel="stylesheet" href="css/tool.css?v=20260912-news-visual-parity-1">
+    <!-- 外部依赖 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+    <!-- 顶部标题栏 -->
+    <header class="tool-header">
+        <div class="header-content">
+            <span class="header-mark" aria-hidden="true">
+                <svg viewBox="0 0 32 32" focusable="false">
+                    <path d="M6 8.5h20v14H6z"></path>
+                    <path d="M11 15.5h5M13.5 13v5M21 13.5h.01M23.5 17.5h.01"></path>
+                </svg>
+            </span>
+            <div class="header-copy">
+                <h1 class="header-title">游戏站批量建站工具</h1>
+                <p class="header-desc">2步快速生成可部署的游戏类静态网站</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- 步骤进度条 -->
+    <div class="step-progress">
+        <div class="step-item active" data-step="1">
+            <div class="step-circle">1</div>
+            <span class="step-label">配置网站</span>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item" data-step="2">
+            <div class="step-circle">2</div>
+            <span class="step-label">导出网站</span>
+        </div>
+    </div>
+
+    <!-- 主内容区域 -->
+    <div class="main-wrapper">
+
+        <!-- ========== Step 1: 配置网站 ========== -->
+        <div class="step-panel active" id="step-1">
+            <div class="config-layout">
+                <!-- 左侧：配置面板 -->
+                <div class="config-panel">
+                    <h2 class="panel-title">选择建站方式并配置网站</h2>
+                    <p class="panel-desc config-lead">所有改动会同步到右侧预览，数据仅在当前浏览器中处理。</p>
+
+                    <section class="build-mode-selector game-build-mode-selector" aria-label="建站方式">
+                        <button type="button" class="build-mode-card is-selected" data-build-mode="normal" aria-pressed="true">
+                            <span class="build-mode-icon" aria-hidden="true">🏗️</span>
+                            <span><strong>普通建站</strong><small>使用当前或新游戏数据生成站点，不读取旧网站，也不添加广告。</small></span>
+                        </button>
+                        <button type="button" class="build-mode-card" data-build-mode="ad-migration" aria-pressed="false">
+                            <span class="build-mode-icon" aria-hidden="true">📦</span>
+                            <span><strong>广告移植建站</strong><small>游戏数据仍来自当前选择的数据源；仅提取旧站的广告配置。</small></span>
+                        </button>
+                    </section>
+
+                    <section class="legacy-site-upload" id="legacy-site-upload" hidden aria-live="polite">
+                        <div class="legacy-site-heading">
+                            <div><h3>上传旧网站源码压缩包</h3><p>支持 <code>.zip</code>、<code>.tar.gz</code>、<code>.tgz</code>；仅检查 <code>js/ad.js</code>、首页和详情页广告容器，不会复制旧站游戏、文字或图片。</p></div>
+                            <button type="button" class="legacy-upload-button" id="legacy-site-select">选择旧网站压缩包</button>
+                            <input type="file" id="legacy-site-file" accept=".zip,.tar.gz,.tgz,application/zip,application/gzip" hidden>
+                        </div>
+                        <div class="migration-result pending" id="legacy-site-result">等待上传旧网站源码压缩包（.zip、.tar.gz 或 .tgz）。顶层额外目录也可识别。</div>
+                    </section>
+
+                    <!-- 配置标签页 -->
+                    <div class="config-tabs">
+                        <button class="config-tab active" data-tab="structure">结构配置</button>
+                        <button class="config-tab" data-tab="style">样式配置</button>
+                        <button class="config-tab" data-tab="ads" hidden>广告配置</button>
+                        <button id="random-assemble-btn" class="random-assemble-btn">随机组装</button>
+                    </div>
+
+                    <!-- 结构配置 -->
+                    <div class="config-section active" id="tab-structure">
+                        <div class="config-group source-config-group">
+                            <div class="group-heading-row">
+                                <div>
+                                    <p class="group-eyebrow">GAME CATALOG</p>
+                                    <h4 class="group-title">游戏数据源</h4>
+                                </div>
+                                <span class="source-badge" id="source-badge">内置目录</span>
+                            </div>
+                            <div class="config-item">
+                                <label for="game-source">目录来源</label>
+                                <select id="game-source">
+                                    <option value="builtin">当前内置目录</option>
+                                    <option value="builtin-source-1">内置游戏源 1 · 84 款</option>
+                                    <option value="builtin-source-2">内置游戏源 2 · 84 款</option>
+                                    <option value="builtin-source-3">内置游戏源 3 · 84 款</option>
+                                    <option value="builtin-source-4">内置游戏源 4 · 84 款</option>
+                                    <option value="builtin-source-5">内置游戏源 5 · 84 款</option>
+                                    <option value="opensource">开源本地游戏 · 首批 72 款</option>
+                                    <option value="json">导入 JSON / 压缩包目录</option>
+                                </select>
+                            </div>
+                            <div id="opensource-source-options" class="source-options source-options-local" hidden>
+                                <div class="source-license-row" aria-label="开源游戏包信息">
+                                    <span><strong>72</strong><small>本地游戏</small></span>
+                                    <span><strong>HD</strong><small>1280×720 封面</small></span>
+                                    <span><strong>MIT</strong><small>允许商用</small></span>
+                                </div>
+                                <button type="button" class="source-action-btn" id="load-opensource">加载首批开源游戏</button>
+                                <p class="source-note">游戏代码与封面随导出包自托管，不依赖第三方 iframe。导出时自动附带 MIT 许可证及来源声明。</p>
+                            </div>
+                            <div id="json-source-options" class="source-options" hidden>
+                                <button type="button" class="source-action-btn" id="choose-game-json">选择 JSON 或压缩包</button>
+                                <input type="file" id="game-json-upload" accept=".json,.zip,.rar,.7z,application/json,application/zip" hidden>
+                                <p class="source-note">支持 JSON，以及含 gamesData.json（或其他游戏 JSON）和图片的 ZIP、RAR、7z 压缩包；ZIP 可离线导入，RAR/7z 会按需加载本地解析组件。导出网站会携带已识别的本地图片。</p>
+                            </div>
+                            <div id="saved-catalog-options" class="source-options source-options-local" hidden>
+                                <div class="config-item">
+                                    <label for="saved-catalog-name">本地内置目录名称</label>
+                                    <input type="text" id="saved-catalog-name" class="text-input" maxlength="60" placeholder="例如：我的游戏源 4" autocomplete="off">
+                                </div>
+                                <div class="source-catalog-actions">
+                                    <button type="button" class="source-action-btn" id="save-current-catalog">保存为本地内置目录</button>
+                                    <button type="button" class="source-secondary-btn source-rename-btn" id="rename-saved-catalog" hidden>重命名当前目录</button>
+                                    <button type="button" class="source-secondary-btn" id="delete-saved-catalog" hidden>移除当前目录</button>
+                                </div>
+                                <p class="source-note">导入 JSON 或 ZIP 后保存一次，后续可直接从“目录来源”选择；选中已保存目录后可直接重命名或移除。本地图片和游戏文件会一并保存在当前浏览器中。</p>
+                            </div>
+                            <p class="source-fingerprint" id="source-fingerprint" aria-live="polite">内容标识：等待加载</p>
+                            <div class="source-status" id="source-status" role="status">已加载 83 个当前游戏</div>
+                        </div>
+
+                        <!-- 全局结构 -->
+                        <div class="config-group">
+                            <h4 class="group-title">🌐 全局结构</h4>
+                            <div class="config-item">
+                                <label for="site-title">站点名称</label>
+                                <input type="text" id="site-title" class="text-input" value="GameHub" maxlength="60">
+                            </div>
+                            <div class="config-item preset-control">
+                                <div class="preset-heading">
+                                    <label for="brand-preset">标题预设</label>
+                                    <span class="preset-count">50 个游戏标题</span>
+                                </div>
+                                <div class="preset-actions">
+                                    <select id="brand-preset" aria-label="选择网站标题预设"></select>
+                                    <button type="button" id="shuffle-brand" class="preset-shuffle-btn">换一个</button>
+                                </div>
+                                <p class="preset-help">选择预设会同步更新导航栏、页面标题和品牌正文；上方仍可手动输入。</p>
+                            </div>
+                            <div class="config-item">
+                                <label for="site-subtitle">站点描述</label>
+                                <input type="text" id="site-subtitle" class="text-input" value="Discover Amazing Games" maxlength="160">
+                            </div>
+                            <div class="config-item contact-email-control">
+                                <label for="contact-email">联系邮箱</label>
+                                <input type="email" id="contact-email" class="text-input" value="contact@gamehub.com" maxlength="120">
+                                <p class="contact-email-help">上传并识别广告代码 TXT 后，会自动同步为 contact@对应子域名；仍可手动改为可收信的同域邮箱。</p>
+                            </div>
+                            <div class="config-item">
+                                <label>页眉导航</label>
+                                <div class="checkbox-group">
+                                    <label class="checkbox-label is-disabled"><input type="checkbox" checked disabled> Home + 首页分类（自动同步）</label>
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>页脚链接</label>
+                                <div class="checkbox-group" id="footer-links-config">
+                                    <label class="checkbox-label"><input type="checkbox" value="privacy" checked> Privacy Policy</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="terms" checked> Terms of Service</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="contact" checked> Contact Us</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="about" checked> About Us</label>
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label for="navbar-layout">导航栏布局与对齐</label>
+                                <select id="navbar-layout">
+                                    <option value="normal">常规</option>
+                                    <option value="centered">居中</option>
+                                    <option value="left">左对齐</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label for="navbar-style">页眉视觉样式</label>
+                                <select id="navbar-style">
+                                    <option value="glass-sticky">毛玻璃 + Sticky（默认）</option>
+                                    <option value="normal">常规</option>
+                                    <option value="transparent">透明</option>
+                                    <option value="dark-fixed">深色固定</option>
+                                    <option value="side-drawer">侧边抽屉</option>
+                                    <option value="floating-pill">浮动胶囊</option>
+                                    <option value="segmented">分段导航</option>
+                                    <option value="underline">下划线导航</option>
+                                    <option value="accent-bar">强调顶线</option>
+                                    <option value="command-bar">应用工具栏</option>
+                                    <option value="editorial">杂志分隔</option>
+                                    <option value="split-brand">品牌分栏</option>
+                                    <option value="outline-frame">线框面板</option>
+                                    <option value="spotlight">聚焦高亮</option>
+                                    <option value="rail">左侧导轨</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>页脚导航样式</label>
+                                <select id="footer-style">
+                                    <option value="simple">简约居中（默认）</option>
+                                    <option value="compact">紧凑横排</option>
+                                    <option value="ribbon">链接信息带</option>
+                                    <option value="brand-grid">品牌分栏</option>
+                                    <option value="detailed">详细信息（描述+联系）</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>返回首页样式</label>
+                                <select id="back-link-style">
+                                    <option value="text">文字链接</option>
+                                    <option value="breadcrumb">面包屑</option>
+                                    <option value="button">按钮</option>
+                                    <option value="minimal">极简箭头</option>
+                                    <option value="underline">下划线导航</option>
+                                    <option value="outline">描边按钮</option>
+                                    <option value="pill">胶囊按钮</option>
+                                    <option value="icon">图标方块</option>
+                                    <option value="glass">玻璃标签</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 首页结构 -->
+                        <div class="config-group">
+                            <h4 class="group-title">🏠 首页结构</h4>
+                            <div class="config-item">
+                                <label>Hero区域</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="hero-enabled">
+                                    <span class="toggle-slider"></span>
+                                </div>
+                            </div>
+                            <div id="hero-config" style="display:none;">
+                                <div class="config-item">
+                                    <label>Hero标题</label>
+                                    <input type="text" id="hero-title" class="text-input">
+                                </div>
+                                <div class="config-item">
+                                    <label>Hero副标题</label>
+                                    <input type="text" id="hero-subtitle" class="text-input">
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label for="card-description-mode">首页游戏描述</label>
+                                <select id="card-description-mode">
+                                    <option value="none">关闭（只显示封面和标题）</option>
+                                    <option value="brief">极简摘要（1行）</option>
+                                    <option value="short" selected>简短摘要（2行，默认）</option>
+                                    <option value="standard">标准摘要（3行）</option>
+                                    <option value="full">完整描述（不截断）</option>
+                                </select>
+                            </div>
+                            <p class="config-help-block">只控制首页与“全部游戏”卡片；详情页中的完整游戏介绍不受影响。</p>
+                            <div class="config-item">
+                                <label>分类数量 <span class="range-value" id="cat-count-value">5</span></label>
+                                <input type="range" id="category-count" min="3" max="16" value="5">
+                            </div>
+                            <div class="config-item preset-control icon-set-control">
+                                <div class="preset-heading">
+                                    <label for="icon-set-select">分类图标组合</label>
+                                    <span class="preset-count">24 套</span>
+                                </div>
+                                <div class="preset-actions">
+                                    <select id="icon-set-select" aria-label="选择分类图标组合"></select>
+                                    <button type="button" id="shuffle-icon-set" class="preset-shuffle-btn">换一组</button>
+                                </div>
+                            </div>
+                            <div id="categories-config">
+                                <!-- 由JS动态生成 -->
+                            </div>
+                            <div class="config-item">
+                                <label>卡片排列列数</label>
+                                <select id="card-columns">
+                                    <option value="auto">自适应(auto-fill)</option>
+                                    <option value="1">固定1列</option>
+                                    <option value="2">固定2列</option>
+                                    <option value="3">固定3列</option>
+                                    <option value="4">固定4列</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片展示字段</label>
+                                <div class="checkbox-group" id="card-fields-config">
+                                    <!-- 由JS动态生成 -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 详情页结构 -->
+                        <div class="config-group">
+                            <h4 class="group-title">📄 详情页结构</h4>
+                            <div class="config-item">
+                                <label>元信息布局</label>
+                                <select id="meta-layout">
+                                    <option value="grid">网格(grid)</option>
+                                    <option value="list">列表(list)</option>
+                                    <option value="tags">标签(tags)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>内容渲染方式</label>
+                                <select id="content-render">
+                                    <option value="text">纯文本</option>
+                                    <option value="markdown">Markdown转HTML</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>Play Now 按钮</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="action-btn-enabled" checked>
+                                    <span class="toggle-slider"></span>
+                                </div>
+                            </div>
+                            <div id="action-btn-config">
+                                <div class="config-item">
+                                    <label>按钮文字</label>
+                                    <input type="text" id="action-btn-text" class="text-input" value="Play Now">
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>相关推荐数量 <span class="range-value" id="related-count-value">4</span></label>
+                                <input type="range" id="related-count" min="2" max="8" value="4">
+                            </div>
+                            <div class="config-item">
+                                <label>推荐卡片展示字段</label>
+                                <div class="checkbox-group" id="related-card-fields-config">
+                                    <!-- 由JS动态生成 -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 通用页面 -->
+                        <div class="config-group">
+                            <h4 class="group-title">📑 通用页面</h4>
+                            <div class="config-item">
+                                <label>包含关于我们页面</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="about-enabled" checked>
+                                    <span class="toggle-slider"></span>
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>联系表单字段</label>
+                                <div class="checkbox-group" id="contact-fields-config">
+                                    <label class="checkbox-label"><input type="checkbox" value="name" checked> Name</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="email" checked> Email</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="subject" checked> Subject</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="message" checked> Message</label>
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>隐私政策内容长度</label>
+                                <select id="privacy-length">
+                                    <option value="brief">简版</option>
+                                    <option value="full" selected>详版</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>服务条款内容长度</label>
+                                <select id="terms-length">
+                                    <option value="brief">简版</option>
+                                    <option value="full" selected>详版</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 样式配置 -->
+                    <div class="config-section" id="tab-style">
+                        <div class="config-group">
+                            <p class="group-eyebrow">LAYOUT SYSTEM</p>
+                            <h4 class="group-title">页面布局模板</h4>
+                            <p class="group-desc template-rule">固定首组 2 个大游戏，后续分组每组 6 个；模板只改变视觉组织与卡片表现。</p>
+                            <div class="layout-template-grid" id="layout-template-grid"></div>
+                        </div>
+
+                        <!-- 整体视觉风格 -->
+                        <div class="config-group">
+                            <h4 class="group-title">🎨 整体视觉风格</h4>
+                            <div class="style-grid" id="style-grid">
+                                <!-- 由JS动态生成 -->
+                            </div>
+                        </div>
+
+                        <div class="config-group ambient-effects-group">
+                            <p class="group-eyebrow">AMBIENT MOTION</p>
+                            <h4 class="group-title">动态视觉氛围</h4>
+                            <p class="group-desc">只在页面背景中缓慢运动，不影响游戏封面、导航或正文阅读。</p>
+                            <div class="config-item">
+                                <label for="ambient-effect">背景动态效果</label>
+                                <select id="ambient-effect">
+                                    <option value="none" selected>静态（默认）</option>
+                                    <option value="aurora">极光流动</option>
+                                    <option value="stardust">星尘漂移</option>
+                                    <option value="grid-scan">网格扫描</option>
+                                    <option value="prism">棱镜光晕</option>
+                                    <option value="arcade-pulse">街机脉冲</option>
+                                    <option value="pixel-drift">像素漂移</option>
+                                    <option value="comet-trails">彗星掠影</option>
+                                    <option value="radar-sweep">雷达扫描</option>
+                                </select>
+                            </div>
+                            <p class="config-help-block">导出的网站会保留所选效果；系统启用“减少动态效果”时将自动静止。</p>
+                        </div>
+
+                        <!-- 组件级样式 -->
+                        <div class="config-group">
+                            <h4 class="group-title">🔧 组件级样式微调</h4>
+
+                            <div class="config-item">
+                                <label>导航栏高度</label>
+                                <select id="navbar-height">
+                                    <option value="40px">极小(40px)</option>
+                                    <option value="50px">小(50px)</option>
+                                    <option value="60px" selected>中(60px)</option>
+                                    <option value="70px">大(70px)</option>
+                                    <option value="80px">超大(80px)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>Logo样式</label>
+                                <select id="logo-style">
+                                    <option value="text">文字</option>
+                                    <option value="text-icon">文字+图标</option>
+                                    <option value="icon">纯图标</option>
+                                    <option value="gradient-text">渐变文字</option>
+                                    <option value="boxed">带框文字</option>
+                                </select>
+                            </div>
+                            <div class="config-item logo-icon-control">
+                                <div class="preset-heading">
+                                    <label>Logo 游戏图标</label>
+                                    <span class="preset-count">48 款</span>
+                                </div>
+                                <button type="button" id="logo-icon-trigger" class="logo-icon-trigger" aria-expanded="false" aria-controls="logo-icon-panel">
+                                    <span id="logo-icon-preview" class="logo-icon-preview" aria-hidden="true">🎮</span>
+                                    <span class="logo-icon-copy"><strong id="logo-icon-name">当前图标</strong><small>点击选择游戏 Emoji</small></span>
+                                    <span class="logo-icon-arrow" aria-hidden="true">⌄</span>
+                                </button>
+                                <div id="logo-icon-panel" class="logo-icon-panel" hidden>
+                                    <div id="logo-icon-grid" class="logo-icon-grid" role="listbox" aria-label="Logo 游戏图标选项"></div>
+                                </div>
+                            </div>
+
+                            <div class="config-item">
+                                <label>卡片hover效果</label>
+                                <select id="card-hover">
+                                    <option value="float">上浮(scale+shadow)</option>
+                                    <option value="scale">缩放(scale)</option>
+                                    <option value="flip">翻转(rotateY)</option>
+                                    <option value="glow">发光(glow)</option>
+                                    <option value="bounce">弹性(bounce)</option>
+                                    <option value="tilt">倾斜(rotateX)</option>
+                                    <option value="border-glow">边框发光</option>
+                                    <option value="slide-up">平滑上滑</option>
+                                    <option value="none">无</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片边框样式</label>
+                                <select id="card-border">
+                                    <option value="rounded">圆角卡片(带阴影)</option>
+                                    <option value="shadow">阴影卡片(无边框)</option>
+                                    <option value="thin">细线(1px solid)</option>
+                                    <option value="double">双线(double)</option>
+                                    <option value="dashed">虚线(dashed)</option>
+                                    <option value="thick">粗边框(3px solid)</option>
+                                    <option value="none">无边框</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片圆角大小</label>
+                                <select id="card-radius">
+                                    <option value="0">无(0)</option>
+                                    <option value="2px">极小(2px)</option>
+                                    <option value="4px">小(4px)</option>
+                                    <option value="8px" selected>中(8px)</option>
+                                    <option value="12px">中大(12px)</option>
+                                    <option value="16px">大(16px)</option>
+                                    <option value="24px">胶囊(24px)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片间距</label>
+                                <select id="card-spacing">
+                                    <option value="8px">极紧凑(8px)</option>
+                                    <option value="12px">紧凑(12px)</option>
+                                    <option value="20px" selected>标准(20px)</option>
+                                    <option value="30px">宽松(30px)</option>
+                                    <option value="40px">超宽松(40px)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>网站按钮样式</label>
+                                <select id="btn-style">
+                                    <option value="solid" selected>品牌实色（默认）</option>
+                                    <option value="outline">细描边</option>
+                                    <option value="soft">柔和填充</option>
+                                    <option value="pill">胶囊实色</option>
+                                    <option value="square">方角实色</option>
+                                    <option value="text">文字链接</option>
+                                </select>
+                            </div>
+                            <p class="config-help-block">控制首页“查看全部”和详情页“Play Now”；不使用蓝紫渐变。</p>
+                            <div class="config-item">
+                                <label>按钮大小</label>
+                                <select id="btn-size">
+                                    <option value="xsmall">极小</option>
+                                    <option value="small">小</option>
+                                    <option value="medium" selected>中</option>
+                                    <option value="large">大</option>
+                                    <option value="xlarge">超大</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>网格间距</label>
+                                <select id="grid-gap">
+                                    <option value="5px">极紧凑(5px)</option>
+                                    <option value="10px">紧凑(10px)</option>
+                                    <option value="20px" selected>标准(20px)</option>
+                                    <option value="30px">宽松(30px)</option>
+                                    <option value="40px">超宽松(40px)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>字体风格</label>
+                                <select id="font-style">
+                                    <option value="sans-serif" selected>无衬线(sans-serif)</option>
+                                    <option value="serif">衬线(serif)</option>
+                                    <option value="monospace">等宽(monospace)</option>
+                                    <option value="cursive">手写(cursive)</option>
+                                    <option value="condensed">紧凑(condensed)</option>
+                                    <option value="rounded">圆润(Nunito)</option>
+                                    <option value="elegant">优雅(Playfair Display)</option>
+                                    <option value="modern">现代(Montserrat)</option>
+                                    <option value="tech">科技(Rajdhani)</option>
+                                    <option value="handwrite">手写体(Caveat)</option>
+                                    <option value="retro">复古像素(Press Start 2P)</option>
+                                    <option value="clean">简约(Inter)</option>
+                                    <option value="display">展示(Oswald)</option>
+                                    <option value="literary">文艺(Lora)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>入场动画</label>
+                                <select id="animation-enter">
+                                    <option value="fadeIn">淡入(fadeIn)</option>
+                                    <option value="slideUp">滑入(slideUp)</option>
+                                    <option value="zoomIn">缩放(zoomIn)</option>
+                                    <option value="slideLeft">左滑入(slideLeft)</option>
+                                    <option value="slideRight">右滑入(slideRight)</option>
+                                    <option value="rotateIn">旋转入(rotateIn)</option>
+                                    <option value="flipIn">翻转入(flipIn)</option>
+                                    <option value="none">无</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>过渡时间</label>
+                                <select id="transition-speed">
+                                    <option value="0.1s">极快(0.1s)</option>
+                                    <option value="0.2s">快(0.2s)</option>
+                                    <option value="0.3s" selected>中(0.3s)</option>
+                                    <option value="0.5s">慢(0.5s)</option>
+                                    <option value="0.8s">极慢(0.8s)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>详情页元信息卡片背景</label>
+                                <select id="meta-bg">
+                                    <option value="dark">深色背景卡片</option>
+                                    <option value="light">浅色背景卡片</option>
+                                    <option value="transparent">透明</option>
+                                    <option value="primary">主色调背景</option>
+                                    <option value="bordered">带边框</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>详情页图片展示</label>
+                                <select id="detail-img-style">
+                                    <option value="fullwidth">全宽</option>
+                                    <option value="centered">居中带边距</option>
+                                    <option value="float-left">左浮动文绕图</option>
+                                    <option value="float-right">右浮动文绕图</option>
+                                    <option value="banner">横幅缩略</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>分类标题样式</label>
+                                <select id="category-title-style">
+                                    <option value="single">单横线</option>
+                                    <option value="none">无横线</option>
+                                    <option value="double">双横线</option>
+                                    <option value="dotted">虚线</option>
+                                    <option value="gradient">渐变线</option>
+                                    <option value="left-accent">左侧竖线</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>分类标题对齐</label>
+                                <select id="category-title-align">
+                                    <option value="left">左对齐</option>
+                                    <option value="center">居中</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片图片高度</label>
+                                <select id="card-image-height">
+                                    <option value="120px">矮(120px)</option>
+                                    <option value="150px">较矮(150px)</option>
+                                    <option value="180px" selected>标准(180px)</option>
+                                    <option value="220px">较高(220px)</option>
+                                    <option value="260px">高(260px)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片视图模式</label>
+                                <select id="card-view-mode">
+                                    <option value="card">卡片(网格)</option>
+                                    <option value="list">列表(横向)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>内容区最大宽度</label>
+                                <select id="content-max-width">
+                                    <option value="900px">窄(900px)</option>
+                                    <option value="1000px">较窄(1000px)</option>
+                                    <option value="1100px">适中(1100px)</option>
+                                    <option value="1200px" selected>标准(1200px)</option>
+                                    <option value="1400px">宽(1400px)</option>
+                                    <option value="full">全宽</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>Hero区域样式</label>
+                                <select id="hero-style">
+                                    <option value="gradient">渐变背景</option>
+                                    <option value="solid">纯色背景</option>
+                                    <option value="minimal">简约(透明)</option>
+                                    <option value="pattern">条纹图案</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>详情页布局</label>
+                                <select id="detail-layout">
+                                    <option value="single">单栏</option>
+                                    <option value="sidebar">双栏(侧边栏)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 广告配置 -->
+                    <div class="config-section" id="tab-ads" hidden>
+                        <div class="config-group">
+                            <h4 class="group-title">📢 广告代码配置</h4>
+                            <div style="margin-bottom:12px;">
+                                <label style="display:block;font-size:13px;margin-bottom:6px;">广告代码文件（启用广告时必需）</label>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <button id="ad-code-btn" style="padding:6px 14px;border-radius:4px;border:1px solid var(--color-primary,#4a9eff);background:transparent;color:var(--color-primary,#4a9eff);cursor:pointer;font-size:12px;white-space:nowrap;">选择文件</button>
+                                    <span id="ad-code-status" style="font-size:11px;color:#888;">未上传</span>
+                                    <input type="file" id="ad-code-upload" accept=".txt" style="display:none;">
+                                </div>
+                                <p style="font-size:11px;color:#888;margin-top:4px;">如需启用广告，请上传 Google AdSense 生成的广告代码 TXT。校验成功后会自动提取广告位路径和 GA ID。</p>
+                                <div id="ad-code-preview" style="display:none;margin-top:8px;font-size:11px;background:var(--bg-secondary,#1e1e1e);border-radius:6px;padding:10px;line-height:2;word-break:break-all;"></div>
+                                <div id="ad-auto-placement-note" hidden style="margin-top:10px;border:1px solid rgba(76,175,80,.35);border-radius:6px;padding:9px 10px;font-size:11px;line-height:1.65;color:#66d38b;background:rgba(76,175,80,.08);">
+                                    已自动绑定广告位置：首页导航下方、前两个分类区块后；详情页也会同步放置。预览仅显示 “advertisement” 占位，导出并部署后才会请求实际广告。
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-group" id="ad-placement-group">
+                            <h4 class="group-title">📢 广告容器</h4>
+                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择广告容器后，预览会显示带名称的常用广告位，点击即可放置。上传并校验广告 TXT 后，系统会自动插入三个可用广告位；未上传代码的手动位置不会导出为空白广告区域。</p>
+
+                            <!-- 广告1 -->
+                            <div class="ad-container-config">
+                                <div class="ad-slot-header">
+                                    <span class="ad-slot-name">广告1</span>
+                                    <div class="ad-slot-actions">
+                                        <button class="ad-select-btn" data-ad="adv1">选择放置</button>
+                                        <button class="ad-remove-btn" data-ad="adv1" style="display:none;">移除</button>
+                                    </div>
+                                </div>
+                                <div class="ad-slot-meta">ID: div-gpt-ad-banner1 <span aria-hidden="true">·</span> 位置: <span class="ad-position-label" data-ad="adv1">未放置</span></div>
+                            </div>
+
+                            <!-- 广告2 -->
+                            <div class="ad-container-config">
+                                <div class="ad-slot-header">
+                                    <span class="ad-slot-name">广告2</span>
+                                    <div class="ad-slot-actions">
+                                        <button class="ad-select-btn" data-ad="adv2">选择放置</button>
+                                        <button class="ad-remove-btn" data-ad="adv2" style="display:none;">移除</button>
+                                    </div>
+                                </div>
+                                <div class="ad-slot-meta">ID: div-gpt-ad-banner2 <span aria-hidden="true">·</span> 位置: <span class="ad-position-label" data-ad="adv2">未放置</span></div>
+                            </div>
+
+                            <!-- 广告3 -->
+                            <div class="ad-container-config">
+                                <div class="ad-slot-header">
+                                    <span class="ad-slot-name">广告3</span>
+                                    <div class="ad-slot-actions">
+                                        <button class="ad-select-btn" data-ad="adv3">选择放置</button>
+                                        <button class="ad-remove-btn" data-ad="adv3" style="display:none;">移除</button>
+                                    </div>
+                                </div>
+                                <div class="ad-slot-meta">ID: div-gpt-ad-banner3 <span aria-hidden="true">·</span> 位置: <span class="ad-position-label" data-ad="adv3">未放置</span></div>
+                            </div>
+
+                            <div class="ad-placement-hint" id="ad-placement-hint" style="display:none;background:rgba(74,158,255,0.1);border:1px dashed var(--color-primary,#4a9eff);border-radius:6px;padding:10px;margin-top:8px;font-size:12px;color:var(--color-primary,#4a9eff);text-align:center;">
+                                已选择广告，请点击预览区中带名称的常用广告位进行放置
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧：实时预览 -->
+                <div class="preview-panel">
+                    <div class="preview-toolbar">
+                        <h3>实时预览</h3>
+                        <div class="preview-tabs">
+                            <button class="preview-tab active" data-page="home" aria-label="预览首页">首页</button>
+                            <button class="preview-tab" data-page="all" aria-label="预览全部游戏">全部游戏</button>
+                            <button class="preview-tab" data-page="detail">详情页</button>
+                            <button class="preview-tab" data-page="about">关于</button>
+                            <button class="preview-tab" data-page="contact">联系</button>
+                            <button class="preview-tab" data-page="privacy">隐私</button>
+                            <button class="preview-tab" data-page="terms">条款</button>
+                        </div>
+                        <div class="preview-sizes">
+                            <button class="size-btn active" data-size="desktop" title="桌面" aria-label="桌面尺寸">DESKTOP</button>
+                            <button class="size-btn" data-size="tablet" title="平板" aria-label="平板尺寸">TABLET</button>
+                            <button class="size-btn" data-size="mobile" title="手机" aria-label="手机尺寸">MOBILE</button>
+                        </div>
+                    </div>
+                    <div class="preview-frame-wrapper">
+                        <iframe id="preview-frame" class="preview-frame desktop" title="网站实时预览" sandbox="allow-scripts allow-popups"></iframe>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== Step 2: 导出网站 ========== -->
+        <div class="step-panel" id="step-2">
+            <h2 class="panel-title">导出网站</h2>
+            <p class="panel-desc">确认配置后导出完整的静态网站文件</p>
+
+            <div class="export-summary" id="export-summary">
+                <!-- 由JS动态生成配置摘要 -->
+            </div>
+
+            <div class="export-options export-note">
+                <span class="export-note-icon">ZIP</span>
+                <div>
+                    <h4>浏览器端完整导出</h4>
+                    <p>包含首页、详情页、样式、数据与广告脚本，无需额外运行 Python。</p>
+                </div>
+            </div>
+
+            <div class="export-actions">
+                <button class="btn-export" id="btn-export" disabled>
+                    📦 导出网站ZIP
+                </button>
+                <div class="export-progress" id="export-progress" style="display:none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p class="progress-text" id="progress-text">准备中...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部导航按钮 -->
+        <div class="step-nav">
+            <button class="btn-prev" id="btn-prev" style="display:none;">← 上一步</button>
+            <button type="button" class="btn-reupload" id="btn-reupload" hidden>
+                <svg class="btn-reupload-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 16V4"/>
+                    <path d="m7.5 8.5 4.5-4.5 4.5 4.5"/>
+                    <path d="M5 13.5v5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-5"/>
+                </svg>
+                <span>重新上传</span>
+            </button>
+            <button class="btn-next" id="btn-next">下一步 →</button>
+        </div>
+    </div>
+
+    <div class="notice-overlay" id="notice-overlay" hidden>
+        <section class="notice-dialog" id="notice-dialog" role="alertdialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-message" tabindex="-1">
+            <div class="notice-symbol" aria-hidden="true">!</div>
+            <div class="notice-content"><p class="notice-eyebrow">需要处理</p><h2 id="notice-title">操作提示</h2><p id="notice-message"></p></div>
+            <button type="button" class="notice-close" id="notice-close" aria-label="关闭提示">×</button>
+            <div class="notice-actions"><button type="button" class="notice-cancel" id="notice-cancel" hidden>返回</button><button type="button" class="notice-confirm" id="notice-confirm">我知道了</button></div>
+        </section>
+    </div>
+
+    <!-- JS脚本（顺序加载） -->
+    <script src="js/games-data.js?v=20260910-6"></script>
+    <script src="js/open-source-games-bundle.js?v=20260910-6"></script>
+    <script src="js/data.js?v=20260912-emoji-1"></script>
+    <script src="js/ad-migration.js?v=20260912-feature-parity-1"></script>
+    <script src="js/game-archive-runtime.js?v=20260912-feature-parity-1"></script>
+    <script src="js/game-zip-import.js?v=20260912-1"></script>
+    <script src="js/built-in-game-sources.js?v=20260912-1"></script>
+    <script src="js/saved-game-catalogs.js?v=20260912-content-identity-1"></script>
+    <script src="js/generator.js?v=20260912-compact-footer-1"></script>
+    <script src="js/app.js?v=20260912-built-in-sources-1"></script>
+</body>
+</html>

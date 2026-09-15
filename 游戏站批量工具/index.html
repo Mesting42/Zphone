@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>游戏站批量建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20260912-news-visual-parity-1">
+    <link rel="stylesheet" href="css/tool.css?v=20260914-v101-21">
     <!-- 外部依赖 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -59,6 +59,10 @@
                             <span class="build-mode-icon" aria-hidden="true">📦</span>
                             <span><strong>广告移植建站</strong><small>游戏数据仍来自当前选择的数据源；仅提取旧站的广告配置。</small></span>
                         </button>
+                        <button type="button" class="build-mode-card" data-build-mode="differentiated" aria-pressed="false">
+                            <span class="build-mode-icon" aria-hidden="true">◆</span>
+                            <span><strong>差异化精品建站 <em class="mode-new">NEW · 1.0.1</em></strong><small>上传独立游戏数据包，按领域和内容重新选择构图；每款游戏必须真实可玩并记录来源与授权。</small></span>
+                        </button>
                     </section>
 
                     <section class="legacy-site-upload" id="legacy-site-upload" hidden aria-live="polite">
@@ -68,6 +72,26 @@
                             <input type="file" id="legacy-site-file" accept=".zip,.tar.gz,.tgz,application/zip,application/gzip" hidden>
                         </div>
                         <div class="migration-result pending" id="legacy-site-result">等待上传旧网站源码压缩包（.zip、.tar.gz 或 .tgz）。顶层额外目录也可识别。</div>
+                    </section>
+
+                    <section class="differentiated-setup" id="differentiated-setup" hidden aria-labelledby="differentiated-title">
+                        <div class="differentiated-heading"><div><p class="group-eyebrow">INDEPENDENT SITE BRIEF</p><h3 id="differentiated-title">本次游戏包的独立定位</h3></div><span>schema v1</span></div>
+                        <p>直接上传本次站点的完整 ZIP 包。优先读取 <code>manifest.json</code>；不会继承上一次站点的领域或设计。</p>
+                        <div class="differentiated-fields">
+                            <label>领域 / Vertical<input id="diff-vertical" type="text" maxlength="100" placeholder="例如：Independent puzzle games"></label>
+                            <label>目标读者 / Audience<input id="diff-audience" type="text" maxlength="180" placeholder="例如：Players who enjoy short logic challenges"></label>
+                            <label class="field-wide">内容范围 / Scope<textarea id="diff-scope" rows="2" maxlength="320" placeholder="用英文说明游戏范围和选择标准"></textarea></label>
+                            <label>正式 HTTPS 域名<input id="diff-base-url" type="url" placeholder="https://example.org"></label>
+                            <label>真实联系邮箱<input id="diff-contact-email" type="email" placeholder="hello@example.org"></label>
+                            <label>设计家族<select id="diff-design-family"><option value="auto">自动选择未使用过的构图</option></select></label>
+                            <label>确定性设计种子<input id="diff-seed" type="text" maxlength="80" placeholder="留空则按内容生成"></label>
+                        </div>
+                        <div class="differentiated-package-upload">
+                            <button type="button" class="source-action-btn" id="diff-package-select">上传差异化 ZIP 包</button>
+                            <span>包含游戏清单、封面、可玩文件及授权记录</span>
+                        </div>
+                        <div class="package-contract"><a href="docs/differentiated-site-package.md" target="_blank" rel="noopener">查看压缩包规范</a></div>
+                        <div class="migration-result pending" id="differentiated-package-result" role="status">等待上传本次游戏站数据包。</div>
                     </section>
 
                     <!-- 配置标签页 -->
@@ -112,8 +136,8 @@
                             </div>
                             <div id="json-source-options" class="source-options" hidden>
                                 <button type="button" class="source-action-btn" id="choose-game-json">选择 JSON 或压缩包</button>
-                                <input type="file" id="game-json-upload" accept=".json,.zip,.rar,.7z,application/json,application/zip" hidden>
-                                <p class="source-note">支持 JSON，以及含 gamesData.json（或其他游戏 JSON）和图片的 ZIP、RAR、7z 压缩包；ZIP 可离线导入，RAR/7z 会按需加载本地解析组件。导出网站会携带已识别的本地图片。</p>
+                                <input type="file" id="game-json-upload" accept=".json,.zip,.rar,.7z,application/json,application/zip,application/x-rar-compressed,application/x-7z-compressed" hidden>
+                                <p class="source-note">支持 JSON，以及含 gamesData.json（或其他游戏 JSON）和图片的 ZIP、RAR、7z 压缩包；ZIP 可离线导入，RAR/7z 会按需加载本地解析组件。差异化精品建站请上传完整的 ZIP 包，以保留清单、素材、来源记录和本地游戏文件。</p>
                             </div>
                             <div id="saved-catalog-options" class="source-options source-options-local" hidden>
                                 <div class="config-item">
@@ -161,8 +185,10 @@
                             <div class="config-item">
                                 <label>页眉导航</label>
                                 <div class="checkbox-group">
-                                    <label class="checkbox-label is-disabled"><input type="checkbox" checked disabled> Home + 首页分类（自动同步）</label>
+                                    <label class="checkbox-label is-disabled"><input type="checkbox" checked disabled> Home + 数据源自动识别分类（最多 4 个）</label>
+                                    <label class="checkbox-label"><input type="checkbox" id="all-games-enabled" checked> 显示“全部游戏”入口</label>
                                 </div>
+                                <p class="config-help-block">关闭后将不显示导航栏和首页的“全部游戏”入口，也不会导出 <code>all-games.html</code>。</p>
                             </div>
                             <div class="config-item">
                                 <label>页脚链接</label>
@@ -726,6 +752,93 @@
                     </div>
                 </div>
 
+                <section class="config-panel differentiated-customizer" id="differentiated-customizer" hidden aria-labelledby="differentiated-customizer-title">
+                    <p class="group-eyebrow">DIFFERENTIATED SITE</p>
+                    <h2 class="panel-title" id="differentiated-customizer-title">配置网站</h2>
+                    <p class="panel-desc">为本次独立游戏数据源设置品牌和视觉语言；每项更改都会即时刷新右侧预览。</p>
+                    <div class="config-tabs diff-config-tabs" role="tablist" aria-label="差异化网站配置">
+                        <button type="button" class="diff-config-tab active" data-diff-tab="identity" role="tab" aria-selected="true">结构配置</button>
+                        <button type="button" class="diff-config-tab" data-diff-tab="style" role="tab" aria-selected="false">样式配置</button>
+                    </div>
+                    <div class="diff-config-section active" data-diff-section="identity">
+                        <div class="config-group">
+                            <h4 class="group-title">独立品牌</h4>
+                            <div class="config-item"><label for="diff-site-title">网站品牌标题</label><input id="diff-site-title" class="text-input" type="text" maxlength="80" placeholder="留空则使用本次数据源的站点名称"></div>
+                            <div class="config-item"><label for="diff-brand-mark">网站 Logo 图形</label><select id="diff-brand-mark"><option value="auto">自动按本次数据源生成</option></select></div>
+                            <div class="config-item logo-icon-control"><div class="preset-heading"><label>Logo 图标</label><span id="diff-logo-icon-count" class="preset-count">可选图标</span></div><button type="button" id="diff-logo-icon-trigger" class="logo-icon-trigger" aria-expanded="false" aria-controls="diff-logo-icon-panel"><span id="diff-logo-icon-preview" class="logo-icon-preview" aria-hidden="true">🎮</span><span class="logo-icon-copy"><strong id="diff-logo-icon-name">自动图标</strong><small>点击选择品牌图标</small></span><span class="logo-icon-arrow" aria-hidden="true">⌄</span></button><div id="diff-logo-icon-panel" class="logo-icon-panel" hidden><div id="diff-logo-icon-grid" class="logo-icon-grid" role="listbox" aria-label="差异化网站 Logo 图标选项"></div></div></div>
+                            <div class="config-item"><label for="diff-logo-style">Logo 呈现</label><select id="diff-logo-style"><option value="mark-text">图形与标题</option><option value="mark">仅图形</option><option value="boxed">带边框标题</option><option value="text">仅标题</option></select></div>
+                            <p class="group-hint">自动模式会根据本次站点的内容和设计种子分配专属标志；不会再让所有游戏站共用同一个图形。</p>
+                        </div>
+                        <div class="config-group diff-page-template-section">
+                            <h4 class="group-title">通用页面与联系</h4>
+                            <div class="config-item"><label for="diff-contact-layout">联系我们页面模板</label><select id="diff-contact-layout"><option value="split">双栏信息与表单（推荐）</option><option value="form">表单优先</option><option value="direct">邮箱直达</option></select></div>
+                            <div class="config-item"><label>联系表单字段</label><div class="checkbox-group diff-page-checkboxes" id="diff-contact-fields-config"><label class="checkbox-label"><input type="checkbox" value="name" checked> 姓名（Name）</label><label class="checkbox-label"><input type="checkbox" value="email" checked> 邮箱（Email）</label><label class="checkbox-label"><input type="checkbox" value="subject" checked> 主题（Subject）</label><label class="checkbox-label"><input type="checkbox" value="message" checked> 留言（Message）</label></div></div>
+                            <div class="config-item"><label for="diff-footer-style">页脚内容</label><select id="diff-footer-style"><option value="simple">简约（版权与链接）</option><option value="detailed">详细（描述、联系与链接）</option></select></div>
+                            <div class="config-item"><label>页脚链接</label><div class="checkbox-group diff-page-checkboxes" id="diff-footer-links-config"><label class="checkbox-label"><input type="checkbox" value="privacy" checked> 隐私政策</label><label class="checkbox-label"><input type="checkbox" value="terms" checked> 服务条款</label><label class="checkbox-label"><input type="checkbox" value="contact" checked> 联系我们</label><label class="checkbox-label"><input type="checkbox" value="about" checked> 关于我们</label></div></div>
+                            <p class="group-hint">联系页完全沿用普通建站的字段与页脚逻辑；导出为静态站时，表单只会打开本地邮件客户端，不会伪造在线提交。</p>
+                        </div>
+                        <div class="config-group diff-blueprint-section">
+                            <div class="diff-blueprint-heading"><h4 class="group-title">领域专属模板蓝图</h4><span id="diff-domain-blueprint-count" class="diff-blueprint-count">12 个蓝图</span></div>
+                            <p id="diff-domain-blueprint-status" class="group-hint">正在根据已识别领域准备专属模板蓝图。</p>
+                            <div id="diff-domain-blueprint-grid" class="diff-blueprint-grid" role="list" aria-live="polite"></div>
+                            <p class="group-hint">选择蓝图会改变首屏、内容网格、图文关系、排版和内容节奏；配色仍可在样式设置中独立更换，自动模式会在当前领域的 12 个蓝图中轮换。</p>
+                        </div>
+                        <div class="config-group">
+                            <h4 class="group-title">首页与导航</h4>
+                            <div class="config-item"><label for="diff-home-intro">首页信息区</label><select id="diff-home-intro"><option value="full">完整介绍（领域、标题、范围）</option><option value="compact">紧凑介绍（减少首屏高度）</option><option value="hidden">隐藏介绍，直接显示内容</option></select></div>
+                            <div class="config-item"><label for="diff-featured-card">首款游戏呈现</label><select id="diff-featured-card"><option value="highlight">作为首屏重点卡片</option><option value="standard">与其它卡片同等呈现</option></select></div>
+                            <div class="config-item diff-category-count-control"><label for="diff-nav-category-limit">分类数量 <span class="range-value" id="diff-nav-category-limit-value">4</span></label><input type="range" id="diff-nav-category-limit" min="2" max="6" step="1" value="4" aria-describedby="diff-auto-category-list"></div>
+                            <div class="config-item"><label for="diff-nav-layout">导航栏布局</label><select id="diff-nav-layout"><option value="split">品牌左 / 导航右</option><option value="centered">导航居中</option><option value="left">左侧紧凑</option></select></div>
+                            <div class="config-item"><label for="diff-nav-style">导航栏样式</label><select id="diff-nav-style"><option value="glass">玻璃固定栏（推荐）</option><option value="normal">常规导航</option><option value="transparent">透明导航</option><option value="dark-fixed">深色固定导航</option><option value="side-drawer">侧边抽屉导航</option><option value="underline">下划线导航</option><option value="accent">强调色标签</option><option value="minimal">极简固定栏</option></select></div>
+                            <div class="config-item"><label for="diff-nav-height">导航栏高度</label><select id="diff-nav-height"><option value="compact">紧凑</option><option value="regular">标准（推荐）</option><option value="roomy">宽松</option><option value="40px">40px</option><option value="50px">50px</option><option value="60px">60px</option><option value="70px">70px</option><option value="80px">80px</option></select></div>
+                            <div class="config-item"><label for="diff-summary-mode">首页卡片摘要</label><select id="diff-summary-mode"><option value="standard">标准摘要（4 行）</option><option value="brief">精简摘要（2 行）</option><option value="hidden">仅标题与操作链接</option></select></div>
+                            <p class="group-hint">Home 固定在首位。拖动数量后可编辑对应分类的显示名称与图标；分类页链接和游戏归属仍由当前数据源自动保持一致。</p><div id="diff-auto-category-list" class="diff-auto-category-list" role="list" aria-live="polite"></div>
+                        </div>
+                    </div>
+                    <div class="diff-config-section" data-diff-section="style" hidden>
+                        <div class="config-group">
+                            <h4 class="group-title">字体与构图</h4>
+                            <div class="config-item"><label for="diff-typography">字体组合</label><select id="diff-typography"><option value="auto">自动匹配本次数据源</option></select></div>
+                            <div class="config-item"><label for="diff-config-design-family">页面设计家族</label><select id="diff-config-design-family"><option value="auto">自动选择未使用过的构图</option></select></div>
+                            <div class="config-item"><label for="diff-config-seed">设计种子</label><input id="diff-config-seed" class="text-input" type="text" maxlength="80" placeholder="留空则由本次内容决定"></div>
+                            <div class="config-item"><label for="diff-card-alignment">卡片排布</label><select id="diff-card-alignment"><option value="compact">同排等高（推荐，消除网格空档）</option><option value="aligned">内容自适应（可能出现网格空档）</option></select></div>
+                            <p class="group-hint">同排等高会让每行卡片完整填满，并把操作链接固定在卡片底部；所有普通封面使用一致比例裁切，不会置顶留空或压住正文。</p>
+                        </div>
+                        <div class="config-group">
+                            <h4 class="group-title">卡片与色调</h4>
+                            <div class="config-item"><label for="diff-tone">色调方案</label><select id="diff-tone"><option value="auto">自动匹配设计家族</option><option value="paper-olive">纸感橄榄</option><option value="canvas-forest">画布森林</option><option value="stone-wine">石材酒红</option><option value="slate-cyan">深色青蓝</option><option value="cream-cobalt">奶油钴蓝</option><option value="paper-blue">纸感蓝</option><option value="canvas-orange">画布橙</option><option value="ink-lime">墨黑荧绿</option></select></div>
+                            <div class="config-item diff-style-preset-control"><div class="preset-heading"><label>配色主题</label><span id="diff-style-preset-count" class="preset-count">加载中</span></div><p class="group-hint">与普通建站共用同一套配色主题；点击卡片后立即同步到预览和导出站。</p><div id="diff-style-preset-grid" class="style-grid diff-style-preset-grid" role="listbox" aria-label="差异化网站配色主题"></div></div>
+                            <div class="config-item"><label for="diff-content-density">内容密度</label><select id="diff-content-density"><option value="compact">紧凑</option><option value="comfortable">舒适（推荐）</option><option value="spacious">宽松</option></select></div>
+                            <div class="config-item"><label for="diff-card-columns">卡片排列列数</label><select id="diff-card-columns"><option value="template">随领域模板（默认）</option><option value="auto">自适应(auto-fill)</option><option value="1">固定 1 列</option><option value="2">固定 2 列</option><option value="3">固定 3 列</option><option value="4">固定 4 列</option></select></div>
+                            <div class="config-item"><label for="diff-category-card-columns">分类页卡片列数</label><select id="diff-category-card-columns"><option value="inherit">跟随首页（默认）</option><option value="template">随领域模板</option><option value="auto">自适应(auto-fill)</option><option value="1">固定 1 列</option><option value="2">固定 2 列</option><option value="3">固定 3 列</option><option value="4">固定 4 列</option></select></div>
+                            <div class="config-item"><label for="diff-card-view-mode">卡片视图</label><select id="diff-card-view-mode"><option value="auto">随模板布局</option><option value="card">卡片网格</option><option value="list">图文列表</option><option value="compact">紧凑图卡</option></select></div>
+                            <div class="config-item"><label for="diff-card-radius">卡片圆角</label><select id="diff-card-radius"><option value="auto">随设计家族</option><option value="0">直角</option><option value="2px">2px 微圆角</option><option value="4px">4px 小圆角</option><option value="8px">8px 轻圆角</option><option value="12px">12px 圆角</option><option value="16px">16px 圆角</option><option value="18px">18px 标准圆角</option><option value="24px">24px 大圆角</option><option value="28px">28px 大圆角</option><option value="right-round">左直右圆（右上/右下圆角）</option></select></div>
+                            <div class="config-item"><label for="diff-card-border">卡片边框</label><select id="diff-card-border"><option value="auto">随模板</option><option value="rounded">细边框 + 阴影</option><option value="shadow">仅阴影</option><option value="thin">细边框</option><option value="double">双线边框</option><option value="dashed">虚线边框</option><option value="thick">粗边框</option><option value="none">无边框</option></select></div>
+                            <div class="config-item"><label for="diff-card-spacing">卡片内边距</label><select id="diff-card-spacing"><option value="auto">随模板</option><option value="8px">8px</option><option value="12px">12px</option><option value="20px">20px</option><option value="30px">30px</option><option value="40px">40px</option></select></div>
+                            <div class="config-item"><label for="diff-card-image-height">卡片图片高度</label><select id="diff-card-image-height"><option value="auto">随模板比例</option><option value="120px">120px</option><option value="150px">150px</option><option value="180px">180px</option><option value="220px">220px</option><option value="260px">260px</option></select></div>
+                            <div class="config-item"><label for="diff-cover-fit">封面显示方式</label><select id="diff-cover-fit"><option value="smart">智能保护竖图（柔焦填充，推荐）</option><option value="template">随领域模板</option><option value="cover">居中裁切填满</option><option value="contain">完整显示（纯色留白）</option><option value="top">顶部优先裁切（保留头部）</option><option value="bottom">底部优先裁切</option></select></div>
+                            <div class="config-item"><label for="diff-card-height">卡片高度</label><select id="diff-card-height"><option value="template">随领域模板（默认）</option><option value="auto">内容自适应</option><option value="320px">紧凑 320px</option><option value="400px">标准 400px</option><option value="480px">加高 480px</option><option value="560px">高 560px</option><option value="640px">超高 640px</option></select></div>
+                            <div class="config-item"><label for="diff-card-excerpt-lines">摘要行数</label><select id="diff-card-excerpt-lines"><option value="auto">随模板</option><option value="2">2 行</option><option value="3">3 行</option><option value="4">4 行</option><option value="none">完整显示</option></select></div>
+                            <div class="config-item"><label for="diff-card-hover">卡片悬浮反馈</label><select id="diff-card-hover"><option value="lift">轻微上浮（推荐）</option><option value="image-zoom">封面微缩放</option><option value="scale">整体缩放</option><option value="glow">发光描边</option><option value="tilt">轻微倾斜</option><option value="slide-up">上移强调</option><option value="color-reveal">颜色显现</option><option value="title-underline">标题下划线</option><option value="accent-line">强调色顶线</option><option value="none">关闭动效</option></select></div>
+                            <div class="config-item"><label for="diff-grid-gap">卡片网格间距</label><select id="diff-grid-gap"><option value="auto">随内容密度</option><option value="5px">5px 极紧凑</option><option value="10px">10px 紧凑</option><option value="20px">20px 标准</option><option value="30px">30px 宽松</option><option value="40px">40px 很宽松</option><option value="compact">紧凑预设</option><option value="regular">标准预设</option><option value="relaxed">宽松预设</option></select></div>
+                            <div class="config-item"><label for="diff-button-style">按钮样式</label><select id="diff-button-style"><option value="solid">实心</option><option value="outline">描边</option><option value="pill">胶囊</option><option value="rounded">圆角矩形</option><option value="square">直角</option><option value="3d">立体</option><option value="ghost">幽灵按钮</option></select></div>
+                            <div class="config-item"><label for="diff-button-size">按钮尺寸</label><select id="diff-button-size"><option value="auto">随模板</option><option value="xsmall">极小</option><option value="small">小</option><option value="medium">中等</option><option value="large">大</option><option value="xlarge">特大</option></select></div>
+                            <div class="config-item"><label for="diff-back-link-style">返回首页样式</label><select id="diff-back-link-style"><option value="arrow">文字箭头</option><option value="button">强调按钮</option><option value="crumb">面包屑标签</option></select></div>
+                            <div class="config-item"><label for="diff-font-style">全站字体风格</label><select id="diff-font-style"><option value="auto">沿用字体组合</option><option value="sans-serif">现代无衬线</option><option value="serif">经典衬线</option><option value="mono">等宽技术</option><option value="rounded">圆润友好</option><option value="condensed">紧凑窄体</option><option value="elegant">优雅阅读</option><option value="modern">现代展示</option><option value="tech">科技感</option><option value="handwritten">手写风格</option><option value="chinese-serif">中文宋体</option><option value="chinese-kai">中文楷体</option><option value="chinese-hei">中文黑体</option></select></div>
+                            <div class="config-item"><label for="diff-meta-bg">文章元信息背景</label><select id="diff-meta-bg"><option value="auto">随模板</option><option value="dark">深色块</option><option value="light">浅色块</option><option value="primary">主题强调色</option><option value="bordered">仅边框</option><option value="transparent">透明</option></select></div>
+                            <div class="config-item"><label for="diff-detail-img-style">详情页图片</label><select id="diff-detail-img-style"><option value="auto">随模板</option><option value="fullwidth">全宽</option><option value="centered">居中</option><option value="float-left">左浮动</option><option value="float-right">右浮动</option><option value="banner">横幅裁切</option></select></div>
+                            <div class="config-item"><label for="diff-category-title-style">栏目标题装饰</label><select id="diff-category-title-style"><option value="auto">随模板</option><option value="single">单实线</option><option value="none">无装饰</option><option value="double">双线</option><option value="dotted">点线</option><option value="gradient">渐变线</option><option value="left-accent">左侧强调线</option></select></div>
+                            <div class="config-item"><label for="diff-category-title-align">栏目标题对齐</label><select id="diff-category-title-align"><option value="auto">随模板</option><option value="left">左对齐</option><option value="center">居中</option></select></div>
+                            <div class="config-item"><label for="diff-content-max-width">内容最大宽度</label><select id="diff-content-max-width"><option value="auto">随模板</option><option value="900px">900px</option><option value="1000px">1000px</option><option value="1100px">1100px</option><option value="1200px">1200px</option><option value="1400px">1400px</option><option value="full">全宽</option></select></div>
+                            <div class="config-item"><label for="diff-hero-style">首屏信息区风格</label><select id="diff-hero-style"><option value="auto">随模板</option><option value="gradient">色彩渐变</option><option value="solid">纯色块</option><option value="minimal">极简</option><option value="pattern">纹理</option></select></div>
+                            <div class="config-item"><label for="diff-detail-layout">详情页布局</label><select id="diff-detail-layout"><option value="auto">随模板</option><option value="single">单栏阅读</option><option value="sidebar">侧栏阅读</option></select></div>
+                            <div class="config-item"><label for="diff-animation-enter">入场动画</label><select id="diff-animation-enter"><option value="fade">淡入（推荐）</option><option value="rise">向上淡入</option><option value="zoomIn">缩放进入</option><option value="slideLeft">从左进入</option><option value="slideRight">从右进入</option><option value="none">关闭</option></select></div>
+                            <div class="config-item"><label for="diff-transition-speed">过渡时间</label><select id="diff-transition-speed"><option value="fast">快速</option><option value="normal">标准（推荐）</option><option value="slow">舒缓</option><option value="0.1s">0.1 秒</option><option value="0.2s">0.2 秒</option><option value="0.3s">0.3 秒</option><option value="0.5s">0.5 秒</option><option value="0.8s">0.8 秒</option></select></div>
+                            <p class="group-hint">“随模板”保留当前领域模板的默认设计；只要选择其它值，左侧设置会在模板规则之后生效，并同步到预览和导出站。</p>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- 右侧：实时预览 -->
                 <div class="preview-panel">
                     <div class="preview-toolbar">
@@ -743,7 +856,13 @@
                             <button class="size-btn active" data-size="desktop" title="桌面" aria-label="桌面尺寸">DESKTOP</button>
                             <button class="size-btn" data-size="tablet" title="平板" aria-label="平板尺寸">TABLET</button>
                             <button class="size-btn" data-size="mobile" title="手机" aria-label="手机尺寸">MOBILE</button>
+                            <button type="button" class="preview-fullscreen-btn" id="preview-fullscreen-btn" aria-label="进入全屏预览" aria-pressed="false" title="全屏预览">
+                                <svg class="fullscreen-expand-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+                                <svg class="fullscreen-collapse-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"/></svg>
+                                <span class="preview-fullscreen-label">全屏</span>
+                            </button>
                         </div>
+                        <span class="preview-fullscreen-status" id="preview-fullscreen-status" aria-live="polite"></span>
                     </div>
                     <div class="preview-frame-wrapper">
                         <iframe id="preview-frame" class="preview-frame desktop" title="网站实时预览" sandbox="allow-scripts allow-popups"></iframe>
@@ -761,7 +880,7 @@
                 <!-- 由JS动态生成配置摘要 -->
             </div>
 
-            <div class="export-options export-note">
+            <div class="export-options export-note" id="legacy-export-options">
                 <span class="export-note-icon">ZIP</span>
                 <div>
                     <h4>浏览器端完整导出</h4>
@@ -769,10 +888,29 @@
                 </div>
             </div>
 
+            <section class="differentiated-export-options" id="differentiated-export-options" hidden aria-labelledby="diff-export-title">
+                <h4 id="diff-export-title">选择差异化游戏站导出级别</h4>
+                <p>草稿保留问题清单；递审版和广告版要求每款游戏可打开、来源与授权明确，且通过静态质量门禁。</p>
+                <div class="diff-export-grid">
+                    <button type="button" data-diff-export="draft"><strong>导出草稿</strong><span>允许未完成项并附审计报告</span></button>
+                    <button type="button" data-diff-export="review"><strong>导出递审版</strong><span>无广告并通过全部硬门禁</span></button>
+                    <button type="button" data-diff-export="ad-ready"><strong>导出过审后广告版</strong><span>仅使用已校验广告代码</span></button>
+                </div>
+            </section>
+
             <div class="export-actions">
                 <button class="btn-export" id="btn-export" disabled>
                     📦 导出网站ZIP
                 </button>
+                <section class="differentiated-export-options" id="differentiated-export-options" hidden aria-labelledby="diff-export-title">
+                    <h4 id="diff-export-title">差异化站点导出级别</h4>
+                    <p>草稿保留问题清单；递审版与广告版必须确保每款游戏可启动、来源与授权明确。</p>
+                    <div class="diff-export-grid">
+                        <button type="button" data-diff-export="draft"><strong>导出草稿</strong><span>允许保留待处理项</span></button>
+                        <button type="button" data-diff-export="review"><strong>导出递审版</strong><span>无广告并通过质量门禁</span></button>
+                        <button type="button" data-diff-export="ad-ready"><strong>导出广告版</strong><span>需要已校验广告代码</span></button>
+                    </div>
+                </section>
                 <div class="export-progress" id="export-progress" style="display:none;">
                     <div class="progress-bar">
                         <div class="progress-fill" id="progress-fill"></div>
@@ -815,7 +953,8 @@
     <script src="js/game-zip-import.js?v=20260912-1"></script>
     <script src="js/built-in-game-sources.js?v=20260912-1"></script>
     <script src="js/saved-game-catalogs.js?v=20260912-content-identity-1"></script>
-    <script src="js/generator.js?v=20260912-compact-footer-1"></script>
-    <script src="js/app.js?v=20260912-built-in-sources-1"></script>
+    <script src="js/generator.js?v=20260914-all-games-toggle-1"></script>
+  <script src="js/differentiated-builder.js?v=20260915-industrial-catalog-1"></script>
+  <script src="js/app.js?v=20260915-industrial-catalog-1"></script>
 </body>
 </html>

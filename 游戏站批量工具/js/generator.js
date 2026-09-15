@@ -2345,7 +2345,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 categoriesHtml += '\n' + getHomeAd('after-section-' + i);
             }
         });
-        if (data.length > itemIndex) {
+        if (config.structure.hasAllItemsPage && data.length > itemIndex) {
             categoriesHtml += `
         <div class="view-all-games">
             <a class="action-btn" href="all-games.html">View All ${data.length} Games</a>
@@ -3241,8 +3241,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 heroTitle: appState.config.heroTitle || theme.hero.title,
                 heroSubtitle: appState.config.heroSubtitle || theme.hero.subtitle,
                 categories: categories,
-                // 无论首页展示多少个分类区块，始终保留完整目录页，确保所有数据都有直接入口。
-                hasAllItemsPage: Array.isArray(appState.data) && appState.data.length > 0,
+                // 用户可关闭完整目录入口；关闭时不会生成 all-games.html，首页也不会显示入口。
+                hasAllItemsPage: appState.config.allGamesEnabled !== false && Array.isArray(appState.data) && appState.data.length > 0,
                 cardColumns: appState.config.cardColumns || 'auto',
                 randomSort: appState.config.randomSort === true,
                 cardFields: appState.config.cardFields || theme.cardFields,
@@ -3475,7 +3475,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
             if (isPlacingAds) bodyContent += genMarker('content-bottom', pageType);
             bodyContent += getAdCodeAt('content-bottom', pageType, adPlacements);
-            if (data.length > itemIndex) {
+            if (config.structure.hasAllItemsPage && data.length > itemIndex) {
                 bodyContent += `<div class="view-all-games"><a class="action-btn" href="#" data-preview-page="all">View All ${data.length} Games</a></div>`;
             }
             bodyContent += '</div></main>';

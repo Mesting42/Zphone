@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">站点模块标识</title>
+  <desc id="desc">A modular page grid that represents building a website from structured content.</desc>
+  <rect x="3" y="3" width="58" height="58" rx="16" fill="#EEF4FF" stroke="#BCD3F3" stroke-width="2"/>
+  <path d="M18 14h21l9 9v27H18z" fill="#246CD3"/>
+  <path d="M39 14v9h9" fill="#9FC4F4"/>
+  <path d="M25 30h16M25 37h16M25 44h10" fill="none" stroke="#FFF" stroke-linecap="round" stroke-width="3"/>
+</svg>

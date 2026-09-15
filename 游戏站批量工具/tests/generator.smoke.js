@@ -314,6 +314,18 @@ const state = {
     assert.ok(homePreview.includes('data-preview-game-index="0"'), 'home preview cards must expose their game index');
     assert.ok(homePreview.includes('data-preview-page="all"'), 'homepage preview must expose the complete game list');
     assert.equal((PrincipalGenerator.generatePreviewHtml(state, 'all').match(/class="item-card"/g) || []).length, testGames.length, 'all-games preview must render every imported game');
+
+    const hiddenAllGamesState = {
+        ...state,
+        config: { ...state.config, allGamesEnabled: false }
+    };
+    const hiddenAllGamesConfig = PrincipalGenerator.buildConfig(hiddenAllGamesState);
+    const hiddenAllGamesPreview = PrincipalGenerator.generatePreviewHtml(hiddenAllGamesState, 'home');
+    assert.equal(hiddenAllGamesConfig.structure.hasAllItemsPage, false, 'the all-games toggle must disable the complete collection page');
+    assert.ok(!hiddenAllGamesPreview.includes('data-preview-page="all"'), 'disabled all-games access must disappear from the homepage preview');
+    await PrincipalGenerator.exportWebsite(hiddenAllGamesState, function() {});
+    assert.ok(!generatedFiles['website/all-games.html'], 'disabled all-games access must not export a collection page');
+    assert.ok(!generatedFiles['website/index.html'].includes('href="all-games.html">All Games</a>'), 'disabled all-games access must disappear from the header');
     assert.ok(homePreview.includes("type: 'preview-game'"), 'preview card clicks must notify the parent controls');
     const previewScriptMatch = homePreview.match(/<script>([\s\S]*?)<\/script>/);
     const previewListeners = {};
@@ -496,6 +508,14 @@ const state = {
     const toolHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const toolCss = fs.readFileSync(path.join(root, 'css', 'tool.css'), 'utf8');
     const appSource = fs.readFileSync(path.join(root, 'js', 'app.js'), 'utf8');
+    assert.ok(appSource.includes('buildModeSelectionVisible: true'), 'build-mode cards must have explicit visibility state');
+    assert.ok(appSource.includes('var showSourceConfiguration = !isDifferentiated || !appState.differentiatedImportName || appState.buildModeSelectionVisible'), 'a completed differentiated import must hide the complete source-configuration panel');
+    assert.ok(appSource.includes('standardConfigPanel.hidden = !showSourceConfiguration'), 'the source panel must leave the layout after differentiated ZIP import');
+    assert.ok(appSource.includes('appState.buildModeSelectionVisible = true;\n        syncBuildModeUI();'), 're-upload must reveal the build-mode cards before opening the uploader');
+    assert.ok(toolHtml.includes('id="diff-package-select"'), 'differentiated mode must expose a direct ZIP package-upload action');
+    assert.ok(appSource.includes("document.getElementById('diff-package-select')"), 'the direct differentiated-package action must open the data uploader');
+    assert.ok(appSource.includes('完整数据包仅支持 ZIP'), 'a non-ZIP differentiated package must provide a recoverable format error');
+    assert.match(toolCss, /\.config-panel\.is-differentiated-mode[^}]+\.source-config-group/, 'differentiated mode must hide only ordinary configuration groups, not the data-source control');
     assert.ok(toolHtml.includes('id="card-description-mode"'), 'card description controls must appear in the structure configuration');
     assert.ok(toolHtml.includes('class="ad-slot-header"') && toolHtml.includes('class="ad-slot-actions"'), 'ad placement cards must expose structured header and action regions');
     assert.ok(toolHtml.includes('class="config-item contact-email-control"'), 'contact-email help text must use a dedicated layout control');

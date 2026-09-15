@@ -30,6 +30,9 @@ export default defineConfig({
         mkdirSync(resolve(jszipTarget, '..'), { recursive: true });
         copyFileSync(jszipSource, jszipTarget);
       }
+
+      const docsSource = resolve('docs');
+      if (existsSync(docsSource)) copyDirectoryContents(docsSource, resolve('dist/docs'));
     }
   }]
 });

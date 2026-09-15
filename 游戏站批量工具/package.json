@@ -3,8 +3,8 @@
   "private": true,
   "version": "1.2.0",
   "scripts": {
-    "check": "node --check js/games-data.js && node --check js/open-source-games-bundle.js && node --check js/built-in-game-sources.js && node --check js/data.js && node --check js/ad.js && node --check js/ad-migration.js && node --check js/game-archive-runtime.js && node --check js/game-zip-import.js && node --check js/saved-game-catalogs.js && node --check js/generator.js && node --check js/app.js && node --check scripts/build-open-source-library.mjs",
+    "check": "node --check js/games-data.js && node --check js/open-source-games-bundle.js && node --check js/built-in-game-sources.js && node --check js/data.js && node --check js/ad.js && node --check js/ad-migration.js && node --check js/game-archive-runtime.js && node --check js/game-zip-import.js && node --check js/saved-game-catalogs.js && node --check js/generator.js && node --check js/differentiated-builder.js && node --check js/app.js && node --check scripts/build-open-source-library.mjs",
     "library:update": "node scripts/build-open-source-library.mjs",
-    "test": "node tests/generator.smoke.js"
+    "test": "node tests/generator.smoke.js && node ../shared/tests/differentiated-builder.test.cjs"
   }
 }

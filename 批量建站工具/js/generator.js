@@ -19,6 +19,14 @@ const Generator = (function() {
         return !!(config && config.siteBuildMode === 'ad-migration' && config.adMigration && config.adMigration.valid);
     }
 
+    // 导出页以内联样式作为外部 CSS 的兜底。部分静态托管会错误地跳过 css/
+    // 目录或返回错误 MIME 类型；页面仍使用与预览完全相同的生成样式。
+    function renderExportStyles(config, stylesheetHref) {
+        const inlineFallback = config && config.inlineStyleTag ? config.inlineStyleTag + '\n    ' : '';
+        return `${_googleFontLink || ''}
+    ${inlineFallback}<link rel="stylesheet" href="${stylesheetHref}">`;
+    }
+
     function validateMigratedPage(html, pageType) {
         return typeof AdMigration !== 'undefined' ? AdMigration.validateGeneratedPage(html, pageType) : [];
     }
@@ -1967,8 +1975,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <meta name="description" content="${theme.siteSubtitle}">
     <script defer src="js/script.js"></script>
     ${adScripts}
-    ${_googleFontLink}
-    <link rel="stylesheet" href="css/style.css">
+    ${renderExportStyles(config, 'css/style.css')}
 </head>
 <body>
     ${navbar}
@@ -2364,8 +2371,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <meta name="keywords" content="${keywords}">
     <meta name="description" content="${(item[mapping.excerpt] || title).substring(0, 160)}">
     ${adScripts}
-    ${_googleFontLink}
-    <link rel="stylesheet" href="../css/style.css">
+    ${renderExportStyles(config, '../css/style.css')}
 </head>
 <body>
     ${navbar}
@@ -2480,7 +2486,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Contact Us - ${theme.siteTitle}</title>
-    <link rel="stylesheet" href="css/style.css">
+    ${renderExportStyles(config, 'css/style.css')}
 </head>
 <body>
     ${navbar}
@@ -2505,7 +2511,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>About Us - ${theme.siteTitle}</title>
-    <link rel="stylesheet" href="css/style.css">
+    ${renderExportStyles(config, 'css/style.css')}
 </head>
 <body>
     ${navbar}
@@ -2530,7 +2536,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy Policy - ${theme.siteTitle}</title>
-    <link rel="stylesheet" href="css/style.css">
+    ${renderExportStyles(config, 'css/style.css')}
 </head>
 <body>
     ${navbar}
@@ -2555,7 +2561,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Terms of Service - ${theme.siteTitle}</title>
-    <link rel="stylesheet" href="css/style.css">
+    ${renderExportStyles(config, 'css/style.css')}
 </head>
 <body>
     ${navbar}
@@ -2682,8 +2688,11 @@ if __name__ == '__main__':
         const zip = new JSZip();
         const siteFolder = zip.folder('website');
 
-        // CSS
-        siteFolder.folder('css').file('style.css', generateCSS(config));
+        // CSS：保留独立文件给正常托管；同一份样式也内联至所有页面，作为
+        // 忽略 css/ 目录或错误返回 MIME 类型的静态托管环境的可靠兜底。
+        const generatedCss = generateCSS(config);
+        config.inlineStyleTag = '<style data-generated-site-style>' + generatedCss.replace(/<\/style/gi, '<\\/style') + '</style>';
+        siteFolder.folder('css').file('style.css', generatedCss);
         onProgress(15, '正在生成首页...');
 
         // index.html
@@ -2782,7 +2791,8 @@ if __name__ == '__main__':
     }
 
     // ========== 构建配置对象 ==========
-    function buildConfig(appState) {
+    function buildConfig(appState, options) {
+        const previewManualAds = !!(options && options.previewManualAds);
         const baseTheme = THEMES[appState.selectedTheme];
         const profile = typeof DOMAIN_CATALOG !== 'undefined' ? DOMAIN_CATALOG[appState.selectedTheme] : null;
         const selectedCategories = appState.config.categories || baseTheme.categories || [];
@@ -2800,7 +2810,10 @@ if __name__ == '__main__':
             : (appState.siteBuildMode === 'normal' && appState.adCodeMigration && appState.adCodeMigration.valid
                 ? appState.adCodeMigration
                 : null);
-        const migrationPlacements = migration && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+        // 已验证广告代码采用固定广告位；未上传代码时，手动位置仅用于预览，
+        // 从而避免导出不包含广告代码的空白广告区域。
+        const automaticAdPlacements = migration && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+        const previewAdPlacements = !migration && previewManualAds ? (appState.config.adPlacements || {}) : {};
 
         return {
             theme: theme,
@@ -2865,7 +2878,7 @@ if __name__ == '__main__':
             },
             siteBuildMode: migration ? 'ad-migration' : 'normal',
             adMigration: migration,
-            adPlacements: migrationPlacements,
+            adPlacements: migration ? automaticAdPlacements : previewAdPlacements,
             adPaths: migration ? migration.config : {},
             adPlacementMode: appState.adPlacementMode || null,
             isLocalImages: appState.isLocalImages || false
@@ -2874,7 +2887,7 @@ if __name__ == '__main__':
 
     // ========== 生成预览HTML ==========
     function generatePreviewHtml(appState, pageType, detailIndex) {
-        const config = buildConfig(appState);
+        const config = buildConfig(appState, { previewManualAds: true });
         const theme = config.theme;
         const data = appState.data;
         const mapping = appState.fieldMapping;
@@ -2902,9 +2915,39 @@ if __name__ == '__main__':
             return localImageUrls[filename] || src;
         }
 
+        // 仅显示不会破坏布局、且最常用的广告位置，避免细小且难辨认的点击区域。
+        function getCommonAdPlacementLabel(position, page) {
+            const labels = {
+                'after-navbar': '导航栏下方',
+                'after-hero': '首屏区下方',
+                'content-top': '内容区顶部',
+                'content-bottom': '内容区底部',
+                'footer-top': '页脚上方',
+                'detail-before-content': '正文前',
+                'detail-after-content': '正文后',
+                'detail-after-related': '相关推荐后'
+            };
+            if (position === 'after-section-0') return '第一个分类后';
+            if (position === 'after-section-1') return '第二个分类后';
+            if (/^cat-\d+-after-title$/.test(position)) return '分类标题后';
+            if (/^cat-\d+-after-last$/.test(position)) return '分类末尾';
+            return labels[position] || '';
+        }
+
+        function isAdPlacementOccupied(position, page, placements) {
+            return Object.keys(placements || {}).some(function(adId) {
+                var pages = placements[adId];
+                return pages && pages[page] === position;
+            });
+        }
+
         // 广告标记生成器（仅放置模式）
         function genMarker(position, page) {
-            return '<div class="insert-marker" data-position="' + position + '" data-page="' + page + '" title="点击放置广告">＋ 点击放置广告</div>';
+            const label = getCommonAdPlacementLabel(position, page);
+            // 同一页面的同一位置仅保留一个广告。已经放过广告的位置显示实际广告，
+            // 不再把它作为其它广告的可选预览位，避免用户误以为可以叠加投放。
+            if (!label || isAdPlacementOccupied(position, page, adPlacements)) return '';
+            return '<div class="insert-marker" data-position="' + position + '" data-page="' + page + '" title="点击在此放置广告">＋ 常用广告位 · ' + label + '</div>';
         }
 
         // 获取指定位置的广告代码
@@ -2926,20 +2969,19 @@ if __name__ == '__main__':
         if (isPlacingAds) {
             css += `
 .insert-marker {
-    height: 6px; margin: 2px 0; cursor: pointer; transition: all 0.2s; border-radius: 2px;
-    overflow: hidden; text-indent: -9999px; font-size: 0;
+    min-height: 46px; margin: 12px 0; padding: 8px 12px; cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, transform 0.2s, box-shadow 0.2s;
+    border: 2px dashed var(--color-primary, #4a9eff); border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--color-text, #111); font-size: 13px; font-weight: 700; line-height: 1.35;
+    text-align: center; background: rgba(74, 158, 255, 0.12);
 }
 .insert-marker:hover {
-    height: 36px; border: 2px dashed var(--color-primary, #4a9eff); border-radius: 4px;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--color-primary, #4a9eff); font-size: 13px; text-indent: 0;
-    background: rgba(74, 158, 255, 0.08); margin: 4px 0;
+    border-style: solid; background: rgba(74, 158, 255, 0.22);
+    transform: translateY(-1px); box-shadow: 0 4px 14px rgba(74, 158, 255, 0.2);
 }
 .insert-marker.active-highlight {
-    height: 36px; border: 2px solid var(--color-primary, #4a9eff); border-radius: 4px;
-    display: flex; align-items: center; justify-content: center;
-    color: #fff; font-size: 13px; text-indent: 0;
-    background: rgba(74, 158, 255, 0.3); margin: 4px 0;
+    border-style: solid; background: rgba(74, 158, 255, 0.3);
 }`;
         }
 

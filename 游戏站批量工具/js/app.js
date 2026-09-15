@@ -6,6 +6,8 @@
 (function() {
     'use strict';
 
+    var REQUIRED_DIFFERENTIATED_BUILDER_VERSION = '20260914-template-library-13';
+
     function escapeHtml(value) {
         return String(value == null ? '' : value)
             .replace(/&/g, '&amp;')
@@ -19,6 +21,7 @@
         var appState = {
         currentStep: 1,
         selectedPreviewGameIndex: 0,
+        previewSectionSlug: '',
         selectedTheme: 'game',  // 固定为game
         data: [],
         jsonFields: [],
@@ -39,6 +42,14 @@
         siteBuildMode: 'normal',
         legacyAdMigration: null,
         adCodeMigration: null,
+        differentiated: {
+            siteType: 'games', vertical: '', audience: '', scope: '', baseUrl: '',
+            contactEmail: '', contactLayout: 'split', contactFields: ['name', 'email', 'subject', 'message'], footerStyle: 'simple', footerLinks: ['privacy', 'terms', 'contact', 'about'], siteTitle: '', brandMark: 'auto', logoIcon: '', typography: 'auto', designFamily: 'auto', domainId: 'game', seed: '', cardAlignment: 'compact', homeIntro: 'compact', featuredCard: 'highlight', navCategoryLimit: 4, categoryOverrides: [], summaryMode: 'standard', tone: 'auto', themePreset: 'auto', themePalette: {}, contentDensity: 'comfortable', cardRadius: 'auto', cardHover: 'lift', cardColumns: 'template', categoryCardColumns: 'inherit', cardViewMode: 'auto', cardBorder: 'auto', cardSpacing: 'auto', cardExcerptLines: 'auto', cardImageHeight: 'auto', cardHeight: 'template', coverFit: 'smart', contentMaxWidth: 'auto', metaBg: 'auto', detailImgStyle: 'auto', categoryTitleStyle: 'auto', categoryTitleAlign: 'auto', heroStyle: 'auto', detailLayout: 'auto', fontStyle: 'auto', logoStyle: 'mark-text', navLayout: 'split', navStyle: 'glass', navHeight: 'regular', gridGap: 'regular', buttonStyle: 'solid', buttonSize: 'auto', backLinkStyle: 'arrow', animationEnter: 'fade', transitionSpeed: 'normal', exportVariant: 'draft'
+        },
+        differentiatedPackage: null,
+        packageAssets: {},
+        differentiatedImportName: '',
+        buildModeSelectionVisible: true,
         _previewBlobUrls: []
     };
     var builtInGames = [];
@@ -129,37 +140,426 @@
 
     function syncBuildModeUI() {
         var isMigration = appState.siteBuildMode === 'ad-migration';
+        var isDifferentiated = appState.siteBuildMode === 'differentiated';
         document.querySelectorAll('[data-build-mode]').forEach(function(button) {
             var selected = button.dataset.buildMode === appState.siteBuildMode;
             button.classList.toggle('is-selected', selected);
             button.setAttribute('aria-pressed', selected ? 'true' : 'false');
         });
+        var showSourceConfiguration = !isDifferentiated || !appState.differentiatedImportName || appState.buildModeSelectionVisible;
         var legacySection = document.getElementById('legacy-site-upload');
         if (legacySection) legacySection.hidden = !isMigration;
+        var differentiatedSection = document.getElementById('differentiated-setup');
+        if (differentiatedSection) differentiatedSection.hidden = !isDifferentiated;
+        var standardConfigPanel = document.querySelector('#step-1 > .config-layout > .config-panel:not(.differentiated-customizer)');
+        if (standardConfigPanel) {
+            // A completed differentiated package owns its own configuration
+            // panel. Keep the source panel out of the layout until the user
+            // explicitly chooses “重新上传”, then expose it for replacement.
+            standardConfigPanel.hidden = !showSourceConfiguration;
+            standardConfigPanel.classList.toggle('is-differentiated-mode', isDifferentiated);
+            var standardTabs = standardConfigPanel.querySelector('.config-tabs:not(.diff-config-tabs)');
+            if (standardTabs) standardTabs.hidden = isDifferentiated;
+            if (isDifferentiated) {
+                document.querySelectorAll('.config-tab').forEach(function(tab) {
+                    tab.classList.toggle('active', tab.dataset.tab === 'structure');
+                });
+                document.querySelectorAll('.config-section').forEach(function(section) {
+                    section.classList.toggle('active', section.id === 'tab-structure');
+                });
+            }
+        }
+        var differentiatedCustomizer = document.getElementById('differentiated-customizer');
+        if (differentiatedCustomizer) differentiatedCustomizer.hidden = !isDifferentiated;
         // 普通站可上传经过校验的广告 TXT；移植站只使用固定且可校验的旧站广告位置。
         var adsTab = document.querySelector('.config-tab[data-tab="ads"]');
         var adsSection = document.getElementById('tab-ads');
         if (adsTab) adsTab.hidden = isMigration;
         if (adsSection) adsSection.hidden = isMigration;
+        var legacyExport = document.getElementById('legacy-export-options');
+        var differentiatedExport = document.getElementById('differentiated-export-options');
+        var defaultExportButton = document.getElementById('btn-export');
+        if (legacyExport) legacyExport.hidden = isDifferentiated;
+        if (differentiatedExport) differentiatedExport.hidden = !isDifferentiated;
+        if (defaultExportButton) defaultExportButton.hidden = isDifferentiated;
         syncDirectAdPlacementUI();
         if (isMigration) renderMigrationResult();
+        if (isDifferentiated) {
+            renderDifferentiatedPackageStatus();
+            populateDifferentiatedDesigns();
+        }
     }
 
     function selectBuildMode(mode) {
-        appState.siteBuildMode = mode === 'ad-migration' ? 'ad-migration' : 'normal';
+        appState.siteBuildMode = mode === 'ad-migration' || mode === 'differentiated' ? mode : 'normal';
         appState.adPlacementMode = null;
         if (appState.config) {
             appState.config.adPlacements = {};
             appState.config.adPaths = {};
         }
-        if (appState.siteBuildMode === 'normal') appState.legacyAdMigration = null;
+        if (appState.siteBuildMode !== 'ad-migration') appState.legacyAdMigration = null;
         syncBuildModeUI();
         updatePreview();
+    }
+
+    function populateDifferentiatedDesigns() {
+        var selects = document.querySelectorAll('#diff-design-family,#diff-config-design-family');
+        if (!selects.length || typeof DifferentiatedBuilder === 'undefined') return;
+        var domainId = appState.differentiated.domainId || 'game';
+        var families = DifferentiatedBuilder.getDesignFamilies('games', domainId) || [];
+        var profile = DifferentiatedBuilder.DOMAIN_PROFILES[domainId];
+        var options = '<option value="auto">自动选择当前领域未使用蓝图</option>' + families.map(function(family) {
+            return '<option value="' + escapeHtml(family.id) + '">' + escapeHtml(family.name) + '</option>';
+        }).join('');
+        selects.forEach(function(select) {
+            select.innerHTML = options;
+            select.value = families.some(function(family) { return family.id === appState.differentiated.designFamily; }) ? appState.differentiated.designFamily : 'auto';
+        });
+        renderDifferentiatedBlueprints(families, profile);
+    }
+
+    function renderDifferentiatedBlueprints(families, profile) {
+        var grid = document.getElementById('diff-domain-blueprint-grid');
+        if (!grid || typeof DifferentiatedBuilder === 'undefined') return;
+        families = families || [];
+        profile = profile || DifferentiatedBuilder.DOMAIN_PROFILES.game || null;
+        var profileLabel = profile && profile.label ? profile.label : '当前领域';
+        var count = document.getElementById('diff-domain-blueprint-count');
+        var status = document.getElementById('diff-domain-blueprint-status');
+        if (count) count.textContent = families.length + ' 个蓝图';
+        if (status) status.textContent = profile
+            ? '已识别领域：' + profileLabel + '。以下蓝图只在该领域显示，并会写入本次导出。'
+            : '等待领域识别；上传数据并确认领域后将显示该领域的 12 个专属蓝图。';
+        var blueprintLabels = { 'lead-grid':'杂志头版', 'rail-index':'专著索引', 'banded-list':'田野笔记', 'catalog-grid':'馆藏目录', 'split-feature':'技术档案', 'mosaic':'视觉日志', 'swiss-index':'瑞士索引', 'broadsheet':'新闻大报', 'timeline-ledger':'时间档案', 'cinematic-strip':'影像长卷', 'soft-showcase':'柔和展厅', 'industrial-board':'工业目录' };
+        var directionLabels = { 'editorial-command':'封面叙事', 'quiet-reading':'安静长读', 'field-notes':'田野记录', 'collection-system':'馆藏系统', 'technical-record':'技术文档', 'visual-flow':'图片流', 'swiss-grid':'瑞士网格', 'newsroom':'新闻编辑室', 'chronological-archive':'时间轴档案', 'cinematic-story':'电影化叙事', 'soft-structural':'柔和结构主义', 'industrial-catalog':'编辑型工业目录' };
+        var blueprintIcons = { 'lead-grid':'📰', 'rail-index':'📚', 'banded-list':'🗂️', 'catalog-grid':'🗃️', 'split-feature':'🪟', 'mosaic':'🧩', 'swiss-index':'▦', 'broadsheet':'🗞️', 'timeline-ledger':'↳', 'cinematic-strip':'🎞️', 'soft-showcase':'◯', 'industrial-board':'▤' };
+        grid.innerHTML = families.map(function(family, index) {
+            var selected = appState.differentiated.designFamily === family.id;
+            return '<button type="button" class="diff-blueprint-card' + (selected ? ' is-selected' : '') + '" data-diff-blueprint="' + escapeHtml(family.id) + '" role="listitem" aria-pressed="' + (selected ? 'true' : 'false') + '"><span class="diff-blueprint-icon" aria-hidden="true">' + (blueprintIcons[family.layout] || '🧱') + '</span><span><strong>' + escapeHtml(profileLabel + '·' + (blueprintLabels[family.layout] || '专属蓝图')) + '</strong><small>' + escapeHtml((directionLabels[family.direction] || family.direction || '独立版式') + ' · ' + (index + 1) + ' 号结构') + '</small></span></button>';
+        }).join('');
+        grid.querySelectorAll('[data-diff-blueprint]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                appState.differentiated.designFamily = this.dataset.diffBlueprint;
+                populateDifferentiatedDesigns();
+                updatePreview();
+            });
+        });
+    }
+
+    function populateDifferentiatedCustomizer() {
+        if (typeof DifferentiatedBuilder === 'undefined') return;
+        var state = appState.differentiated;
+        var mark = document.getElementById('diff-brand-mark');
+        var typography = document.getElementById('diff-typography');
+        if (mark) {
+            mark.innerHTML = '<option value="auto">自动按本次数据源生成</option>' + DifferentiatedBuilder.BRAND_MARKS.map(function(item) { return '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.glyph + ' · ' + item.name) + '</option>'; }).join('');
+            mark.value = DifferentiatedBuilder.BRAND_MARKS.some(function(item) { return item.id === state.brandMark; }) ? state.brandMark : 'auto';
+        }
+        if (typography) {
+            typography.innerHTML = '<option value="auto">自动匹配本次数据源</option>' + DifferentiatedBuilder.TYPOGRAPHY_PAIRS.map(function(item) { return '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + '</option>'; }).join('');
+            typography.value = DifferentiatedBuilder.TYPOGRAPHY_PAIRS.some(function(item) { return item.id === state.typography; }) ? state.typography : 'auto';
+        }
+        [['diff-site-title', state.siteTitle], ['diff-config-seed', state.seed], ['diff-card-alignment', state.cardAlignment || 'compact'], ['diff-home-intro', state.homeIntro || 'compact'], ['diff-featured-card', state.featuredCard || 'highlight'], ['diff-nav-category-limit', state.navCategoryLimit || 4], ['diff-contact-layout', state.contactLayout || 'split'], ['diff-footer-style', state.footerStyle || 'simple'], ['diff-summary-mode', state.summaryMode || 'standard'], ['diff-tone', state.tone || 'auto'], ['diff-content-density', state.contentDensity || 'comfortable'], ['diff-card-radius', state.cardRadius || 'auto'], ['diff-card-hover', state.cardHover || 'lift'], ['diff-card-columns', state.cardColumns || 'template'], ['diff-category-card-columns', state.categoryCardColumns || 'inherit'], ['diff-card-view-mode', state.cardViewMode || 'auto'], ['diff-card-border', state.cardBorder || 'auto'], ['diff-card-spacing', state.cardSpacing || 'auto'], ['diff-card-excerpt-lines', state.cardExcerptLines || 'auto'], ['diff-card-image-height', state.cardImageHeight || 'auto'], ['diff-cover-fit', state.coverFit || 'smart'], ['diff-card-height', state.cardHeight || 'template'], ['diff-content-max-width', state.contentMaxWidth || 'auto'], ['diff-meta-bg', state.metaBg || 'auto'], ['diff-detail-img-style', state.detailImgStyle || 'auto'], ['diff-category-title-style', state.categoryTitleStyle || 'auto'], ['diff-category-title-align', state.categoryTitleAlign || 'auto'], ['diff-hero-style', state.heroStyle || 'auto'], ['diff-detail-layout', state.detailLayout || 'auto'], ['diff-font-style', state.fontStyle || 'auto'], ['diff-logo-style', state.logoStyle || 'mark-text'], ['diff-nav-layout', state.navLayout || 'split'], ['diff-nav-style', state.navStyle || 'glass'], ['diff-nav-height', state.navHeight || 'regular'], ['diff-grid-gap', state.gridGap || 'regular'], ['diff-button-style', state.buttonStyle || 'solid'], ['diff-button-size', state.buttonSize || 'auto'], ['diff-back-link-style', state.backLinkStyle || 'arrow'], ['diff-animation-enter', state.animationEnter || 'fade'], ['diff-transition-speed', state.transitionSpeed || 'normal']].forEach(function(pair) { var element = document.getElementById(pair[0]); if (element) element.value = pair[1]; });
+        renderDifferentiatedPageControls();
+        populateDifferentiatedDesigns();
+        renderDifferentiatedVisualPickers();
+        renderDifferentiatedCategories();
+    }
+
+    function renderDifferentiatedPageControls() {
+        var state = appState.differentiated;
+        [['#diff-contact-fields-config', state.contactFields || []], ['#diff-footer-links-config', state.footerLinks || []]].forEach(function(pair) {
+            document.querySelectorAll(pair[0] + ' input[type="checkbox"]').forEach(function(input) {
+                input.checked = pair[1].indexOf(input.value) !== -1;
+            });
+        });
+    }
+
+    function renderDifferentiatedCategories() {
+        var target = document.getElementById('diff-auto-category-list');
+        if (!target || typeof DifferentiatedBuilder === 'undefined') return;
+        var state = appState.differentiated;
+        var config = DifferentiatedBuilder.buildConfig({ data: appState.data || [], differentiated: state, differentiatedPackage: appState.differentiatedPackage || {} }, { siteType: 'games' });
+        var pool = typeof GAME_EMOJI_ICONS !== 'undefined' ? GAME_EMOJI_ICONS : [];
+        var maximum = Math.max(2, Math.min(6, config.categories.length || 6));
+        var requested = Number(state.navCategoryLimit) || 4;
+        var limit = Math.max(2, Math.min(maximum, requested));
+        var slider = document.getElementById('diff-nav-category-limit');
+        var value = document.getElementById('diff-nav-category-limit-value');
+        if (slider) { slider.min = '2'; slider.max = String(maximum); slider.value = String(limit); }
+        if (value) value.textContent = String(limit);
+        var visible = config.categories.slice(0, limit);
+        function iconChoices(category, index) {
+            var choices = pool.slice(0, 24);
+            var active = category.icon || choices[index % Math.max(1, choices.length)] || '🎮';
+            if (choices.indexOf(active) === -1) choices.unshift(active);
+            return { active: active, choices: choices.length ? choices : ['🎮', '🕹️', '🎲', '🏆', '🧩', '⚔️'] };
+        }
+        function saveOverride(category, patch) {
+            var overrides = Array.isArray(state.categoryOverrides) ? state.categoryOverrides.slice() : [];
+            var position = overrides.findIndex(function(item) { return item && item.slug === category.slug; });
+            var current = position === -1 ? { slug: category.slug, name: category.name, icon: '' } : Object.assign({}, overrides[position]);
+            Object.assign(current, patch || {});
+            if (position === -1) overrides.push(current); else overrides[position] = current;
+            state.categoryOverrides = overrides;
+        }
+        target.innerHTML = '<p class="diff-auto-category-title">已识别的导航分类</p>' + (visible.length ? '<p class="diff-auto-category-help">分类来自本次游戏数据；可在此修改导航显示名称与图标，链接和游戏归属保持不变。</p>' + visible.map(function(category, index) {
+            var icons = iconChoices(category, index);
+            return '<div class="category-config-item diff-category-config-item" role="listitem"><div class="cat-icon-picker"><button type="button" class="cat-icon-trigger" aria-label="选择第 ' + (index + 1) + ' 个分类图标" aria-expanded="false">' + escapeHtml(icons.active) + '</button><div class="cat-icon-menu" role="listbox" aria-label="分类图标选项">' + icons.choices.map(function(icon) { return '<button type="button" class="cat-icon-option' + (icons.active === icon ? ' selected' : '') + '" role="option" aria-selected="' + (icons.active === icon ? 'true' : 'false') + '" data-diff-category-icon="' + escapeHtml(icon) + '" data-diff-category-slug="' + escapeHtml(category.slug) + '">' + escapeHtml(icon) + '</button>'; }).join('') + '</div></div><input type="text" class="cat-name-input" value="' + escapeHtml(category.name) + '" maxlength="64" aria-label="第 ' + (index + 1) + ' 个分类名称" data-diff-category-name data-diff-category-slug="' + escapeHtml(category.slug) + '"><output class="diff-category-record-count" aria-label="' + category.count + ' 个游戏">' + category.count + ' 个</output></div>';
+        }).join('') : '<p class="diff-auto-category-empty">上传数据后将在此显示自动识别的分类。</p>');
+        target.querySelectorAll('[data-diff-category-name]').forEach(function(input) {
+            input.addEventListener('input', function() {
+                var category = config.categories.find(function(item) { return item.slug === input.dataset.diffCategorySlug; });
+                if (!category) return;
+                saveOverride(category, { name: input.value });
+                updatePreview();
+            });
+        });
+        target.querySelectorAll('.cat-icon-trigger').forEach(function(trigger) {
+            trigger.addEventListener('click', function(event) {
+                event.stopPropagation();
+                var picker = trigger.closest('.cat-icon-picker');
+                target.querySelectorAll('.cat-icon-picker.open').forEach(function(openPicker) {
+                    if (openPicker !== picker) { openPicker.classList.remove('open'); openPicker.querySelector('.cat-icon-trigger').setAttribute('aria-expanded', 'false'); }
+                });
+                var isOpen = picker.classList.toggle('open');
+                trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            });
+        });
+        target.querySelectorAll('[data-diff-category-icon]').forEach(function(button) {
+            button.addEventListener('click', function(event) {
+                event.stopPropagation();
+                var category = config.categories.find(function(item) { return item.slug === button.dataset.diffCategorySlug; });
+                if (!category) return;
+                saveOverride(category, { icon: button.dataset.diffCategoryIcon });
+                renderDifferentiatedCategories();
+                updatePreview();
+            });
+        });
+        if (!appState._diffCategoryPickerBound) {
+            document.addEventListener('click', function() {
+                document.querySelectorAll('#diff-auto-category-list .cat-icon-picker.open').forEach(function(picker) {
+                    picker.classList.remove('open');
+                    picker.querySelector('.cat-icon-trigger').setAttribute('aria-expanded', 'false');
+                });
+            });
+            appState._diffCategoryPickerBound = true;
+        }
+    }
+
+    function renderDifferentiatedVisualPickers() {
+        var state = appState.differentiated;
+        var styleGrid = document.getElementById('diff-style-preset-grid');
+        var styleCount = document.getElementById('diff-style-preset-count');
+        if (styleGrid && typeof STYLE_PRESETS !== 'undefined') {
+            if (styleCount) styleCount.textContent = STYLE_PRESETS.length + ' 套';
+            styleGrid.innerHTML = STYLE_PRESETS.map(function(preset) { var selected = state.themePreset === preset.id; return '<button type="button" class="style-card' + (selected ? ' selected' : '') + '" data-diff-style="' + escapeHtml(preset.id) + '" role="option" aria-selected="' + (selected ? 'true' : 'false') + '"><span class="style-preview" style="background:' + escapeHtml(preset.previewBg || '#eef3f8') + '"></span><span class="style-name">' + escapeHtml(preset.name) + '</span></button>'; }).join('');
+            styleGrid.querySelectorAll('[data-diff-style]').forEach(function(button) { button.addEventListener('click', function() { var preset = STYLE_PRESETS.find(function(item) { return item.id === button.dataset.diffStyle; }); if (!preset) return; state.themePreset = preset.id; state.themePalette = Object.assign({}, preset.vars || {}); renderDifferentiatedVisualPickers(); updatePreview(); }); });
+        }
+        var iconGrid = document.getElementById('diff-logo-icon-grid');
+        var iconTrigger = document.getElementById('diff-logo-icon-trigger');
+        var iconPanel = document.getElementById('diff-logo-icon-panel');
+        var iconPreview = document.getElementById('diff-logo-icon-preview');
+        var iconName = document.getElementById('diff-logo-icon-name');
+        var iconCount = document.getElementById('diff-logo-icon-count');
+        if (!iconGrid || !iconTrigger || !iconPanel) return;
+        var entries = typeof GAME_EMOJI_ICONS !== 'undefined' ? GAME_EMOJI_ICONS.map(function(icon) { return { icon:icon, name:'游戏图标' }; }) : DifferentiatedBuilder.BRAND_MARKS.map(function(item) { return { icon:item.glyph, name:item.name }; });
+        if (iconCount) iconCount.textContent = entries.length + ' 款可选';
+        var active = state.logoIcon || '';
+        if (iconPreview) iconPreview.textContent = active || '🎮';
+        if (iconName) iconName.textContent = active ? '已选品牌图标' : '自动图标';
+        iconGrid.innerHTML = entries.map(function(item) { var selected = item.icon === active; return '<button type="button" class="logo-icon-option' + (selected ? ' selected' : '') + '" data-diff-logo-icon="' + escapeHtml(item.icon) + '" title="' + escapeHtml(item.name) + '" role="option" aria-selected="' + (selected ? 'true' : 'false') + '">' + escapeHtml(item.icon) + '</button>'; }).join('');
+        iconTrigger.onclick = function(event) { event.stopPropagation(); iconPanel.hidden = !iconPanel.hidden; iconTrigger.setAttribute('aria-expanded', iconPanel.hidden ? 'false' : 'true'); };
+        iconGrid.querySelectorAll('[data-diff-logo-icon]').forEach(function(button) { button.onclick = function() { state.logoIcon = button.dataset.diffLogoIcon; iconPanel.hidden = true; iconTrigger.setAttribute('aria-expanded', 'false'); renderDifferentiatedVisualPickers(); updatePreview(); }; });
+        if (!appState._diffLogoPickerBound) { document.addEventListener('click', function() { if (!iconPanel.hidden) { iconPanel.hidden = true; iconTrigger.setAttribute('aria-expanded', 'false'); } }); appState._diffLogoPickerBound = true; }
+    }
+
+    function renderDifferentiatedPackageStatus(message, stateClass) {
+        var target = document.getElementById('differentiated-package-result');
+        if (!target) return;
+        if (message) {
+            target.className = 'migration-result ' + (stateClass || 'pending');
+            target.textContent = message;
+            return;
+        }
+        target.className = 'migration-result ' + (appState.differentiatedImportName ? 'valid' : 'pending');
+        target.textContent = appState.differentiatedImportName
+            ? '已读取 ' + appState.differentiatedImportName + ' · ' + appState.data.length + ' 款游戏 · 本次站点状态已隔离'
+            : '等待上传本次游戏站数据包。';
+    }
+
+    function applyDifferentiatedImport(imported, fileName) {
+        appState.differentiatedPackage = imported.packageData || {};
+        appState.packageAssets = imported.packageAssets || {};
+        appState.differentiatedImportName = fileName || '本次游戏数据源';
+        appState.buildModeSelectionVisible = false;
+        var manifest = (imported.packageData && imported.packageData.manifest) || {};
+        var site = manifest.site || {};
+        var design = (imported.packageData && imported.packageData.design) || {};
+        var legal = (imported.packageData && imported.packageData.legal) || {};
+        appState.differentiated.vertical = String(site.vertical || site.topic || manifest.vertical || '');
+        appState.differentiated.audience = String(site.audience || '');
+        appState.differentiated.scope = String(site.scope || site.description || '');
+        appState.differentiated.baseUrl = String(site.base_url || site.url || '');
+        appState.differentiated.contactEmail = String(legal.contact_email || '');
+        appState.differentiated.siteTitle = String(site.name || site.title || manifest.site_name || '');
+        appState.differentiated.brandMark = String(design.brand_mark || design.logo_mark || 'auto');
+        appState.differentiated.typography = String(design.typography || design.font_pair || 'auto');
+        appState.differentiated.designFamily = String(design.family || design.design_family || 'auto');
+        appState.differentiated.domainId = String(design.domain_id || design.domain || site.domain_id || site.domain || manifest.domain_id || manifest.domain || 'game');
+        appState.differentiated.seed = String(design.seed || '');
+        appState.differentiated.cardAlignment = design.card_alignment === 'aligned' ? 'aligned' : 'compact';
+        appState.differentiated.homeIntro = ['compact', 'hidden'].indexOf(design.home_intro || design.hero_style) !== -1 ? (design.home_intro || design.hero_style) : 'compact';
+        appState.differentiated.featuredCard = design.featured_card === 'standard' ? 'standard' : 'highlight';
+        appState.differentiated.navCategoryLimit = [2, 3, 4, 5, 6].indexOf(Number(design.nav_category_limit || design.category_limit)) !== -1 ? Number(design.nav_category_limit || design.category_limit) : 4;
+        appState.differentiated.categoryOverrides = Array.isArray(design.category_overrides || design.categories) ? (design.category_overrides || design.categories).map(function(category) { category = category && typeof category === 'object' ? category : {}; return { slug: String(category.slug || ''), name: String(category.name || ''), icon: String(category.icon || '') }; }).filter(function(category) { return category.slug; }) : [];
+        appState.differentiated.contactLayout = ['direct', 'form', 'split'].indexOf(design.contact_layout || design.contact_template) !== -1 ? (design.contact_layout || design.contact_template) : 'split';
+        appState.differentiated.contactFields = Array.isArray(design.contact_fields) ? design.contact_fields.filter(function(field, index, fields) { return ['name', 'email', 'subject', 'message'].indexOf(field) !== -1 && fields.indexOf(field) === index; }) : ['name', 'email', 'subject', 'message'];
+        appState.differentiated.footerStyle = ['simple', 'detailed'].indexOf(design.footer_style) !== -1 ? design.footer_style : 'simple';
+        appState.differentiated.footerLinks = Array.isArray(design.footer_links) ? design.footer_links.filter(function(link, index, links) { return ['privacy', 'terms', 'contact', 'about'].indexOf(link) !== -1 && links.indexOf(link) === index; }) : ['privacy', 'terms', 'contact', 'about'];
+        appState.differentiated.summaryMode = ['standard', 'brief', 'hidden'].indexOf(design.summary_mode || design.card_summary) !== -1 ? (design.summary_mode || design.card_summary) : 'standard';
+        appState.differentiated.tone = ['auto', 'paper-olive', 'canvas-forest', 'stone-wine', 'slate-cyan', 'cream-cobalt', 'paper-blue', 'canvas-orange', 'ink-lime'].indexOf(design.tone || design.color_tone) !== -1 ? (design.tone || design.color_tone) : 'auto';
+        appState.differentiated.contentDensity = ['compact', 'comfortable', 'spacious'].indexOf(design.content_density || design.density) !== -1 ? (design.content_density || design.density) : 'comfortable';
+        appState.differentiated.cardRadius = ['auto', '0', '8px', '18px', '28px'].indexOf(design.card_radius || design.radius) !== -1 ? (design.card_radius || design.radius) : 'auto';
+        appState.differentiated.cardHover = ['lift', 'image-zoom', 'none'].indexOf(design.card_hover || design.hover_effect) !== -1 ? (design.card_hover || design.hover_effect) : 'lift';
+        appState.differentiated.logoStyle = ['mark-text', 'mark', 'boxed', 'text'].indexOf(design.logo_style) !== -1 ? design.logo_style : 'mark-text';
+        appState.differentiated.navLayout = ['split', 'centered', 'left'].indexOf(design.nav_layout || design.navbar_layout) !== -1 ? (design.nav_layout || design.navbar_layout) : 'split';
+        appState.differentiated.navStyle = ['glass', 'underline', 'accent', 'minimal'].indexOf(design.nav_style || design.navbar_style) !== -1 ? (design.nav_style || design.navbar_style) : 'glass';
+        appState.differentiated.navHeight = ['compact', 'regular', 'roomy'].indexOf(design.nav_height || design.navbar_height) !== -1 ? (design.nav_height || design.navbar_height) : 'regular';
+        appState.differentiated.gridGap = ['compact', 'regular', 'relaxed'].indexOf(design.grid_gap) !== -1 ? design.grid_gap : 'regular';
+        appState.differentiated.buttonStyle = ['solid', 'outline', 'pill'].indexOf(design.button_style) !== -1 ? design.button_style : 'solid';
+        appState.differentiated.backLinkStyle = ['arrow', 'button', 'crumb'].indexOf(design.back_link_style) !== -1 ? design.back_link_style : 'arrow';
+        appState.differentiated.animationEnter = ['none', 'fade', 'rise'].indexOf(design.animation_enter) !== -1 ? design.animation_enter : 'fade';
+        appState.differentiated.transitionSpeed = ['fast', 'normal', 'slow'].indexOf(design.transition_speed) !== -1 ? design.transition_speed : 'normal';
+        if (!appState.differentiated.vertical && typeof DifferentiatedBuilder !== 'undefined' && imported.data && imported.data.length) {
+            var inferredConfig = DifferentiatedBuilder.buildConfig({
+                data: imported.data,
+                differentiated: appState.differentiated,
+                differentiatedPackage: appState.differentiatedPackage
+            }, { siteType: 'games' });
+            appState.differentiated.vertical = inferredConfig.vertical;
+            if (!appState.differentiated.audience) appState.differentiated.audience = inferredConfig.audience;
+            if (!appState.differentiated.scope) appState.differentiated.scope = inferredConfig.scope;
+        }
+        var values = {
+            'diff-vertical': appState.differentiated.vertical,
+            'diff-audience': appState.differentiated.audience,
+            'diff-scope': appState.differentiated.scope,
+            'diff-base-url': appState.differentiated.baseUrl,
+            'diff-contact-email': appState.differentiated.contactEmail,
+            'diff-seed': appState.differentiated.seed
+        };
+        Object.keys(values).forEach(function(id) { var element = document.getElementById(id); if (element) element.value = values[id]; });
+        populateDifferentiatedDesigns();
+        populateDifferentiatedCustomizer();
+        renderDifferentiatedPackageStatus();
+    }
+
+    function clearDifferentiatedImport() {
+        appState.differentiatedPackage = null;
+        appState.packageAssets = {};
+        appState.differentiatedImportName = '';
+        appState.adCodeMigration = null;
+        if (appState.config) {
+            appState.config.adPlacements = {};
+            appState.config.adPaths = {};
+        }
+        appState.differentiated.vertical = '';
+        appState.differentiated.audience = '';
+        appState.differentiated.scope = '';
+        appState.differentiated.baseUrl = '';
+        appState.differentiated.contactEmail = '';
+        appState.differentiated.siteTitle = '';
+        appState.differentiated.brandMark = 'auto';
+        appState.differentiated.logoIcon = '';
+        appState.differentiated.themePreset = 'auto';
+        appState.differentiated.themePalette = {};
+        appState.differentiated.typography = 'auto';
+        appState.differentiated.cardAlignment = 'compact';
+        appState.differentiated.homeIntro = 'compact';
+        appState.differentiated.featuredCard = 'highlight';
+        appState.differentiated.navCategoryLimit = 4;
+        appState.differentiated.categoryOverrides = [];
+        appState.differentiated.contactLayout = 'split';
+        appState.differentiated.contactFields = ['name', 'email', 'subject', 'message'];
+        appState.differentiated.footerStyle = 'simple';
+        appState.differentiated.footerLinks = ['privacy', 'terms', 'contact', 'about'];
+        appState.differentiated.summaryMode = 'standard';
+        appState.differentiated.tone = 'auto';
+        appState.differentiated.contentDensity = 'comfortable';
+        appState.differentiated.cardRadius = 'auto';
+        appState.differentiated.cardHover = 'lift';
+        appState.differentiated.cardColumns = 'template';
+        appState.differentiated.cardViewMode = 'auto';
+        appState.differentiated.cardBorder = 'auto';
+        appState.differentiated.cardSpacing = 'auto';
+        appState.differentiated.cardExcerptLines = 'auto';
+        appState.differentiated.cardImageHeight = 'auto';
+        appState.differentiated.coverFit = 'smart';
+        appState.differentiated.cardHeight = 'template';
+        appState.differentiated.categoryCardColumns = 'inherit';
+        appState.differentiated.contentMaxWidth = 'auto';
+        appState.differentiated.metaBg = 'auto';
+        appState.differentiated.detailImgStyle = 'auto';
+        appState.differentiated.categoryTitleStyle = 'auto';
+        appState.differentiated.categoryTitleAlign = 'auto';
+        appState.differentiated.heroStyle = 'auto';
+        appState.differentiated.detailLayout = 'auto';
+        appState.differentiated.fontStyle = 'auto';
+        appState.differentiated.logoStyle = 'mark-text';
+        appState.differentiated.navLayout = 'split';
+        appState.differentiated.navStyle = 'glass';
+        appState.differentiated.navHeight = 'regular';
+        appState.differentiated.gridGap = 'regular';
+        appState.differentiated.buttonStyle = 'solid';
+        appState.differentiated.buttonSize = 'auto';
+        appState.differentiated.backLinkStyle = 'arrow';
+        appState.differentiated.animationEnter = 'fade';
+        appState.differentiated.transitionSpeed = 'normal';
+        appState.differentiated.designFamily = 'auto';
+        appState.differentiated.domainId = 'game';
+        appState.differentiated.seed = '';
+    }
+
+    function initDifferentiatedControls() {
+        if (typeof DifferentiatedBuilder === 'undefined') return;
+        var controls = { 'diff-vertical': 'vertical', 'diff-audience': 'audience', 'diff-scope': 'scope', 'diff-base-url': 'baseUrl', 'diff-contact-email': 'contactEmail', 'diff-contact-layout': 'contactLayout', 'diff-footer-style': 'footerStyle', 'diff-design-family': 'designFamily', 'diff-seed': 'seed', 'diff-site-title': 'siteTitle', 'diff-brand-mark': 'brandMark', 'diff-typography': 'typography', 'diff-config-design-family': 'designFamily', 'diff-config-seed': 'seed', 'diff-card-alignment': 'cardAlignment', 'diff-home-intro': 'homeIntro', 'diff-featured-card': 'featuredCard', 'diff-nav-category-limit': 'navCategoryLimit', 'diff-summary-mode': 'summaryMode', 'diff-tone': 'tone', 'diff-content-density': 'contentDensity', 'diff-card-radius': 'cardRadius', 'diff-card-hover': 'cardHover', 'diff-card-columns': 'cardColumns', 'diff-category-card-columns': 'categoryCardColumns', 'diff-card-view-mode': 'cardViewMode', 'diff-card-border': 'cardBorder', 'diff-card-spacing': 'cardSpacing', 'diff-card-excerpt-lines': 'cardExcerptLines', 'diff-card-image-height': 'cardImageHeight', 'diff-cover-fit': 'coverFit', 'diff-card-height': 'cardHeight', 'diff-content-max-width': 'contentMaxWidth', 'diff-meta-bg': 'metaBg', 'diff-detail-img-style': 'detailImgStyle', 'diff-category-title-style': 'categoryTitleStyle', 'diff-category-title-align': 'categoryTitleAlign', 'diff-hero-style': 'heroStyle', 'diff-detail-layout': 'detailLayout', 'diff-font-style': 'fontStyle', 'diff-logo-style': 'logoStyle', 'diff-nav-layout': 'navLayout', 'diff-nav-style': 'navStyle', 'diff-nav-height': 'navHeight', 'diff-grid-gap': 'gridGap', 'diff-button-style': 'buttonStyle', 'diff-button-size': 'buttonSize', 'diff-back-link-style': 'backLinkStyle', 'diff-animation-enter': 'animationEnter', 'diff-transition-speed': 'transitionSpeed' };
+        Object.keys(controls).forEach(function(id) {
+            var element = document.getElementById(id);
+            if (!element) return;
+            element.addEventListener(element.tagName === 'SELECT' ? 'change' : 'input', function() {
+                appState.differentiated[controls[id]] = this.value.trim ? this.value.trim() : this.value;
+                if (controls[id] === 'designFamily') populateDifferentiatedDesigns();
+                if (controls[id] === 'seed') populateDifferentiatedCustomizer();
+                if (controls[id] === 'navCategoryLimit') renderDifferentiatedCategories();
+                updatePreview();
+            });
+        });
+        [['#diff-contact-fields-config', 'contactFields'], ['#diff-footer-links-config', 'footerLinks']].forEach(function(pair) {
+            document.querySelectorAll(pair[0] + ' input[type="checkbox"]').forEach(function(input) {
+                input.addEventListener('change', function() {
+                    appState.differentiated[pair[1]] = Array.prototype.slice.call(document.querySelectorAll(pair[0] + ' input[type="checkbox"]:checked')).map(function(item) { return item.value; });
+                    updatePreview();
+                });
+            });
+        });
+        document.querySelectorAll('.diff-config-tab').forEach(function(tab) { tab.addEventListener('click', function() { var name = this.dataset.diffTab; document.querySelectorAll('.diff-config-tab').forEach(function(item) { var active = item === tab; item.classList.toggle('active', active); item.setAttribute('aria-selected', active ? 'true' : 'false'); }); document.querySelectorAll('.diff-config-section').forEach(function(section) { var active = section.dataset.diffSection === name; section.hidden = !active; section.classList.toggle('active', active); }); }); });
+        populateDifferentiatedDesigns();
+        populateDifferentiatedCustomizer();
     }
 
     function initBuildModeControls() {
         document.querySelectorAll('[data-build-mode]').forEach(function(button) {
             button.addEventListener('click', function() { selectBuildMode(this.dataset.buildMode); });
+        });
+        var differentiatedPackageButton = document.getElementById('diff-package-select');
+        if (differentiatedPackageButton) differentiatedPackageButton.addEventListener('click', function() {
+            var sourceSelect = document.getElementById('game-source');
+            var upload = document.getElementById('game-json-upload');
+            if (!sourceSelect || !upload) return;
+            sourceSelect.value = 'json';
+            sourceSelect.dispatchEvent(new Event('change'));
+            upload.click();
         });
         var selectButton = document.getElementById('legacy-site-select');
         var input = document.getElementById('legacy-site-file');
@@ -181,9 +581,15 @@
         syncBuildModeUI();
     }
 
+    initDifferentiatedControls();
+
     // ========== 步骤导航 ==========
     function goToStep(step) {
         if (step < 1 || step > 2) return;
+        if (step > appState.currentStep && appState.siteBuildMode === 'differentiated' && !appState.differentiatedImportName) {
+            showNotice('差异化精品建站必须先在“游戏数据源”中选择 JSON / 压缩包并上传本次独立数据包。', '请上传独立游戏包');
+            return;
+        }
         if (step > appState.currentStep && appState.siteBuildMode === 'ad-migration' && !(appState.legacyAdMigration && appState.legacyAdMigration.valid)) {
             showNotice('广告移植建站需要通过旧网站源码压缩包校验后才能继续。请查看失败原因并重新上传。', '还不能继续');
             return;
@@ -227,6 +633,8 @@
     });
 
     if (btnReupload) btnReupload.addEventListener('click', function() {
+        appState.buildModeSelectionVisible = true;
+        syncBuildModeUI();
         var sourceSelect = document.getElementById('game-source');
         var upload = document.getElementById('game-json-upload');
         if (sourceSelect) {
@@ -277,6 +685,7 @@
             relatedCount: 4,
             relatedCardFields: theme.relatedCardFields.slice(),
             aboutEnabled: true,
+            allGamesEnabled: true,
             contactFields: ['name', 'email', 'subject', 'message'],
             privacyLength: 'full',
             termsLength: 'full',
@@ -345,7 +754,7 @@
         var seen = {};
         return rows.map(function(item, index) {
             if (!item || typeof item !== 'object') return null;
-            var url = String(firstValue(item, ['url', 'gameUrl', 'game_url', 'embedUrl', 'embed_url', 'store_url'])).trim();
+            var url = String(firstValue(item, ['url', 'gameUrl', 'game_url', 'embedUrl', 'embed_url', 'store_url', 'local_entry', 'game_file'])).trim();
             var originalThumb = String(firstValue(item, ['thumb', 'thumbnailUrl', 'thumbnail', 'image', 'imageUrl', 'cover', 'coverUrl'])).trim();
             var normalized = Object.assign({}, item, {
                 id: firstValue(item, ['id', 'gameId', 'game_id', 'slug']) || (sourceId + '-' + (index + 1)),
@@ -356,7 +765,7 @@
                 thumbFallback: '',
                 source: sourceId
             });
-            var allowsLocalFiles = sourceId === 'opensource-local' || sourceId === 'json-zip' || sourceId === 'saved-local' || /^builtin-source-\d+$/.test(sourceId);
+            var allowsLocalFiles = sourceId === 'opensource-local' || sourceId === 'json-zip' || sourceId === 'differentiated-zip' || sourceId === 'saved-local' || /^builtin-source-\d+$/.test(sourceId);
             var allowsLocalImages = allowsLocalFiles;
             var validGameUrl = /^https?:\/\//i.test(normalized.url) || (allowsLocalFiles && isSafeRelativeAsset(normalized.url));
             var validThumb = /^https?:\/\//i.test(normalized.thumb) || (allowsLocalImages && isSafeRelativeAsset(normalized.thumb));
@@ -397,7 +806,55 @@
         return new Blob([bytes], { type: mime });
     }
 
+    function imageMimeTypeForPath(path) {
+        var extension = (String(path || '').toLowerCase().match(/\.[a-z0-9]+$/) || [''])[0];
+        return {
+            '.avif': 'image/avif', '.gif': 'image/gif', '.jfif': 'image/jpeg',
+            '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.png': 'image/png',
+            '.svg': 'image/svg+xml', '.webp': 'image/webp'
+        }[extension] || 'application/octet-stream';
+    }
+
+    function readImageBlobAsDataUrl(blob, path) {
+        return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function() {
+                var source = String(reader.result || '');
+                resolve(source.replace(/^data:[^;,]*/i, 'data:' + imageMimeTypeForPath(path)));
+            };
+            reader.onerror = function() { reject(reader.error || new Error('封面读取失败')); };
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    async function createLocalImageDataUrls(localImages) {
+        var entries = Object.entries(localImages || {});
+        var pairs = await Promise.all(entries.map(async function(entry) {
+            return [entry[0], await readImageBlobAsDataUrl(entry[1], entry[0])];
+        }));
+        return Object.fromEntries(pairs);
+    }
+
     async function importLocalGameArchive(file) {
+        if (appState.siteBuildMode === 'differentiated') {
+            if (!/\.zip$/i.test(file.name)) {
+                throw new Error('差异化精品建站的完整数据包仅支持 ZIP。请将数据包重新压缩为 .zip 后上传；单独 JSON 可用于草稿数据导入。');
+            }
+            if (typeof DifferentiatedBuilder === 'undefined' || typeof window.JSZip === 'undefined') throw new Error('差异化 ZIP 导入组件未加载，请刷新页面后重试。');
+            clearDifferentiatedImport();
+            renderDifferentiatedPackageStatus('正在读取游戏清单、封面、可玩文件与授权记录…', 'pending');
+            var imported = await DifferentiatedBuilder.importZip(file, 'games', { JSZip: window.JSZip });
+            var localImageDataUrls = await createLocalImageDataUrls(imported.localImages);
+            applyDifferentiatedImport(imported, file.name);
+            replaceGameData(imported.data, 'differentiated-zip', '差异化 ZIP · ' + file.name.replace(/\.zip$/i, ''), {
+                localImages: imported.localImages,
+                localImageDataUrls: localImageDataUrls,
+                localGameFiles: imported.localGameFiles,
+                packageAssets: imported.packageAssets
+            });
+            syncBuildModeUI();
+            return;
+        }
         if (typeof GameZipImport === 'undefined') {
             throw new Error('游戏压缩包导入模块未加载，请刷新页面后重试。');
         }
@@ -452,6 +909,7 @@
         appState.localImages = sourceAssets && sourceAssets.localImages ? sourceAssets.localImages : {};
         appState.localImageDataUrls = sourceAssets && sourceAssets.localImageDataUrls ? sourceAssets.localImageDataUrls : {};
         appState.localGameFiles = sourceAssets && sourceAssets.localGameFiles ? sourceAssets.localGameFiles : {};
+        appState.packageAssets = sourceAssets && sourceAssets.packageAssets ? sourceAssets.packageAssets : (appState.siteBuildMode === 'differentiated' ? appState.packageAssets : {});
         appState.sourceNotice = sourceAssets && sourceAssets.sourceNotice ? sourceAssets.sourceNotice : null;
         activeSourceLabel = sourceLabel;
         activeSourceId = sourceId;
@@ -480,6 +938,7 @@
             updateCategoryConfig(sourceAssets.categories.length);
         }
         updateSourceStatus('已加载 ' + games.length + ' 个游戏 · ' + sourceLabel, 'success');
+        if (appState.siteBuildMode === 'differentiated') renderDifferentiatedPackageStatus();
         updatePreview();
     }
 
@@ -845,7 +1304,15 @@
                 if (/\.(?:zip|rar|7z)$/i.test(file.name)) {
                     await importLocalGameArchive(file);
                 } else {
-                    replaceGameData(JSON.parse(await file.text()), 'json', file.name.replace(/\.json$/i, ''));
+                    var payload = JSON.parse(await file.text());
+                    if (appState.siteBuildMode === 'differentiated') {
+                        clearDifferentiatedImport();
+                        var imported = DifferentiatedBuilder.importJsonData(payload, 'games');
+                        applyDifferentiatedImport(imported, file.name);
+                        replaceGameData(imported.data, 'json', file.name.replace(/\.json$/i, ''), { packageAssets: imported.packageAssets });
+                    } else {
+                        replaceGameData(payload, 'json', file.name.replace(/\.json$/i, ''));
+                    }
                 }
                 savedName.value = catalogNameSuggestion();
                 updateSavedCatalogControls();
@@ -1462,6 +1929,14 @@
             updatePreview();
         });
 
+        // 全部游戏入口
+        var allGamesToggle = document.getElementById('all-games-enabled');
+        if (allGamesToggle) allGamesToggle.addEventListener('change', function() {
+            appState.config.allGamesEnabled = this.checked;
+            var switchedToHome = syncAllGamesNavControl();
+            updatePreview(switchedToHome ? 'home' : undefined);
+        });
+
         // 页脚链接
         document.querySelectorAll('#footer-links-config input[type="checkbox"]').forEach(function(cb) {
             cb.addEventListener('change', function() {
@@ -1586,6 +2061,20 @@
         }
     }
 
+    function syncAllGamesNavControl() {
+        var allGamesPreviewTab = document.querySelector('.preview-tab[data-page="all"]');
+        var enabled = appState.config.allGamesEnabled !== false;
+        if (!allGamesPreviewTab) return false;
+        allGamesPreviewTab.hidden = !enabled;
+        if (!enabled && allGamesPreviewTab.classList.contains('active')) {
+            allGamesPreviewTab.classList.remove('active');
+            var homePreviewTab = document.querySelector('.preview-tab[data-page="home"]');
+            if (homePreviewTab) homePreviewTab.classList.add('active');
+            return true;
+        }
+        return false;
+    }
+
     function setInitialConfigValues() {
         var c = appState.config;
         var theme = THEMES.game;
@@ -1639,9 +2128,11 @@
         document.getElementById('hero-config').style.display = c.heroEnabled === true ? 'block' : 'none';
         document.getElementById('action-btn-enabled').checked = c.actionButtonEnabled;
         document.getElementById('about-enabled').checked = c.aboutEnabled !== false;
+        document.getElementById('all-games-enabled').checked = c.allGamesEnabled !== false;
         document.getElementById('action-btn-text').value = c.actionButtonText || theme.detail.actionButton.text;
         document.getElementById('action-btn-config').style.display = c.actionButtonEnabled ? 'block' : 'none';
         syncAboutNavControl();
+        syncAllGamesNavControl();
 
         // 分类数量
         document.getElementById('category-count').value = c.categories.length;
@@ -1727,6 +2218,78 @@
             }
         }
 
+        function initFullscreenPreview() {
+            var previewPanel = document.querySelector('#step-1 .preview-panel');
+            var fullscreenButton = document.getElementById('preview-fullscreen-btn');
+            var fullscreenStatus = document.getElementById('preview-fullscreen-status');
+            if (!previewPanel || !fullscreenButton || fullscreenButton.dataset.fullscreenBound === 'true') return;
+            fullscreenButton.dataset.fullscreenBound = 'true';
+            var wasActive = false;
+
+            function fullscreenElement() {
+                return document.fullscreenElement || document.webkitFullscreenElement || null;
+            }
+
+            function isActive() {
+                return fullscreenElement() === previewPanel || previewPanel.classList.contains('is-preview-fullscreen');
+            }
+
+            function syncFullscreenState() {
+                var active = isActive();
+                var fallbackActive = previewPanel.classList.contains('is-preview-fullscreen');
+                var label = fullscreenButton.querySelector('.preview-fullscreen-label');
+                fullscreenButton.classList.toggle('is-active', active);
+                fullscreenButton.setAttribute('aria-pressed', active ? 'true' : 'false');
+                fullscreenButton.setAttribute('aria-label', active ? '退出全屏预览' : '进入全屏预览');
+                fullscreenButton.title = active ? '退出全屏预览（Esc）' : '全屏预览';
+                if (label) label.textContent = active ? '退出' : '全屏';
+                document.body.classList.toggle('preview-fullscreen-open', fallbackActive);
+                if (fullscreenStatus && active !== wasActive) fullscreenStatus.textContent = active ? '已进入全屏预览，按 Esc 可退出。' : '已退出全屏预览。';
+                if (!active && wasActive) setTimeout(function() { fullscreenButton.focus(); }, 0);
+                wasActive = active;
+            }
+
+            function enterFallbackFullscreen() {
+                previewPanel.classList.add('is-preview-fullscreen');
+                syncFullscreenState();
+            }
+
+            function exitFallbackFullscreen() {
+                previewPanel.classList.remove('is-preview-fullscreen');
+                syncFullscreenState();
+            }
+
+            fullscreenButton.addEventListener('click', function() {
+                if (isActive()) {
+                    if (fullscreenElement() === previewPanel) {
+                        var exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
+                        if (exitFullscreen) {
+                            try { Promise.resolve(exitFullscreen.call(document)).catch(syncFullscreenState); }
+                            catch (error) { syncFullscreenState(); }
+                        }
+                    } else {
+                        exitFallbackFullscreen();
+                    }
+                    return;
+                }
+                var requestFullscreen = previewPanel.requestFullscreen || previewPanel.webkitRequestFullscreen;
+                if (!requestFullscreen) {
+                    enterFallbackFullscreen();
+                    return;
+                }
+                try { Promise.resolve(requestFullscreen.call(previewPanel)).catch(enterFallbackFullscreen); }
+                catch (error) { enterFallbackFullscreen(); }
+            });
+            document.addEventListener('fullscreenchange', syncFullscreenState);
+            document.addEventListener('webkitfullscreenchange', syncFullscreenState);
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape' && previewPanel.classList.contains('is-preview-fullscreen')) exitFallbackFullscreen();
+            });
+            syncFullscreenState();
+        }
+
+        initFullscreenPreview();
+
         // 页面切换
         document.querySelectorAll('.preview-tab').forEach(function(tab) {
             tab.addEventListener('click', function() {
@@ -1762,6 +2325,12 @@
             }
             if (e.data && e.data.type === 'preview-nav') {
                 var page = e.data.page;
+                if (page === 'detail' && Number.isInteger(e.data.itemIndex)) {
+                    appState.selectedPreviewGameIndex = e.data.itemIndex;
+                }
+                if (page === 'section' && typeof e.data.categorySlug === 'string') {
+                    appState.previewSectionSlug = e.data.categorySlug;
+                }
                 activatePreviewTab(page);
                 updateAdPlacementUI();
                 updatePreview(page);
@@ -1793,7 +2362,7 @@
     }
 
     function hasValidatedDirectAdCode() {
-        return appState.siteBuildMode === 'normal' && !!(appState.adCodeMigration && appState.adCodeMigration.valid);
+        return appState.siteBuildMode !== 'ad-migration' && !!(appState.adCodeMigration && appState.adCodeMigration.valid);
     }
 
     // 已验证的 TXT 统一使用资讯工具的固定广告位，确保导入后立即有可见广告容器。
@@ -2015,6 +2584,18 @@
     var previewTimeout = null;
     function updatePreview(pageType) {
         if (appState.currentStep !== 1) return;
+        if (appState.siteBuildMode === 'differentiated' && (typeof DifferentiatedBuilder === 'undefined' || DifferentiatedBuilder.BUILD_VERSION !== REQUIRED_DIFFERENTIATED_BUILDER_VERSION)) {
+            if (previewTimeout) clearTimeout(previewTimeout);
+            previewFrame.removeAttribute('src');
+            previewFrame.srcdoc = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#f4f7fb;color:#15243a;font:16px/1.6 system-ui,sans-serif}.notice{max-width:560px;padding:32px;border:1px solid #f0b8b8;background:#fff;box-shadow:8px 8px 0 #d33}h1{margin:0 0 12px;font-size:24px}</style><body><section class="notice"><h1>模板引擎版本未同步</h1><p>当前页面拒绝运行旧模板。请刷新页面后重新上传本次数据源。</p></section></body></html>';
+            return;
+        }
+        if (appState.siteBuildMode === 'differentiated' && !appState.differentiatedImportName && typeof DifferentiatedBuilder !== 'undefined') {
+            if (previewTimeout) clearTimeout(previewTimeout);
+            previewFrame.removeAttribute('src');
+            previewFrame.srcdoc = DifferentiatedBuilder.generateWaitingPreviewHtml('games');
+            return;
+        }
         if (!appState.data || appState.data.length === 0) return;
 
         if (previewTimeout) clearTimeout(previewTimeout);
@@ -2027,7 +2608,13 @@
                     appState._previewBlobUrls.forEach(function(u) { URL.revokeObjectURL(u); });
                     appState._previewBlobUrls = [];
                 }
-                var html = Generator.generatePreviewHtml(appState, pageType);
+                var html = appState.siteBuildMode === 'differentiated' && typeof DifferentiatedBuilder !== 'undefined'
+                    ? DifferentiatedBuilder.generatePreviewHtml(appState, pageType, {
+                        siteType: 'games',
+                        itemIndex: appState.selectedPreviewGameIndex,
+                        categorySlug: appState.previewSectionSlug
+                    })
+                    : Generator.generatePreviewHtml(appState, pageType);
                 previewFrame.removeAttribute('src');
                 previewFrame.srcdoc = html;
             } catch(e) {
@@ -2038,6 +2625,30 @@
 
     // ========== Step 2: 导出 ==========
     function generateExportSummary() {
+        if (appState.siteBuildMode === 'differentiated' && typeof DifferentiatedBuilder !== 'undefined') {
+            var target = document.getElementById('export-summary');
+            target.innerHTML = '<h4>差异化精品游戏站审计</h4><p>正在检查可玩地址、本地文件、封面、控制说明、来源授权、法律信息与设计指纹…</p>';
+            document.querySelectorAll('[data-diff-export]').forEach(function(button) { button.disabled = true; });
+            DifferentiatedBuilder.audit(appState, { variant: 'review', siteType: 'games' }).then(function(outcome) {
+                var config = outcome.config;
+                target.innerHTML = '<h4>配置摘要</h4><div class="summary-grid">' +
+                    makeSummaryItem('建站方式', '差异化精品建站') +
+                    makeSummaryItem('独立领域', config.vertical) +
+                    makeSummaryItem('游戏数量', config.items.length + '款') +
+                    makeSummaryItem('设计家族', config.design.name) +
+                    makeSummaryItem('设计指纹', config.designFingerprint) +
+                    makeSummaryItem('正式域名', config.baseUrl || '尚未填写') +
+                    makeSummaryItem('联系邮箱', config.contactEmail || '尚未填写') + '</div>' +
+                    DifferentiatedBuilder.renderAuditSummary(outcome.report);
+                document.querySelectorAll('[data-diff-export]').forEach(function(button) {
+                    button.disabled = button.dataset.diffExport !== 'draft' && outcome.report.counts.blockers > 0;
+                });
+            }).catch(function(error) {
+                target.innerHTML = '<section class="migration-validation invalid"><h5>审计无法完成</h5><p>' + escapeHtml(error.message) + '</p></section>';
+                document.querySelectorAll('[data-diff-export]').forEach(function(button) { button.disabled = button.dataset.diffExport !== 'draft'; });
+            });
+            return;
+        }
         var config = appState.config;
 
         var selectedStyleName = '';
@@ -2120,6 +2731,35 @@
             btn.disabled = false;
             console.error('Export error:', err);
         });
+    });
+
+    function exportDifferentiatedSite(variant, button) {
+        appState.differentiated.exportVariant = variant;
+        var progressDiv = document.getElementById('export-progress');
+        var progressFill = document.getElementById('progress-fill');
+        var progressText = document.getElementById('progress-text');
+        document.querySelectorAll('[data-diff-export]').forEach(function(item) { item.disabled = true; });
+        if (button) button.setAttribute('aria-busy', 'true');
+        progressDiv.style.display = 'block';
+        DifferentiatedBuilder.exportWebsite(appState, function(percent, text) {
+            progressFill.style.width = percent + '%';
+            progressText.textContent = text;
+        }, { variant: variant, siteType: 'games', JSZip: window.JSZip }).then(function(blob) {
+            var config = DifferentiatedBuilder.buildConfig(appState, { variant: variant, siteType: 'games' });
+            saveAs(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'game-site') + '-' + variant + '.zip');
+            progressText.textContent = '✅ 差异化游戏静态站导出成功；ZIP 已开始下载';
+            generateExportSummary();
+        }).catch(function(error) {
+            progressText.textContent = '❌ 导出失败：' + error.message;
+            showNotice(error.message, '差异化导出未完成');
+            generateExportSummary();
+        }).finally(function() {
+            if (button) button.removeAttribute('aria-busy');
+        });
+    }
+
+    document.querySelectorAll('[data-diff-export]').forEach(function(button) {
+        button.addEventListener('click', function() { exportDifferentiatedSite(this.dataset.diffExport, this); });
     });
 
     // ========== 一键随机组装 ==========

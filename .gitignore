@@ -14,6 +14,9 @@
 # Local Codex session handoff notes
 /CURRENT_SESSION_HANDOFF.md
 /当前会话交接文档.md
+**/HANDOFF.md
+**/SESSION_HANDOFF.md
+**/CURRENT_SESSION_HANDOFF.md
 
 # Logs and operating-system clutter
 *.log

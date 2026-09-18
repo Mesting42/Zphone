@@ -97,7 +97,7 @@
                     </button>
                     <button type="button" class="build-mode-card build-mode-card-premium" data-build-mode="differentiated" aria-pressed="false">
                         <span class="build-mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18 9 7l4 7 3-5 4 9H4Z"/><path d="M6 4h12M8 21h8"/></svg></span>
-                        <span class="build-mode-content"><span class="build-mode-title-line"><strong>差异化精品建站</strong><span class="build-mode-badge">NEW · 1.0.1</span></span><small>每个压缩包独立确定领域、受众、栏目与视觉方向，导出静态资讯站或真实工具站。</small><span class="build-mode-meta"><span>跨领域识别</span><span>质量硬门禁</span><span>差异化设计</span></span></span>
+                        <span class="build-mode-content"><span class="build-mode-title-line"><strong>差异化精品建站</strong><span class="build-mode-badge">NEW · 1.0.2</span></span><small>每个压缩包独立确定领域、受众、栏目与视觉方向，导出静态资讯站或真实工具站。</small><span class="build-mode-meta"><span>跨领域识别</span><span>质量硬门禁</span><span>差异化设计</span></span></span>
                         <span class="build-mode-selected-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3.2 3.2L17.5 8"/></svg></span>
                     </button>
                 </div>
@@ -956,6 +956,14 @@
                             <div class="config-item"><label for="diff-nav-height">导航栏高度</label><select id="diff-nav-height"><option value="compact">紧凑</option><option value="regular">标准（推荐）</option><option value="roomy">宽松</option><option value="40px">40px</option><option value="50px">50px</option><option value="60px">60px</option><option value="70px">70px</option><option value="80px">80px</option></select></div>
                             <div class="config-item"><label for="diff-summary-mode">首页卡片摘要</label><select id="diff-summary-mode"><option value="standard">标准摘要（4 行）</option><option value="brief">精简摘要（2 行）</option><option value="hidden">仅标题与操作链接</option></select></div>
                             <p class="group-hint">Home 固定在首位。拖动数量后可编辑对应分类的显示名称与图标；分类页链接和文章归属仍由当前数据源自动保持一致。</p><div id="diff-auto-category-list" class="diff-auto-category-list" role="list" aria-live="polite"></div>
+                            <div class="diff-home-category-control">
+                                <label class="diff-fixed-choice" for="diff-home-category-layout"><input type="checkbox" id="diff-home-category-layout" aria-controls="diff-home-category-settings">首页按分类分区展示</label>
+                                <p class="group-hint">开启后，首页会按数据源分类分区排列；每个分区可单独设定显示卡片数量，并保留“查看全部”入口。</p>
+                            </div>
+                            <div id="diff-home-category-settings" class="diff-home-category-settings" hidden>
+                                <div class="config-item diff-category-count-control"><label for="diff-home-category-limit">首页分类数量 <span class="range-value" id="diff-home-category-limit-value">4</span></label><input type="range" id="diff-home-category-limit" min="2" max="6" step="1" value="4" aria-describedby="diff-home-category-list"></div>
+                                <div id="diff-home-category-list" class="diff-auto-category-list diff-home-category-list" role="list" aria-live="polite"></div>
+                            </div>
                         </div>
                     </div>
                     <div class="diff-config-section" data-diff-section="style" hidden>

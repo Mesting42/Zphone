@@ -1,4 +1,4 @@
-import './differentiated-builder.js?v=20260914-v101-48';
+import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
 /**
  * 主应用逻辑
@@ -44,7 +44,7 @@ import './differentiated-builder.js?v=20260914-v101-48';
         adInjectionCodes: [],
         differentiated: {
             siteType: 'editorial', vertical: '', audience: '', scope: '', baseUrl: '',
-            contactEmail: '', contactLayout: 'split', contactFields: ['name', 'email', 'subject', 'message'], footerStyle: 'simple', footerLinks: ['privacy', 'terms', 'contact', 'about'], siteTitle: '', brandMark: 'auto', logoIcon: '', typography: 'auto', designFamily: 'auto', domainId: 'auto', seed: '', cardAlignment: 'compact', homeIntro: 'compact', featuredCard: 'highlight', navCategoryLimit: 4, categoryOverrides: [], summaryMode: 'standard', tone: 'auto', themePreset: 'auto', themePalette: {}, contentDensity: 'comfortable', cardRadius: 'auto', cardHover: 'lift', cardColumns: 'template', categoryCardColumns: 'inherit', cardViewMode: 'auto', cardBorder: 'auto', cardSpacing: 'auto', cardExcerptLines: 'auto', cardImageHeight: 'auto', cardHeight: 'template', coverFit: 'smart', contentMaxWidth: 'auto', metaBg: 'auto', detailImgStyle: 'auto', categoryTitleStyle: 'auto', categoryTitleAlign: 'auto', heroStyle: 'auto', detailLayout: 'auto', fontStyle: 'auto', logoStyle: 'mark-text', navLayout: 'split', navStyle: 'glass', navHeight: 'regular', gridGap: 'regular', buttonStyle: 'solid', buttonSize: 'auto', backLinkStyle: 'arrow', animationEnter: 'fade', transitionSpeed: 'normal', exportVariant: 'draft'
+            contactEmail: '', contactLayout: 'split', contactFields: ['name', 'email', 'subject', 'message'], footerStyle: 'simple', footerLinks: ['privacy', 'terms', 'contact', 'about'], siteTitle: '', brandMark: 'auto', logoIcon: '', typography: 'auto', designFamily: 'auto', domainId: 'auto', seed: '', cardAlignment: 'compact', homeIntro: 'compact', featuredCard: 'highlight', navCategoryLimit: 4, homeCategoryLayout: false, homeCategoryLimit: 4, categoryOverrides: [], summaryMode: 'standard', tone: 'auto', themePreset: 'auto', themePalette: {}, contentDensity: 'comfortable', cardRadius: 'auto', cardHover: 'lift', cardColumns: 'template', categoryCardColumns: 'inherit', cardViewMode: 'auto', cardBorder: 'auto', cardSpacing: 'auto', cardExcerptLines: 'auto', cardImageHeight: 'auto', cardHeight: 'template', coverFit: 'smart', contentMaxWidth: 'auto', metaBg: 'auto', detailImgStyle: 'auto', categoryTitleStyle: 'auto', categoryTitleAlign: 'auto', heroStyle: 'auto', detailLayout: 'auto', fontStyle: 'auto', logoStyle: 'mark-text', navLayout: 'split', navStyle: 'glass', navHeight: 'regular', gridGap: 'regular', buttonStyle: 'solid', buttonSize: 'auto', backLinkStyle: 'arrow', animationEnter: 'fade', transitionSpeed: 'normal', exportVariant: 'draft'
         },
         differentiatedPackage: null,
         packageAssets: {},
@@ -975,11 +975,12 @@ import './differentiated-builder.js?v=20260914-v101-48';
             typography.innerHTML = '<option value="auto">自动匹配本次数据源</option>' + DifferentiatedBuilder.TYPOGRAPHY_PAIRS.map(function(item) { return '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + '</option>'; }).join('');
             typography.value = DifferentiatedBuilder.TYPOGRAPHY_PAIRS.some(function(item) { return item.id === state.typography; }) ? state.typography : 'auto';
         }
-        [['diff-site-title', state.siteTitle], ['diff-config-seed', state.seed], ['diff-card-alignment', state.cardAlignment || 'compact'], ['diff-home-intro', state.homeIntro || 'compact'], ['diff-featured-card', state.featuredCard || 'highlight'], ['diff-nav-category-limit', state.navCategoryLimit || 4], ['diff-contact-layout', state.contactLayout || 'split'], ['diff-footer-style', state.footerStyle || 'simple'], ['diff-summary-mode', state.summaryMode || 'standard'], ['diff-tone', state.tone || 'auto'], ['diff-content-density', state.contentDensity || 'comfortable'], ['diff-card-radius', state.cardRadius || 'auto'], ['diff-card-hover', state.cardHover || 'lift'], ['diff-card-columns', state.cardColumns || 'template'], ['diff-category-card-columns', state.categoryCardColumns || 'inherit'], ['diff-card-view-mode', state.cardViewMode || 'auto'], ['diff-card-border', state.cardBorder || 'auto'], ['diff-card-spacing', state.cardSpacing || 'auto'], ['diff-card-excerpt-lines', state.cardExcerptLines || 'auto'], ['diff-card-image-height', state.cardImageHeight || 'auto'], ['diff-cover-fit', state.coverFit || 'smart'], ['diff-card-height', state.cardHeight || 'template'], ['diff-content-max-width', state.contentMaxWidth || 'auto'], ['diff-meta-bg', state.metaBg || 'auto'], ['diff-detail-img-style', state.detailImgStyle || 'auto'], ['diff-category-title-style', state.categoryTitleStyle || 'auto'], ['diff-category-title-align', state.categoryTitleAlign || 'auto'], ['diff-hero-style', state.heroStyle || 'auto'], ['diff-detail-layout', state.detailLayout || 'auto'], ['diff-font-style', state.fontStyle || 'auto'], ['diff-logo-style', state.logoStyle || 'mark-text'], ['diff-nav-layout', state.navLayout || 'split'], ['diff-nav-style', state.navStyle || 'glass'], ['diff-nav-height', state.navHeight || 'regular'], ['diff-grid-gap', state.gridGap || 'regular'], ['diff-button-style', state.buttonStyle || 'solid'], ['diff-button-size', state.buttonSize || 'auto'], ['diff-back-link-style', state.backLinkStyle || 'arrow'], ['diff-animation-enter', state.animationEnter || 'fade'], ['diff-transition-speed', state.transitionSpeed || 'normal']].forEach(function(pair) { var element = document.getElementById(pair[0]); if (element) element.value = pair[1]; });
+        [['diff-site-title', state.siteTitle], ['diff-config-seed', state.seed], ['diff-card-alignment', state.cardAlignment || 'compact'], ['diff-home-intro', state.homeIntro || 'compact'], ['diff-featured-card', state.featuredCard || 'highlight'], ['diff-nav-category-limit', state.navCategoryLimit || 4], ['diff-home-category-limit', state.homeCategoryLimit || 4], ['diff-contact-layout', state.contactLayout || 'split'], ['diff-footer-style', state.footerStyle || 'simple'], ['diff-summary-mode', state.summaryMode || 'standard'], ['diff-tone', state.tone || 'auto'], ['diff-content-density', state.contentDensity || 'comfortable'], ['diff-card-radius', state.cardRadius || 'auto'], ['diff-card-hover', state.cardHover || 'lift'], ['diff-card-columns', state.cardColumns || 'template'], ['diff-category-card-columns', state.categoryCardColumns || 'inherit'], ['diff-card-view-mode', state.cardViewMode || 'auto'], ['diff-card-border', state.cardBorder || 'auto'], ['diff-card-spacing', state.cardSpacing || 'auto'], ['diff-card-excerpt-lines', state.cardExcerptLines || 'auto'], ['diff-card-image-height', state.cardImageHeight || 'auto'], ['diff-cover-fit', state.coverFit || 'smart'], ['diff-card-height', state.cardHeight || 'template'], ['diff-content-max-width', state.contentMaxWidth || 'auto'], ['diff-meta-bg', state.metaBg || 'auto'], ['diff-detail-img-style', state.detailImgStyle || 'auto'], ['diff-category-title-style', state.categoryTitleStyle || 'auto'], ['diff-category-title-align', state.categoryTitleAlign || 'auto'], ['diff-hero-style', state.heroStyle || 'auto'], ['diff-detail-layout', state.detailLayout || 'auto'], ['diff-font-style', state.fontStyle || 'auto'], ['diff-logo-style', state.logoStyle || 'mark-text'], ['diff-nav-layout', state.navLayout || 'split'], ['diff-nav-style', state.navStyle || 'glass'], ['diff-nav-height', state.navHeight || 'regular'], ['diff-grid-gap', state.gridGap || 'regular'], ['diff-button-style', state.buttonStyle || 'solid'], ['diff-button-size', state.buttonSize || 'auto'], ['diff-back-link-style', state.backLinkStyle || 'arrow'], ['diff-animation-enter', state.animationEnter || 'fade'], ['diff-transition-speed', state.transitionSpeed || 'normal']].forEach(function(pair) { var element = document.getElementById(pair[0]); if (element) element.value = pair[1]; });
         renderDifferentiatedPageControls();
         populateDifferentiatedDesigns();
         renderDifferentiatedVisualPickers();
         renderDifferentiatedCategories();
+        renderDifferentiatedHomeCategories();
     }
 
     function renderDifferentiatedPageControls() {
@@ -989,6 +990,15 @@ import './differentiated-builder.js?v=20260914-v101-48';
                 input.checked = pair[1].indexOf(input.value) !== -1;
             });
         });
+    }
+
+    function saveDifferentiatedCategoryOverride(state, category, patch) {
+        var overrides = Array.isArray(state.categoryOverrides) ? state.categoryOverrides.slice() : [];
+        var position = overrides.findIndex(function(item) { return item && item.slug === category.slug; });
+        var current = position === -1 ? { slug: category.slug, name: category.name, icon: '' } : Object.assign({}, overrides[position]);
+        Object.assign(current, patch || {});
+        if (position === -1) overrides.push(current); else overrides[position] = current;
+        state.categoryOverrides = overrides;
     }
 
     function renderDifferentiatedCategories() {
@@ -1011,14 +1021,6 @@ import './differentiated-builder.js?v=20260914-v101-48';
             if (choices.indexOf(active) === -1) choices.unshift(active);
             return { active: active, choices: choices.length ? choices : ['📌', '✦', '◆', '●', '■', '▲'] };
         }
-        function saveOverride(category, patch) {
-            var overrides = Array.isArray(state.categoryOverrides) ? state.categoryOverrides.slice() : [];
-            var position = overrides.findIndex(function(item) { return item && item.slug === category.slug; });
-            var current = position === -1 ? { slug: category.slug, name: category.name, icon: '' } : Object.assign({}, overrides[position]);
-            Object.assign(current, patch || {});
-            if (position === -1) overrides.push(current); else overrides[position] = current;
-            state.categoryOverrides = overrides;
-        }
         target.innerHTML = '<p class="diff-auto-category-title">已识别的导航分类</p>' + (visible.length ? '<p class="diff-auto-category-help">分类来自本次数据源；可在此修改导航显示名称与图标，链接和文章归属保持不变。</p>' + visible.map(function(category, index) {
             var icons = iconChoices(category, index);
             return '<div class="category-config-item diff-category-config-item" role="listitem"><div class="cat-icon-picker"><button type="button" class="cat-icon-trigger" aria-label="选择第 ' + (index + 1) + ' 个分类图标" aria-expanded="false">' + escapeHtml(icons.active) + '</button><div class="cat-icon-menu" role="listbox" aria-label="分类图标选项">' + icons.choices.map(function(icon) { return '<button type="button" class="cat-icon-option' + (icons.active === icon ? ' selected' : '') + '" role="option" aria-selected="' + (icons.active === icon ? 'true' : 'false') + '" data-diff-category-icon="' + escapeHtml(icon) + '" data-diff-category-slug="' + escapeHtml(category.slug) + '">' + escapeHtml(icon) + '</button>'; }).join('') + '</div></div><input type="text" class="cat-name-input" value="' + escapeHtml(category.name) + '" maxlength="64" aria-label="第 ' + (index + 1) + ' 个分类名称" data-diff-category-name data-diff-category-slug="' + escapeHtml(category.slug) + '"><output class="diff-category-record-count" aria-label="' + category.count + ' 篇文章">' + category.count + ' 篇</output></div>';
@@ -1027,7 +1029,7 @@ import './differentiated-builder.js?v=20260914-v101-48';
             input.addEventListener('input', function() {
                 var category = config.categories.find(function(item) { return item.slug === input.dataset.diffCategorySlug; });
                 if (!category) return;
-                saveOverride(category, { name: input.value });
+                saveDifferentiatedCategoryOverride(state, category, { name: input.value });
                 updatePreview();
             });
         });
@@ -1047,8 +1049,9 @@ import './differentiated-builder.js?v=20260914-v101-48';
                 event.stopPropagation();
                 var category = config.categories.find(function(item) { return item.slug === button.dataset.diffCategorySlug; });
                 if (!category) return;
-                saveOverride(category, { icon: button.dataset.diffCategoryIcon });
+                saveDifferentiatedCategoryOverride(state, category, { icon: button.dataset.diffCategoryIcon });
                 renderDifferentiatedCategories();
+                renderDifferentiatedHomeCategories();
                 updatePreview();
             });
         });
@@ -1061,6 +1064,41 @@ import './differentiated-builder.js?v=20260914-v101-48';
             });
             appState._diffCategoryPickerBound = true;
         }
+    }
+
+    function renderDifferentiatedHomeCategories() {
+        var target = document.getElementById('diff-home-category-list');
+        var settings = document.getElementById('diff-home-category-settings');
+        var toggle = document.getElementById('diff-home-category-layout');
+        if (!target || typeof DifferentiatedBuilder === 'undefined') return;
+        var state = appState.differentiated;
+        if (toggle) toggle.checked = state.homeCategoryLayout === true;
+        if (settings) settings.hidden = state.homeCategoryLayout !== true;
+        if (state.homeCategoryLayout !== true) { target.innerHTML = ''; return; }
+        var config = DifferentiatedBuilder.buildConfig({ data: appState.data || [], differentiated: state, differentiatedPackage: appState.differentiatedPackage || {} }, { siteType: state.siteType || 'editorial' });
+        var maximum = Math.max(2, Math.min(6, config.categories.length || 6));
+        var limit = Math.max(2, Math.min(maximum, Number(state.homeCategoryLimit) || 4));
+        state.homeCategoryLimit = limit;
+        var slider = document.getElementById('diff-home-category-limit');
+        var value = document.getElementById('diff-home-category-limit-value');
+        if (slider) { slider.min = '2'; slider.max = String(maximum); slider.value = String(limit); }
+        if (value) value.textContent = String(limit);
+        var visible = config.categories.slice(0, limit);
+        target.innerHTML = '<p class="diff-auto-category-title">首页分类与卡片数量</p>' + (visible.length ? '<p class="diff-auto-category-help">每个分类只展示设定数量的内容；其余内容仍保留在“查看全部”分类页中。</p>' + visible.map(function(category) {
+            var sourceCount = Math.max(1, Number(category.count) || 1);
+            var homeCount = Math.max(1, Math.min(sourceCount, Number(category.homeCount) || Math.min(6, sourceCount)));
+            return '<div class="diff-home-category-row" role="listitem"><span class="diff-home-category-name">' + escapeHtml((category.icon ? category.icon + ' ' : '') + category.name) + '<small>数据源共 ' + sourceCount + ' 条</small></span><label>首页卡片<input type="number" min="1" max="' + sourceCount + '" value="' + homeCount + '" inputmode="numeric" aria-label="' + escapeHtml(category.name) + ' 在首页显示的卡片数量" data-diff-home-category-count data-diff-category-slug="' + escapeHtml(category.slug) + '"></label></div>';
+        }).join('') : '<p class="diff-auto-category-empty">上传并识别数据后，可在此安排首页分类与卡片数量。</p>');
+        target.querySelectorAll('[data-diff-home-category-count]').forEach(function(input) {
+            input.addEventListener('input', function() {
+                var category = config.categories.find(function(item) { return item.slug === input.dataset.diffCategorySlug; });
+                if (!category) return;
+                var count = Math.max(1, Math.min(Number(category.count) || 1, Number(input.value) || 1));
+                input.value = String(count);
+                saveDifferentiatedCategoryOverride(state, category, { homeCount: count });
+                updatePreview();
+            });
+        });
     }
 
     function renderDifferentiatedVisualPickers() {
@@ -1131,7 +1169,9 @@ import './differentiated-builder.js?v=20260914-v101-48';
         appState.differentiated.homeIntro = ['compact', 'hidden'].indexOf(design.home_intro || design.hero_style) !== -1 ? (design.home_intro || design.hero_style) : 'compact';
         appState.differentiated.featuredCard = design.featured_card === 'standard' ? 'standard' : 'highlight';
         appState.differentiated.navCategoryLimit = [2, 3, 4, 5, 6].indexOf(Number(design.nav_category_limit || design.category_limit)) !== -1 ? Number(design.nav_category_limit || design.category_limit) : 4;
-        appState.differentiated.categoryOverrides = Array.isArray(design.category_overrides || design.categories) ? (design.category_overrides || design.categories).map(function(category) { category = category && typeof category === 'object' ? category : {}; return { slug: String(category.slug || ''), name: String(category.name || ''), icon: String(category.icon || '') }; }).filter(function(category) { return category.slug; }) : [];
+        appState.differentiated.homeCategoryLayout = design.home_category_layout === true || design.group_home_categories === true || design.home_category_layout === 'true';
+        appState.differentiated.homeCategoryLimit = [2, 3, 4, 5, 6].indexOf(Number(design.home_category_limit)) !== -1 ? Number(design.home_category_limit) : 4;
+        appState.differentiated.categoryOverrides = Array.isArray(design.category_overrides || design.categories) ? (design.category_overrides || design.categories).map(function(category) { category = category && typeof category === 'object' ? category : {}; return { slug: String(category.slug || ''), name: String(category.name || ''), icon: String(category.icon || ''), homeCount: Number(category.home_count || category.homeCount) || undefined }; }).filter(function(category) { return category.slug; }) : [];
         appState.differentiated.contactLayout = ['direct', 'form', 'split'].indexOf(design.contact_layout || design.contact_template) !== -1 ? (design.contact_layout || design.contact_template) : 'split';
         appState.differentiated.contactFields = Array.isArray(design.contact_fields) ? design.contact_fields.filter(function(field, index, fields) { return ['name', 'email', 'subject', 'message'].indexOf(field) !== -1 && fields.indexOf(field) === index; }) : ['name', 'email', 'subject', 'message'];
         appState.differentiated.footerStyle = ['simple', 'detailed'].indexOf(design.footer_style) !== -1 ? design.footer_style : 'simple';
@@ -1201,6 +1241,8 @@ import './differentiated-builder.js?v=20260914-v101-48';
         appState.differentiated.homeIntro = 'compact';
         appState.differentiated.featuredCard = 'highlight';
         appState.differentiated.navCategoryLimit = 4;
+        appState.differentiated.homeCategoryLayout = false;
+        appState.differentiated.homeCategoryLimit = 4;
         appState.differentiated.categoryOverrides = [];
         appState.differentiated.contactLayout = 'split';
         appState.differentiated.contactFields = ['name', 'email', 'subject', 'message'];
@@ -1245,7 +1287,7 @@ import './differentiated-builder.js?v=20260914-v101-48';
 
     function initDifferentiatedControls() {
         if (typeof DifferentiatedBuilder === 'undefined') return;
-        var controls = { 'diff-site-type': 'siteType', 'diff-vertical': 'vertical', 'diff-audience': 'audience', 'diff-scope': 'scope', 'diff-base-url': 'baseUrl', 'diff-contact-email': 'contactEmail', 'diff-contact-layout': 'contactLayout', 'diff-footer-style': 'footerStyle', 'diff-design-family': 'designFamily', 'diff-seed': 'seed', 'diff-site-title': 'siteTitle', 'diff-brand-mark': 'brandMark', 'diff-typography': 'typography', 'diff-config-design-family': 'designFamily', 'diff-config-seed': 'seed', 'diff-card-alignment': 'cardAlignment', 'diff-home-intro': 'homeIntro', 'diff-featured-card': 'featuredCard', 'diff-nav-category-limit': 'navCategoryLimit', 'diff-summary-mode': 'summaryMode', 'diff-tone': 'tone', 'diff-content-density': 'contentDensity', 'diff-card-radius': 'cardRadius', 'diff-card-hover': 'cardHover', 'diff-card-columns': 'cardColumns', 'diff-category-card-columns': 'categoryCardColumns', 'diff-card-view-mode': 'cardViewMode', 'diff-card-border': 'cardBorder', 'diff-card-spacing': 'cardSpacing', 'diff-card-excerpt-lines': 'cardExcerptLines', 'diff-card-image-height': 'cardImageHeight', 'diff-cover-fit': 'coverFit', 'diff-card-height': 'cardHeight', 'diff-content-max-width': 'contentMaxWidth', 'diff-meta-bg': 'metaBg', 'diff-detail-img-style': 'detailImgStyle', 'diff-category-title-style': 'categoryTitleStyle', 'diff-category-title-align': 'categoryTitleAlign', 'diff-hero-style': 'heroStyle', 'diff-detail-layout': 'detailLayout', 'diff-font-style': 'fontStyle', 'diff-logo-style': 'logoStyle', 'diff-nav-layout': 'navLayout', 'diff-nav-style': 'navStyle', 'diff-nav-height': 'navHeight', 'diff-grid-gap': 'gridGap', 'diff-button-style': 'buttonStyle', 'diff-button-size': 'buttonSize', 'diff-back-link-style': 'backLinkStyle', 'diff-animation-enter': 'animationEnter', 'diff-transition-speed': 'transitionSpeed' };
+        var controls = { 'diff-site-type': 'siteType', 'diff-vertical': 'vertical', 'diff-audience': 'audience', 'diff-scope': 'scope', 'diff-base-url': 'baseUrl', 'diff-contact-email': 'contactEmail', 'diff-contact-layout': 'contactLayout', 'diff-footer-style': 'footerStyle', 'diff-design-family': 'designFamily', 'diff-seed': 'seed', 'diff-site-title': 'siteTitle', 'diff-brand-mark': 'brandMark', 'diff-typography': 'typography', 'diff-config-design-family': 'designFamily', 'diff-config-seed': 'seed', 'diff-card-alignment': 'cardAlignment', 'diff-home-intro': 'homeIntro', 'diff-featured-card': 'featuredCard', 'diff-nav-category-limit': 'navCategoryLimit', 'diff-home-category-limit': 'homeCategoryLimit', 'diff-summary-mode': 'summaryMode', 'diff-tone': 'tone', 'diff-content-density': 'contentDensity', 'diff-card-radius': 'cardRadius', 'diff-card-hover': 'cardHover', 'diff-card-columns': 'cardColumns', 'diff-category-card-columns': 'categoryCardColumns', 'diff-card-view-mode': 'cardViewMode', 'diff-card-border': 'cardBorder', 'diff-card-spacing': 'cardSpacing', 'diff-card-excerpt-lines': 'cardExcerptLines', 'diff-card-image-height': 'cardImageHeight', 'diff-cover-fit': 'coverFit', 'diff-card-height': 'cardHeight', 'diff-content-max-width': 'contentMaxWidth', 'diff-meta-bg': 'metaBg', 'diff-detail-img-style': 'detailImgStyle', 'diff-category-title-style': 'categoryTitleStyle', 'diff-category-title-align': 'categoryTitleAlign', 'diff-hero-style': 'heroStyle', 'diff-detail-layout': 'detailLayout', 'diff-font-style': 'fontStyle', 'diff-logo-style': 'logoStyle', 'diff-nav-layout': 'navLayout', 'diff-nav-style': 'navStyle', 'diff-nav-height': 'navHeight', 'diff-grid-gap': 'gridGap', 'diff-button-style': 'buttonStyle', 'diff-button-size': 'buttonSize', 'diff-back-link-style': 'backLinkStyle', 'diff-animation-enter': 'animationEnter', 'diff-transition-speed': 'transitionSpeed' };
         Object.keys(controls).forEach(function(id) {
             var element = document.getElementById(id);
             if (!element) return;
@@ -1254,8 +1296,15 @@ import './differentiated-builder.js?v=20260914-v101-48';
                 if (controls[id] === 'siteType' || controls[id] === 'designFamily') populateDifferentiatedDesigns();
                 if (controls[id] === 'seed') populateDifferentiatedCustomizer();
                 if (controls[id] === 'navCategoryLimit') renderDifferentiatedCategories();
+                if (controls[id] === 'homeCategoryLimit') { appState.differentiated.homeCategoryLayout = true; renderDifferentiatedHomeCategories(); }
                 updatePreview();
             });
+        });
+        var homeCategoryToggle = document.getElementById('diff-home-category-layout');
+        if (homeCategoryToggle) homeCategoryToggle.addEventListener('change', function() {
+            appState.differentiated.homeCategoryLayout = this.checked;
+            renderDifferentiatedHomeCategories();
+            updatePreview();
         });
         [['#diff-contact-fields-config', 'contactFields'], ['#diff-footer-links-config', 'footerLinks']].forEach(function(pair) {
             document.querySelectorAll(pair[0] + ' input[type="checkbox"]').forEach(function(input) {

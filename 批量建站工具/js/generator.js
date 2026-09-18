@@ -93,8 +93,30 @@ const Generator = (function() {
     };
 
     // ========== 生成 ad.js ==========
-    function generateAdJs(adPaths) {
+    function generateAdJs(adPaths, adPolicy) {
         var p = adPaths || {};
+        var runtimePolicy = adPolicy && adPolicy.outOfPage ? {
+            interstitial: {
+                home: adPolicy.outOfPage.interstitial ? adPolicy.outOfPage.interstitial.home !== false : true,
+                detail: !!(adPolicy.outOfPage.interstitial && adPolicy.outOfPage.interstitial.detail)
+            },
+            anchor: {
+                home: adPolicy.outOfPage.anchor ? adPolicy.outOfPage.anchor.home !== false : true,
+                detail: adPolicy.outOfPage.anchor ? adPolicy.outOfPage.anchor.detail !== false : true
+            }
+        } : null;
+        var runtimePolicySource = JSON.stringify(runtimePolicy)
+            .replace(/</g, '\\u003c')
+            .replace(/>/g, '\\u003e')
+            .replace(/&/g, '\\u0026');
+        var disabledPolicyComments = [];
+        if (runtimePolicy && adPolicy.writeDisabledComments !== false) {
+            ['interstitial', 'anchor'].forEach(function(kind) {
+                ['home', 'detail'].forEach(function(page) {
+                    if (!runtimePolicy[kind][page]) disabledPolicyComments.push('// AD_POLICY_DISABLED ' + kind + ' page=' + page + ' (广告路径保留)');
+                });
+            });
+        }
         return `const bannerPath1 = ${serializeForScript(p.bannerPath1 || '')};
 const bannerPath2 = ${serializeForScript(p.bannerPath2 || '')};
 const bannerPath3 = ${serializeForScript(p.bannerPath3 || '')};
@@ -102,11 +124,21 @@ const bannerPath4 = ${serializeForScript(p.bannerPath4 || '')};
 const interstitialPath = ${serializeForScript(p.interstitialPath || '')};
 const anchorPath = ${serializeForScript(p.anchorPath || '')};
 const analyticsID = ${serializeForScript(p.analyticsID || '')};
+${disabledPolicyComments.join('\n')}
 
 var bannerSlot1, bannerSlot2, bannerSlot3, bannerSlot4;
 var interstitialSlot, anchorSlot;
 
 var isIndex = (window.location.pathname === '/' || window.location.pathname === '/index.html');
+var isDetail = /\/(?:details?|articles?)\//i.test(window.location.pathname);
+const adPolicy = ${runtimePolicySource};
+
+function isAdPolicyEnabled(kind) {
+    if (!adPolicy) return kind === 'interstitial' ? isIndex : true;
+    if (isIndex) return !!adPolicy[kind].home;
+    if (isDetail) return !!adPolicy[kind].detail;
+    return false;
+}
 
 window.googletag = window.googletag || { cmd: [] };
 
@@ -168,7 +200,8 @@ googletag.cmd.push(function () {
         console.log("[Init] banner4 已定义（非延迟加载）");
     }
 
-    if (isIndex && interstitialPath) {
+    // AD_POLICY: 路径始终保留，只按首页/详情页策略决定是否定义插屏。
+    if (interstitialPath && isAdPolicyEnabled('interstitial')) {
         interstitialSlot = googletag.defineOutOfPageSlot(
             interstitialPath,
             googletag.enums.OutOfPageFormat.INTERSTITIAL
@@ -179,7 +212,8 @@ googletag.cmd.push(function () {
         }
     }
 
-    if (anchorPath) {
+    // AD_POLICY: 路径始终保留，只按首页/详情页策略决定是否定义锚点。
+    if (anchorPath && isAdPolicyEnabled('anchor')) {
         anchorSlot = googletag.defineOutOfPageSlot(
             anchorPath,
             googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR
@@ -3288,6 +3322,9 @@ if __name__ == '__main__':
     return {
         exportWebsite: exportWebsite,
         generatePreviewHtml: generatePreviewHtml,
-        buildConfig: buildConfig
+        buildConfig: buildConfig,
+        // 批量广告恢复与普通建站共用同一份模板，避免两套广告脚本随版本漂移。
+        generateAdJs: generateAdJs,
+        getAdTemplate: function(adId) { return AD_TEMPLATES[adId] || ''; }
     };
 })();

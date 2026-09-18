@@ -4,64 +4,67 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <meta name="theme-color" content="#f7f9fc">
-    <link rel="icon" type="image/svg+xml" href="assets/sitefoundry-icon.svg">
-    <link rel="stylesheet" href="css/tool.css?v=20260915-reuse-source-1">
+    <link rel="stylesheet" href="css/tool.css?v=20260918-finished-site-ads-1">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
     <script>if (!window.JSZip) document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');</script>
-    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </head>
 <body>
     <!-- 顶部标题栏 -->
     <header class="tool-header">
         <div class="header-content">
-            <div class="header-lockup">
-                <div class="header-brand">
-                    <img class="header-logo" src="assets/sitefoundry-logo.svg" width="64" height="64" alt="站点模块标识">
-                </div>
-                <div class="header-copy">
-                    <h1 class="header-title">批量资讯建站工具</h1>
-                    <p class="header-desc">从数据源到可部署网站。</p>
-                </div>
-            </div>
-            <div class="header-status" aria-label="当前工具状态">
-                <span class="header-status-dot" aria-hidden="true"></span>
-                <span>浏览器本地处理</span>
+            <span class="header-mark" aria-hidden="true">
+                <svg viewBox="0 0 32 32" focusable="false">
+                    <path d="M6 7.5h20v17H6z"></path>
+                    <path d="M6 12h20M11 12v12.5"></path>
+                    <circle cx="9" cy="9.75" r=".9"></circle>
+                    <circle cx="12" cy="9.75" r=".9"></circle>
+                </svg>
+            </span>
+            <div class="header-copy">
+                <h1 class="header-title">批量资讯站建站工具</h1>
+                <p class="header-desc">5步生成静态站，也可为成品站加广告，并批量限制、调整或恢复广告</p>
             </div>
         </div>
-        <!-- 步骤进度条 -->
-        <nav class="step-progress" aria-label="建站步骤">
-            <button type="button" class="step-item active" data-step="1" aria-current="step">
-                <span class="step-circle">01</span>
-                <span class="step-copy"><span class="step-label">上传数据</span><span class="step-detail">导入来源</span></span>
-            </button>
-            <button type="button" class="step-item" data-step="2">
-                <span class="step-circle">02</span>
-                <span class="step-copy"><span class="step-label">识别领域</span><span class="step-detail">确定方向</span></span>
-            </button>
-            <button type="button" class="step-item" data-step="3">
-                <span class="step-circle">03</span>
-                <span class="step-copy"><span class="step-label">字段匹配</span><span class="step-detail">组织内容</span></span>
-            </button>
-            <button type="button" class="step-item" data-step="4">
-                <span class="step-circle">04</span>
-                <span class="step-copy"><span class="step-label">配置网站</span><span class="step-detail">编排页面</span></span>
-            </button>
-            <button type="button" class="step-item" data-step="5">
-                <span class="step-circle">05</span>
-                <span class="step-copy"><span class="step-label">导出网站</span><span class="step-detail">生成交付物</span></span>
-            </button>
-        </nav>
     </header>
+
+    <!-- 步骤进度条 -->
+    <nav class="step-progress" aria-label="建站步骤">
+        <button type="button" class="step-item active" data-step="1" aria-current="step">
+            <div class="step-circle">1</div>
+            <span class="step-label">上传数据</span>
+        </button>
+        <div class="step-line"></div>
+        <button type="button" class="step-item" data-step="2">
+            <div class="step-circle">2</div>
+            <span class="step-label">识别领域</span>
+        </button>
+        <div class="step-line"></div>
+        <button type="button" class="step-item" data-step="3">
+            <div class="step-circle">3</div>
+            <span class="step-label">字段匹配</span>
+        </button>
+        <div class="step-line"></div>
+        <button type="button" class="step-item" data-step="4">
+            <div class="step-circle">4</div>
+            <span class="step-label">配置网站</span>
+        </button>
+        <div class="step-line"></div>
+        <button type="button" class="step-item" data-step="5">
+            <div class="step-circle">5</div>
+            <span class="step-label">导出网站</span>
+        </button>
+    </nav>
 
     <!-- 主内容区域 -->
     <div class="main-wrapper">
 
         <!-- ========== Step 1: 上传数据 ========== -->
         <div class="step-panel active" id="step-1">
-            <h2 class="panel-title">选择建站方式并上传新数据</h2>
-            <p class="panel-desc">新站内容始终只来自本次上传的数据源；全部文件仅在当前浏览器中处理。</p>
+            <h2 class="panel-title">选择工作流并上传文件</h2>
+            <p class="panel-desc">建站模式使用新数据；成品站模式可为现有静态或 React 站加入广告；批量广告策略用于限制、调整或恢复广告。全部文件仅在当前浏览器中处理。</p>
 
             <section class="build-mode-selector" aria-labelledby="build-mode-title">
                 <div class="build-mode-header">
@@ -69,7 +72,7 @@
                         <span class="section-kicker">建站方式</span>
                         <h3 id="build-mode-title">选择接下来的工作流</h3>
                     </div>
-                    <p>三种模式都以本次上传的新数据为内容来源，可随时切换。</p>
+                    <p>新建、移植、成品站加广告与批量广告策略，可随时切换。</p>
                 </div>
                 <div class="build-mode-options">
                     <button type="button" class="build-mode-card is-selected" data-build-mode="normal" aria-pressed="true">
@@ -80,6 +83,16 @@
                     <button type="button" class="build-mode-card" data-build-mode="ad-migration" aria-pressed="false">
                         <span class="build-mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7.5h16v12H4zM4 7.5l2-3h12l2 3M8 11h8M12 11v5"/></svg></span>
                         <span class="build-mode-content"><span class="build-mode-title-line"><strong>广告移植建站</strong></span><small>新内容仍来自新数据源；仅提取旧站广告配置，并在导出前严格校验。</small><span class="build-mode-meta"><span>提取广告配置</span><span>严格校验</span></span></span>
+                        <span class="build-mode-selected-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3.2 3.2L17.5 8"/></svg></span>
+                    </button>
+                    <button type="button" class="build-mode-card build-mode-card-injection" data-build-mode="ad-injection" aria-pressed="false">
+                        <span class="build-mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5zM8 9h8M8 12h5M12 16v-3M9.5 14.5h5"/></svg></span>
+                        <span class="build-mode-content"><span class="build-mode-title-line"><strong>成品站加广告</strong><span class="build-mode-badge">NEW</span></span><small>给已完成的无广告送审站快速加入广告代码；自动区分静态站与 React 站。</small><span class="build-mode-meta"><span>域名自动配对</span><span>静态 / React</span></span></span>
+                        <span class="build-mode-selected-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3.2 3.2L17.5 8"/></svg></span>
+                    </button>
+                    <button type="button" class="build-mode-card build-mode-card-restoration" data-build-mode="ad-restoration" aria-pressed="false">
+                        <span class="build-mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 8h11a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4H8"/><path d="m8 12-4 4 4 4"/><path d="M8 4h8M12 4v4"/></svg></span>
+                        <span class="build-mode-content"><span class="build-mode-title-line"><strong>批量广告策略</strong><span class="build-mode-badge">升级</span></span><small>一套全局方案批量限制或恢复广告，并允许个别站点覆盖。</small><span class="build-mode-meta"><span>直接选择总目录</span><span>新目录输出</span></span></span>
                         <span class="build-mode-selected-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3.2 3.2L17.5 8"/></svg></span>
                     </button>
                     <button type="button" class="build-mode-card build-mode-card-premium" data-build-mode="differentiated" aria-pressed="false">
@@ -97,6 +110,102 @@
                     <input type="file" id="legacy-site-file" accept=".zip,.tar.gz,.tgz,application/zip,application/gzip" hidden>
                 </div>
                 <div class="migration-result pending" id="legacy-site-result">等待上传旧网站源码压缩包（.zip、.tar.gz 或 .tgz）。顶层额外目录也可识别。</div>
+            </section>
+
+            <section class="ad-injection-setup" id="ad-injection-setup" hidden aria-labelledby="ad-injection-title">
+                <div class="ad-injection-heading">
+                    <div><span class="section-kicker">保留审核站原内容</span><h3 id="ad-injection-title">成品站快速加入广告</h3></div>
+                    <span class="injection-local-badge">静态站 + React 自动识别</span>
+                </div>
+                <p class="ad-injection-intro">选择已经完成的无广告站点，再选择广告商提供的 TXT。工具按域名自动配对：静态多页面站直接写入广告位；React/Vite 站加入监听渲染与路由切换的广告运行时。源站不会被覆盖。</p>
+                <div class="ad-injection-file-grid">
+                    <article class="injection-file-card">
+                        <span class="injection-step" aria-hidden="true">1</span>
+                        <div><h4>读取成品站目录</h4><p>可选择单站目录，也可选择包含多个站点文件夹的总目录。</p></div>
+                        <button type="button" class="injection-pick-button" id="injection-directory-button">读取站点目录</button>
+                        <input type="file" id="injection-directory-input" webkitdirectory directory multiple hidden>
+                        <span class="injection-file-status" id="injection-directory-status">尚未选择</span>
+                    </article>
+                    <article class="injection-file-card">
+                        <span class="injection-step injection-step-muted" aria-hidden="true">或</span>
+                        <div><h4>选择成品站压缩包</h4><p>可多选 <code>.zip</code>、<code>.rar</code>、<code>.tar.gz</code> 或 <code>.tgz</code>。</p></div>
+                        <button type="button" class="injection-pick-button" id="injection-sites-button">选择站点包</button>
+                        <input type="file" id="injection-sites-input" accept=".zip,.rar,.tar.gz,.tgz,application/zip,application/vnd.rar,application/x-rar-compressed,application/gzip" multiple hidden>
+                        <span class="injection-file-status" id="injection-sites-status">尚未选择</span>
+                    </article>
+                    <article class="injection-file-card">
+                        <span class="injection-step" aria-hidden="true">2</span>
+                        <div><h4>选择广告代码 TXT</h4><p>一站一份时按广告单元域名自动配对；单站单代码可直接使用。</p></div>
+                        <button type="button" class="injection-pick-button" id="injection-code-button">选择广告代码</button>
+                        <input type="file" id="injection-code-input" accept=".txt,text/plain" multiple hidden>
+                        <span class="injection-file-status" id="injection-code-status">尚未选择</span>
+                    </article>
+                </div>
+                <div class="injection-progress" id="injection-scan-progress" hidden><div><span id="injection-scan-progress-fill"></span></div><p id="injection-scan-progress-text">正在识别…</p></div>
+                <section class="injection-mapping" id="injection-mapping" hidden aria-live="polite">
+                    <div class="injection-mapping-head"><div><span class="section-kicker">自动识别结果</span><h4 id="injection-mapping-title">已识别 0 个站点</h4></div><span>每个站点必须匹配一份有效广告代码</span></div>
+                    <div class="injection-mapping-list" id="injection-mapping-list"></div>
+                </section>
+                <div class="injection-rule-note"><strong>React 处理规则</strong><span>已构建 React 站和常见 Vite / CRA 工程会加入运行时广告挂载器；Next.js 等没有通用 HTML 入口的源码工程会要求先构建或静态导出，避免无效注入。</span></div>
+                <div class="injection-actions">
+                    <button type="button" class="injection-run-button" id="injection-run" disabled>加入完整广告并生成新目录</button>
+                    <div class="injection-progress" id="injection-progress" hidden><div><span id="injection-progress-fill"></span></div><p id="injection-progress-text">准备中…</p></div>
+                </div>
+                <p class="injection-action-help">默认加入普通建站的完整广告：banner1/2/3、广告代码中存在的插屏与锚点；所有输出写入新目录，原送审站保持不变。</p>
+                <div class="injection-result" id="injection-result" hidden aria-live="polite"></div>
+            </section>
+
+            <section class="ad-restoration-setup" id="ad-restoration-setup" hidden aria-labelledby="ad-restoration-title">
+                <div class="ad-restoration-heading">
+                    <div><span class="section-kicker">不覆盖源文件</span><h3 id="ad-restoration-title">批量广告策略编辑器</h3></div>
+                    <span class="restoration-local-badge">仅浏览器本地处理</span>
+                </div>
+                <p class="ad-restoration-intro">直接选择包含多个站点的总目录。工具从源站已有及注释代码识别 <code>banner1/2/3</code>、插屏和锚点，先套用一套全局方案，再按需覆盖个别站点；广告路径始终保留，无需上传额外 TXT。</p>
+                <div class="restoration-file-grid">
+                    <article class="restoration-file-card">
+                        <span class="restoration-step" aria-hidden="true">1</span>
+                        <div><h4>读取站点总目录</h4><p>推荐。新版 Chrome / Edge 会在本地读取目录，不上传文件，也不会触发批量上传确认。</p></div>
+                        <button type="button" class="restoration-pick-button" id="restoration-directory-button">读取总目录</button>
+                        <input type="file" id="restoration-directory-input" webkitdirectory directory multiple hidden>
+                        <span class="restoration-file-status" id="restoration-directory-status">尚未选择</span>
+                    </article>
+                    <article class="restoration-file-card">
+                        <span class="restoration-step restoration-step-muted" aria-hidden="true">或</span>
+                        <div><h4>选择站点压缩包</h4><p>兼容旧流程：可多选 <code>.zip</code>、<code>.rar</code>、<code>.tar.gz</code> 或 <code>.tgz</code>。</p></div>
+                        <button type="button" class="restoration-pick-button" id="restoration-sites-button">选择压缩包</button>
+                        <input type="file" id="restoration-sites-input" accept=".zip,.rar,.tar.gz,.tgz,application/zip,application/vnd.rar,application/x-rar-compressed,application/gzip" multiple hidden>
+                        <span class="restoration-file-status" id="restoration-sites-status">尚未选择</span>
+                    </article>
+                </div>
+                <div class="restoration-progress" id="restoration-scan-progress" hidden><div><span id="restoration-scan-progress-fill"></span></div><p id="restoration-scan-progress-text">正在扫描…</p></div>
+
+                <div class="ad-policy-workspace" id="ad-policy-workspace" hidden>
+                    <div class="ad-policy-toolbar">
+                        <div><span class="section-kicker">全局方案</span><h4>所有站点默认使用这套配置</h4><p>“完全恢复”就是普通建站上传广告代码后导出的默认效果。</p></div>
+                        <label>快速方案
+                            <select id="ad-policy-preset">
+                                <option value="restore">完全恢复默认广告</option>
+                                <option value="traffic-limit">强限流：首页广告位1改用 banner3</option>
+                                <option value="home-head-footer">首页头尾：banner1 + banner3</option>
+                                <option value="custom">自定义</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="ad-policy-editor" id="ad-policy-global-editor" data-policy-editor="global"></div>
+
+                    <div class="ad-policy-sites-head"><div><span class="section-kicker">站点清单</span><h4 id="ad-policy-sites-title">已识别 0 个站点</h4></div><span>需要不同配置时，开启“单站覆盖”</span></div>
+                    <div class="ad-policy-site-list" id="ad-policy-site-list"></div>
+                </div>
+
+                <div class="restoration-rule-note"><strong>输出方式</strong><span>默认让你选择一个目标目录，并在其中新建带时间的“广告策略处理”总目录；每个站点保持独立文件夹，源目录不会被覆盖。浏览器不支持目录写入时自动改为下载一个批量 ZIP。</span></div>
+                <div class="restoration-actions">
+                    <button type="button" class="restoration-run-button" id="restoration-run" disabled>应用策略并生成新总目录</button>
+                    <button type="button" class="restoration-code-export-button" id="restoration-export-code" disabled>仅识别并导出广告代码</button>
+                    <div class="restoration-progress" id="restoration-progress" hidden><div><span id="restoration-progress-fill"></span></div><p id="restoration-progress-text">准备中…</p></div>
+                </div>
+                <p class="restoration-action-help">处理前会校验每个页面的广告容器数量和脚本引用；失败站点不会写入输出目录。“仅识别”不修改站点，导出可复用的广告代码 TXT。</p>
+                <div class="restoration-result" id="restoration-result" hidden aria-live="polite"></div>
             </section>
 
             <section class="differentiated-setup" id="differentiated-setup" hidden aria-labelledby="differentiated-title">
@@ -117,24 +226,12 @@
                 </div>
                 <div class="package-contract"><strong>推荐压缩包结构</strong><code>manifest.json · design.json · legal.json · content/articles/ 或 content/tools/ · assets/ · provenance/</code><a href="docs/differentiated-site-package.md" target="_blank" rel="noopener">查看数据规范</a></div>
                 <div class="migration-result pending" id="differentiated-package-result" role="status">等待上传本次站点的数据源；普通 JSON 也可作为草稿导入。</div>
-                <div class="archive-progress differentiated-archive-progress" id="differentiated-archive-progress" hidden role="status" aria-live="polite">
-                    <div class="archive-progress-heading"><span id="differentiated-archive-progress-text">正在准备读取压缩包…</span><strong id="differentiated-archive-progress-percent">0%</strong></div>
-                    <div class="archive-progress-track" role="progressbar" aria-label="差异化压缩包解析进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="正在准备读取压缩包">
-                        <span class="archive-progress-fill" id="differentiated-archive-progress-fill"></span>
-                    </div>
-                </div>
             </section>
 
             <div class="upload-area" id="upload-area" aria-busy="false">
                 <div class="upload-icon">📁</div>
                 <p class="upload-text">拖拽文件到此处，或点击选择文件</p>
                 <p class="upload-hint" id="upload-hint">支持 .json 文件 或压缩包（.zip/.rar/.7z，含JSON+图片）</p>
-                <div class="archive-progress archive-progress-overlay" id="archive-progress" hidden role="status" aria-live="polite">
-                    <div class="archive-progress-heading"><span id="archive-progress-text">正在准备读取压缩包…</span><strong id="archive-progress-percent">0%</strong></div>
-                    <div class="archive-progress-track" role="progressbar" aria-label="压缩包解析进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="正在准备读取压缩包">
-                        <span class="archive-progress-fill" id="archive-progress-fill"></span>
-                    </div>
-                </div>
                 <input class="upload-file-input" type="file" id="file-input" accept=".json,.zip,.rar,.7z" aria-label="选择资讯数据文件" aria-describedby="upload-hint">
             </div>
 
@@ -853,20 +950,12 @@
                             <h4 class="group-title">首页与导航</h4>
                             <div class="config-item"><label for="diff-home-intro">首页信息区</label><select id="diff-home-intro"><option value="full">完整介绍（领域、标题、范围）</option><option value="compact">紧凑介绍（减少首屏高度）</option><option value="hidden">隐藏介绍，直接显示内容</option></select></div>
                             <div class="config-item"><label for="diff-featured-card">首篇内容呈现</label><select id="diff-featured-card"><option value="highlight">作为首屏重点卡片</option><option value="standard">与其它卡片同等呈现</option></select></div>
-                            <div class="config-item diff-category-count-control"><label for="diff-nav-category-limit">导航分类数量 <span class="range-value" id="diff-nav-category-limit-value">4</span></label><input type="range" id="diff-nav-category-limit" min="2" max="6" step="1" value="4" aria-describedby="diff-auto-category-list"></div>
+                            <div class="config-item diff-category-count-control"><label for="diff-nav-category-limit">分类数量 <span class="range-value" id="diff-nav-category-limit-value">4</span></label><input type="range" id="diff-nav-category-limit" min="2" max="6" step="1" value="4" aria-describedby="diff-auto-category-list"></div>
                             <div class="config-item"><label for="diff-nav-layout">导航栏布局</label><select id="diff-nav-layout"><option value="split">品牌左 / 导航右</option><option value="centered">导航居中</option><option value="left">左侧紧凑</option></select></div>
                             <div class="config-item"><label for="diff-nav-style">导航栏样式</label><select id="diff-nav-style"><option value="glass">玻璃固定栏（推荐）</option><option value="normal">常规导航</option><option value="transparent">透明导航</option><option value="dark-fixed">深色固定导航</option><option value="side-drawer">侧边抽屉导航</option><option value="bottom-fixed">底部固定导航</option><option value="underline">下划线导航</option><option value="accent">强调色标签</option><option value="minimal">极简固定栏</option></select></div>
                             <div class="config-item"><label for="diff-nav-height">导航栏高度</label><select id="diff-nav-height"><option value="compact">紧凑</option><option value="regular">标准（推荐）</option><option value="roomy">宽松</option><option value="40px">40px</option><option value="50px">50px</option><option value="60px">60px</option><option value="70px">70px</option><option value="80px">80px</option></select></div>
                             <div class="config-item"><label for="diff-summary-mode">首页卡片摘要</label><select id="diff-summary-mode"><option value="standard">标准摘要（4 行）</option><option value="brief">精简摘要（2 行）</option><option value="hidden">仅标题与操作链接</option></select></div>
                             <p class="group-hint">Home 固定在首位。拖动数量后可编辑对应分类的显示名称与图标；分类页链接和文章归属仍由当前数据源自动保持一致。</p><div id="diff-auto-category-list" class="diff-auto-category-list" role="list" aria-live="polite"></div>
-                            <div class="diff-home-category-control">
-                                <label class="diff-fixed-choice" for="diff-home-category-layout"><input type="checkbox" id="diff-home-category-layout" aria-controls="diff-home-category-settings">首页按分类分区展示</label>
-                                <p class="group-hint">开启后，首页会按数据源分类分区排列；每个分区可单独设定显示卡片数量，并保留“查看全部”入口。</p>
-                            </div>
-                            <div id="diff-home-category-settings" class="diff-home-category-settings" hidden>
-                                <div class="config-item diff-category-count-control"><label for="diff-home-category-limit">首页分类数量 <span class="range-value" id="diff-home-category-limit-value">4</span></label><input type="range" id="diff-home-category-limit" min="2" max="6" step="1" value="4" aria-describedby="diff-home-category-list"></div>
-                                <div id="diff-home-category-list" class="diff-auto-category-list diff-home-category-list" role="list" aria-live="polite"></div>
-                            </div>
                         </div>
                     </div>
                     <div class="diff-config-section" data-diff-section="style" hidden>
@@ -992,12 +1081,6 @@
 
         <!-- 底部导航按钮 -->
         <div class="step-nav">
-            <div class="step-nav-status" id="step-nav-status" role="status" aria-live="polite">
-                <span class="step-nav-status-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" focusable="false"><path d="M12 7v5l3.5 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"/></svg>
-                </span>
-                <span class="step-nav-status-copy"><strong id="step-nav-status-title">准备导入数据</strong><small id="step-nav-status-detail">选择 JSON 或压缩包后，即可进入下一步。</small></span>
-            </div>
             <button class="btn-prev" id="btn-prev" style="display:none;">← 上一步</button>
             <button type="button" class="btn-reupload" id="btn-reupload" hidden>
                 <svg class="btn-reupload-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -1014,9 +1097,9 @@
     <!-- 统一站内提示：替代浏览器原生弹窗，避免打断视觉体验。 -->
     <div class="notice-overlay" id="notice-overlay" hidden>
         <section class="notice-dialog" id="notice-dialog" role="alertdialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-message" tabindex="-1">
-            <div class="notice-symbol" aria-hidden="true">!</div>
+            <div class="notice-symbol" id="notice-symbol" aria-hidden="true">!</div>
             <div class="notice-content">
-                <p class="notice-eyebrow">需要处理</p>
+                <p class="notice-eyebrow" id="notice-eyebrow">需要处理</p>
                 <h2 id="notice-title">操作提示</h2>
                 <p id="notice-message"></p>
             </div>
@@ -1029,11 +1112,12 @@
     </div>
 
     <!-- JS脚本（顺序加载） -->
-    <script src="js/data.js?v=20260915-template-library-1"></script>
+    <script src="js/data.js?v=20260913-domain-blueprints-6"></script>
     <script src="js/domain.js"></script>
     <script src="js/ad-migration.js?v=20260912-ad-code-auto-import-1"></script>
-    <script type="module" src="js/rar-import.js?v=20260915-lazy-archive-runtime-1"></script>
-    <script src="js/generator.js?v=20260915-visible-ad-slots-2"></script>
-    <script type="module" src="js/app.js?v=20260915-industrial-catalog-1"></script>
+    <script type="module" src="js/rar-import.js?v=20260912-vite-module-fix-4"></script>
+    <script src="js/generator.js?v=20260918-finished-site-ads-1"></script>
+    <script src="js/ad-restoration.js?v=20260918-rar-ad-archives-1"></script>
+    <script type="module" src="js/app.js?v=20260918-rar-ad-archives-1"></script>
 </body>
 </html>

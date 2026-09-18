@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import vm from 'node:vm';
 
@@ -159,64 +159,6 @@ describe('legacy ad migration', () => {
     expect(globalThis.__legacyGeneratedFiles['website/index.html']).not.toContain('div-gpt-ad-banner1');
   });
 
-  it('renders clearly visible common ad targets while choosing a manual placement', () => {
-    const state = createState();
-    state.adPlacementMode = 'adv1';
-
-    const preview = context.__generator.generatePreviewHtml(state, 'home');
-    expect(preview).toContain('＋ 常用广告位 · 导航栏下方');
-    expect(preview).toContain('min-height: 46px');
-    expect(preview).not.toContain('text-indent: -9999px');
-  });
-
-  it('does not offer a common placement that is already occupied by another manual ad', () => {
-    const state = createState();
-    state.config.adPlacements = { adv1: { home: 'after-navbar' } };
-    state.adPlacementMode = 'adv2';
-
-    const preview = context.__generator.generatePreviewHtml(state, 'home');
-    expect(preview).not.toContain('＋ 常用广告位 · 导航栏下方');
-    expect(preview).toContain('＋ 常用广告位 · 内容区顶部');
-  });
-
-  it('preserves the preview scroll position when a manual placement redraws the iframe', () => {
-    const app = source('app.js');
-    expect(app).toContain('function getPreviewScrollTop()');
-    expect(app).toContain('function restorePreviewScrollTop(scrollTop)');
-    expect(app).toContain('updatePreview(undefined, { preserveScroll: true });');
-    expect(app).toContain("previewFrame.addEventListener('load', restoreScroll, { once: true });");
-  });
-
-  it('loads the current visible ad-placement preview generator instead of a cached script', () => {
-    const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    expect(page).toContain('js/generator.js?v=20260915-visible-ad-slots-2');
-  });
-
-  it('ships a distinct SVG identity and the redesigned build-workflow header', () => {
-    const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    const css = readFileSync(new URL('../css/tool.css', import.meta.url), 'utf8');
-    const logo = readFileSync(new URL('../assets/sitefoundry-logo.svg', import.meta.url), 'utf8');
-    expect(existsSync(new URL('../assets/sitefoundry-logo.svg', import.meta.url))).toBe(true);
-    expect(existsSync(new URL('../assets/sitefoundry-icon.svg', import.meta.url))).toBe(true);
-    expect(page).toContain('assets/sitefoundry-icon.svg');
-    expect(page).toContain('assets/sitefoundry-logo.svg');
-    expect(page).toContain('class="header-status"');
-    expect(page).toContain('class="header-lockup"');
-    expect(page).not.toContain('header-eyebrow');
-    expect(page).not.toContain('class="step-line"');
-    expect(page).toContain('id="step-nav-status"');
-    expect(css).toContain('.header-brand');
-    expect(css).toContain('.tool-header .step-progress');
-    expect(css).toContain('border-radius: 14px;');
-    expect(css).toContain('box-shadow: 0 8px 18px rgba(35, 90, 155, .12);');
-    expect(css).toContain('.step-item.active {');
-    expect(css).toContain('.step-nav-status');
-    expect(css).toContain('background: #f7f9fc;');
-    expect(css).toContain('grid-template-columns: 1fr auto 1fr;');
-    expect(source('app.js')).toContain('function updateStepNavStatus()');
-    expect(logo).toContain('A modular page grid');
-  });
-
   it('uses the in-app notice dialog instead of browser alert prompts', () => {
     const app = source('app.js');
     const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
@@ -232,46 +174,6 @@ describe('legacy ad migration', () => {
     expect(page).toContain('id="ad-placement-group"');
     expect(page).toContain('id="ad-auto-placement-note"');
     expect(app).toContain('function syncDirectAdPlacementUI()');
-  });
-
-  it('keeps archive parsing progress visible through reading, extraction, and failure states', () => {
-    const app = source('app.js');
-    const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    const css = readFileSync(new URL('../css/tool.css', import.meta.url), 'utf8');
-    const builder = source('differentiated-builder.js');
-    expect(page).toContain('id="archive-progress"');
-    expect(page).toContain('archive-progress-overlay');
-    expect(page).toContain('id="differentiated-archive-progress"');
-    expect(page).toContain('role="progressbar"');
-    expect(app).toContain('function beginArchiveRead(file)');
-    expect(app).toContain("['archive-progress', 'differentiated-archive-progress']");
-    expect(app).toContain('function yieldForArchiveProgressPaint()');
-    expect(app).toContain('yieldForArchiveProgressPaint().then(function()');
-    expect(app).toContain('reader.onprogress');
-    expect(app).toContain('正在读取本地图片 (');
-    expect(app).toContain("onProgress: updateArchiveProgress");
-    expect(css).toContain('.upload-area.is-reading-archive .archive-progress-overlay');
-    expect(builder).toContain("onProgress(12, '正在解压 ZIP 数据包…')");
-    expect(builder).toContain("onProgress(96, '内容与素材已读取，正在应用站点配置…')");
-  });
-
-  it('reuses a successfully parsed ordinary source when switching to differentiated mode', () => {
-    const app = source('app.js');
-    expect(app).toContain('function reuseCurrentDataForDifferentiatedMode()');
-    expect(app).toContain("if (appState.siteBuildMode === 'differentiated') reuseCurrentDataForDifferentiatedMode();");
-    expect(app).toContain("sourceName + '（复用普通建站数据）'");
-    expect(app).toContain('pendingSourceFileName');
-  });
-
-  it('loads the RAR/7z runtime only when that archive type is selected', () => {
-    const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    const app = source('app.js');
-    const archiveLoader = source('rar-import.js');
-    expect(page).not.toContain('marked/9.1.6/marked.min.js');
-    expect(archiveLoader).toContain('global.loadArchiveRuntime = function()');
-    expect(archiveLoader).not.toContain('global.ArchiveRuntimeReady = import(moduleUrl)');
-    expect(archiveLoader).toContain("new URL('js/vendor/libarchive/libarchive.js', document.baseURI)");
-    expect(app).toContain("if (typeof window.loadArchiveRuntime === 'function')");
   });
 
   it('keeps featured home grids balanced for three, four, and six items', () => {

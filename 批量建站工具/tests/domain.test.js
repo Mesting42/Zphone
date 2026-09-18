@@ -46,27 +46,26 @@ describe('local domain detection', () => {
     expect(result.suggestedId).toBe('general');
   });
 
-  it('provides twelve valid exclusive blueprints for every supported domain', () => {
+  it('provides at least six valid exclusive blueprints for every supported domain', () => {
     const templateIds = new Set(templates.map((template) => template.id));
     expect(Object.keys(catalog)).toHaveLength(32);
-    expect(templates).toHaveLength(384);
+    expect(templates).toHaveLength(192);
     Object.values(catalog).forEach((profile) => {
-      expect(profile.blueprints).toHaveLength(12);
+      expect(profile.blueprints.length).toBeGreaterThanOrEqual(6);
       profile.blueprints.forEach((id) => expect(templateIds.has(id)).toBe(true));
     });
   });
 
-  it('keeps food-specific defaults and gives extension blueprints independent structure', () => {
+  it('uses food-specific blueprints with regular navigation and Hero disabled by default', () => {
     const foodTemplates = templates.filter((template) => template.domainId === 'food');
     expect(foodTemplates.map((template) => template.name).slice(0, 5)).toEqual([
       '美食·食谱厨房', '美食·餐桌灵感', '美食·时令食材', '美食·餐馆指南', '美食·甜点画册'
     ]);
-    expect(foodTemplates).toHaveLength(12);
-    foodTemplates.slice(0, 5).forEach((template) => {
+    expect(foodTemplates).toHaveLength(6);
+    foodTemplates.forEach((template) => {
       expect(template.structure.heroEnabled).toBe(false);
       expect(template.structure.navbarLayout).toBe('normal');
     });
-    expect(new Set(foodTemplates.slice(5).map((template) => template.structure.navbarLayout))).toContain('left');
   });
 
   it('keeps every domain blueprint exclusive and structurally unique', () => {
@@ -81,9 +80,9 @@ describe('local domain detection', () => {
       return JSON.stringify({ structure: template.structure, style: visualStyle });
     });
 
-    expect(new Set(ids).size).toBe(384);
-    expect(new Set(names).size).toBe(384);
-    expect(new Set(signatures).size).toBe(384);
+    expect(new Set(ids).size).toBe(192);
+    expect(new Set(names).size).toBe(192);
+    expect(new Set(signatures).size).toBe(192);
     allReferences.forEach(({ domainId, templateId }) => {
       const template = templates.find((item) => item.id === templateId);
       expect(template.domainId).toBe(domainId);

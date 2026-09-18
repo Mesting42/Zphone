@@ -1756,41 +1756,11 @@ const TEMPLATE_ARCHETYPES = [
         id: 'twilight', name: '暮色画廊', icon: '🌆', description: '紫色渐变、艺术图片和宽松节奏',
         structure: { heroEnabled: true, homeLayout: 'masonry', cardColumns: '3', cardViewMode: 'card', navbarLayout: 'normal', footerStyle: 'simple', metaLayout: 'grid', detailLayout: 'single' },
         style: { selectedStyle: 'twilight', fontStyle: 'modern', navbarStyle: 'transparent', logoStyle: 'gradient-text', cardBorder: 'none', cardRadius: '16px', cardHover: 'glow', categoryTitleStyle: 'none', categoryTitleAlign: 'left', cardImageHeight: '260px', contentMaxWidth: '1200px', heroStyle: 'gradient', detailImgStyle: 'banner', btnStyle: 'pill', btnSize: 'large' }
-    },
-    {
-        id: 'swiss-index', name: '瑞士索引', icon: '📐', description: '严格网格、编号索引与高信息密度阅读',
-        structure: { heroEnabled: false, homeLayout: 'compact', cardColumns: '2', cardViewMode: 'list', navbarLayout: 'left', footerStyle: 'simple', metaLayout: 'list', detailLayout: 'single' },
-        style: { selectedStyle: 'porcelain', fontStyle: 'clean', navbarStyle: 'normal', logoStyle: 'boxed', cardBorder: 'thin', cardRadius: '0', cardHover: 'accent-line', categoryTitleStyle: 'left-accent', categoryTitleAlign: 'left', cardImageHeight: '140px', contentMaxWidth: '960px', heroStyle: 'minimal', detailImgStyle: 'float-left', btnStyle: 'outline', btnSize: 'small' }
-    },
-    {
-        id: 'news-broadsheet', name: '新闻大报', icon: '🗞️', description: '报纸式头条、分栏层级与强烈标题节奏',
-        structure: { heroEnabled: true, homeLayout: 'featured', cardColumns: '3', cardViewMode: 'card', navbarLayout: 'centered', footerStyle: 'detailed', metaLayout: 'tags', detailLayout: 'sidebar' },
-        style: { selectedStyle: 'newsprint', fontStyle: 'serif', navbarStyle: 'normal', logoStyle: 'text', cardBorder: 'double', cardRadius: '0', cardHover: 'title-underline', categoryTitleStyle: 'double', categoryTitleAlign: 'center', cardImageHeight: '200px', contentMaxWidth: '1280px', heroStyle: 'minimal', detailImgStyle: 'banner', btnStyle: 'square', btnSize: 'medium' }
-    },
-    {
-        id: 'archive-timeline', name: '时间档案', icon: '⏱️', description: '连续时间线、单列阅读与档案式元信息',
-        structure: { heroEnabled: false, homeLayout: 'compact', cardColumns: '1', cardViewMode: 'list', navbarLayout: 'left', footerStyle: 'detailed', metaLayout: 'list', detailLayout: 'single' },
-        style: { selectedStyle: 'denim', fontStyle: 'literary', navbarStyle: 'glass-sticky', logoStyle: 'text-icon', cardBorder: 'dashed', cardRadius: '0', cardHover: 'slide-up', categoryTitleStyle: 'dotted', categoryTitleAlign: 'left', cardImageHeight: '130px', contentMaxWidth: '900px', heroStyle: 'minimal', detailImgStyle: 'float-right', btnStyle: 'ghost', btnSize: 'small' }
-    },
-    {
-        id: 'photo-essay', name: '影像长卷', icon: '🎞️', description: '长幅图文、沉浸封面与连续叙事节奏',
-        structure: { heroEnabled: true, homeLayout: 'split', cardColumns: '1', cardViewMode: 'card', navbarLayout: 'normal', footerStyle: 'simple', metaLayout: 'grid', detailLayout: 'single' },
-        style: { selectedStyle: 'deepsea', fontStyle: 'elegant', navbarStyle: 'transparent', logoStyle: 'gradient-text', cardBorder: 'none', cardRadius: '0', cardHover: 'image-zoom', categoryTitleStyle: 'none', categoryTitleAlign: 'center', cardImageHeight: '320px', contentMaxWidth: '1180px', heroStyle: 'gradient', detailImgStyle: 'fullwidth', btnStyle: 'pill', btnSize: 'large' }
-    },
-    {
-        id: 'soft-gallery', name: '柔和展厅', icon: '🖼️', description: '留白展厅、圆润卡片与低干扰内容陈列',
-        structure: { heroEnabled: true, homeLayout: 'masonry', cardColumns: '3', cardViewMode: 'card', navbarLayout: 'centered', footerStyle: 'detailed', metaLayout: 'grid', detailLayout: 'single' },
-        style: { selectedStyle: 'ivorygold', fontStyle: 'rounded', navbarStyle: 'glass-sticky', logoStyle: 'text-icon', cardBorder: 'shadow', cardRadius: '28px', cardHover: 'scale', categoryTitleStyle: 'single', categoryTitleAlign: 'center', cardImageHeight: '240px', contentMaxWidth: '1120px', heroStyle: 'solid', detailImgStyle: 'centered', btnStyle: 'rounded', btnSize: 'medium' }
-    },
-    {
-        id: 'industrial-board', name: '工业看板', icon: '🏗️', description: '高密度看板、硬边框与快速扫描的信息层级',
-        structure: { heroEnabled: false, homeLayout: 'compact', cardColumns: '4', cardViewMode: 'card', navbarLayout: 'left', footerStyle: 'simple', metaLayout: 'tags', detailLayout: 'sidebar' },
-        style: { selectedStyle: 'slate', fontStyle: 'monospace', navbarStyle: 'dark-fixed', logoStyle: 'boxed', cardBorder: 'thick', cardRadius: '0', cardHover: 'none', categoryTitleStyle: 'left-accent', categoryTitleAlign: 'left', cardImageHeight: '120px', contentMaxWidth: '1400px', heroStyle: 'solid', detailImgStyle: 'banner', btnStyle: 'square', btnSize: 'small' }
     }
 ];
 
 // ========== 领域独占模板蓝图 ==========
-// 母版只用于生成阶段；应用实际使用的是下方按领域隔离的独立蓝图。
+// 20 种母版只用于生成阶段；应用实际使用的是下方 160 个独立蓝图。
 // 每个蓝图只有一个 domainId，ID、名称及最终结构/样式配置均不跨领域复用。
 const DOMAIN_TEMPLATE_SHORT_NAMES = {
     tech: '科技', game: '游戏', food: '美食', anime: '动漫', finance: '财经', health: '健康', travel: '旅行', sports: '体育',
@@ -1855,13 +1825,14 @@ Object.keys(DOMAIN_CATALOG).forEach(function(themeId, domainIndex) {
     var palette = DOMAIN_TEMPLATE_PALETTES[themeId];
     var mode = getDomainTemplateMode(themeId);
     var exclusiveIds = [];
-    // 每个领域均提供 12 套完整蓝图：原有 5 套加一套领域补充，并统一扩展六套
-    // 结构差异明显的版式。最终配置仍按领域生成，绝不会跨领域复用同一个模板实例。
-    ['swiss-index', 'news-broadsheet', 'archive-timeline', 'photo-essay', 'soft-gallery', 'industrial-board'].forEach(function(id) {
-        if (archetypeIds.indexOf(id) === -1) archetypeIds.push(id);
-    });
+    var primaryArchetype = TEMPLATE_ARCHETYPES.find(function(item) { return item.id === archetypeIds[0]; });
+
+    // Every detected vertical needs a sixth, independently selectable blueprint.
+    // Choose an archetype absent from the domain's original five so the existing
+    // field-aware compositions are preserved while the new option is still a
+    // genuine structural variant rather than a duplicate palette swap.
     TEMPLATE_ARCHETYPES.some(function(candidate) {
-        if (archetypeIds.length >= 12 || archetypeIds.indexOf(candidate.id) !== -1) return false;
+        if (archetypeIds.length >= 6 || archetypeIds.indexOf(candidate.id) !== -1) return false;
         archetypeIds.push(candidate.id);
         return true;
     });
@@ -1870,8 +1841,15 @@ Object.keys(DOMAIN_CATALOG).forEach(function(themeId, domainIndex) {
         var archetype = TEMPLATE_ARCHETYPES.find(function(item) { return item.id === archetypeId; });
         if (!archetype) return;
         var templateId = themeId + '-blueprint-' + String(variantIndex + 1).padStart(2, '0');
-        var serial = domainIndex * 12 + variantIndex;
+        var serial = domainIndex * 6 + variantIndex;
         var structure = Object.assign({}, archetype.structure);
+        if (variantIndex >= 5 && primaryArchetype) {
+            // The extension preserves the field-specific template family's
+            // navigation and Hero convention (for example food stays a
+            // normal-nav, no-Hero experience) while varying the card system.
+            structure.heroEnabled = primaryArchetype.structure.heroEnabled;
+            structure.navbarLayout = primaryArchetype.structure.navbarLayout;
+        }
         var style = Object.assign({}, archetype.style, {
             selectedStyle: palette[variantIndex % palette.length],
             fontStyle: mode.fonts[variantIndex % mode.fonts.length],

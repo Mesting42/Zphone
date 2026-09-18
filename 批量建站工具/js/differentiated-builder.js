@@ -29,7 +29,7 @@
             { id: 'archive-timeline', name: 'Archive Timeline', layout: 'timeline-ledger', tone: 'paper-olive', direction: 'chronological-archive' },
             { id: 'cinematic-report', name: 'Cinematic Report', layout: 'cinematic-strip', tone: 'ink-coral', direction: 'cinematic-story' },
             { id: 'soft-showcase', name: 'Soft Showcase', layout: 'soft-showcase', tone: 'cream-cobalt', direction: 'soft-structural' },
-            { id: 'industrial-board', name: 'Industrial Catalog', layout: 'industrial-board', tone: 'paper-blue', direction: 'industrial-catalog' }
+            { id: 'industrial-board', name: 'Industrial Board', layout: 'industrial-board', tone: 'slate-cyan', direction: 'industrial-brutalist' }
         ],
         tools: [
             { id: 'utility-workspace', name: 'Utility Workspace', layout: 'split-feature', tone: 'paper-blue', direction: 'technical-record' },
@@ -43,7 +43,7 @@
             { id: 'procedure-ledger', name: 'Procedure Ledger', layout: 'timeline-ledger', tone: 'paper-olive', direction: 'chronological-archive' },
             { id: 'guided-demo', name: 'Guided Demo', layout: 'cinematic-strip', tone: 'ink-lime', direction: 'cinematic-story' },
             { id: 'friendly-suite', name: 'Friendly Suite', layout: 'soft-showcase', tone: 'cream-cobalt', direction: 'soft-structural' },
-            { id: 'operations-board', name: 'Operations Catalog', layout: 'industrial-board', tone: 'paper-blue', direction: 'industrial-catalog' }
+            { id: 'operations-board', name: 'Operations Board', layout: 'industrial-board', tone: 'slate-cyan', direction: 'industrial-brutalist' }
         ],
         games: [
             { id: 'arcade-terminal', name: 'Arcade Terminal', layout: 'mosaic', tone: 'ink-lime', direction: 'visual-flow' },
@@ -57,7 +57,7 @@
             { id: 'campaign-log', name: 'Campaign Log', layout: 'timeline-ledger', tone: 'paper-olive', direction: 'chronological-archive' },
             { id: 'trailer-reel', name: 'Trailer Reel', layout: 'cinematic-strip', tone: 'ink-lime', direction: 'cinematic-story' },
             { id: 'indie-lounge', name: 'Indie Lounge', layout: 'soft-showcase', tone: 'cream-cobalt', direction: 'soft-structural' },
-            { id: 'tournament-board', name: 'Tournament Catalog', layout: 'industrial-board', tone: 'paper-blue', direction: 'industrial-catalog' }
+            { id: 'tournament-board', name: 'Tournament Board', layout: 'industrial-board', tone: 'slate-cyan', direction: 'industrial-brutalist' }
         ]
     };
 
@@ -497,8 +497,6 @@
     async function importZip(file, preferredType, options) {
         var Zip = getZipCtor(options);
         if (!Zip) throw new Error('ZIP 解析组件未加载。');
-        var onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : function () {};
-        onProgress(12, '正在解压 ZIP 数据包…');
         var zip = await Zip.loadAsync(file);
         var archiveFiles = zip && zip.files && typeof zip.files === 'object' ? zip.files : null;
         if (!archiveFiles) throw new Error('ZIP 解析结果不完整。请刷新页面后重新选择该压缩包。');
@@ -506,7 +504,6 @@
             return { sourcePath: sourcePath, path: normalizeAssetPath(sourcePath) };
         });
         if (entries.some(function (entry) { return !entry.path; })) throw new Error('压缩包包含不安全的文件路径。');
-        onProgress(32, '压缩包已解压，正在检查文件结构…');
         var entryByPath = {};
         entries.forEach(function (entry) {
             if (entryByPath[entry.path]) throw new Error('压缩包包含规范化后重复的文件路径：' + entry.path);
@@ -517,7 +514,6 @@
         var jsonPaths = safePaths.filter(function (path) { return /\.json$/i.test(path); });
         var parsed = {};
         for (var i = 0; i < jsonPaths.length; i += 1) {
-            onProgress(34 + Math.round((i + 1) / Math.max(1, jsonPaths.length) * 26), '正在解析 JSON 文件 (' + (i + 1) + '/' + jsonPaths.length + ')…');
             try { parsed[jsonPaths[i]] = JSON.parse(await zip.files[entryByPath[jsonPaths[i]].sourcePath].async('string')); }
             catch (error) { throw new Error('JSON 解析失败（' + jsonPaths[i] + '）：' + error.message); }
         }
@@ -544,14 +540,12 @@
             }
         }
         if (!records.length) throw new Error('压缩包中没有找到 ' + type + ' 数据列表。');
-        onProgress(64, '正在整理内容与素材清单…');
 
         var localImages = {};
         var packageAssets = {};
         var localGameFiles = {};
         var assetPaths = safePaths.filter(function (path) { return !/\.json$/i.test(path); });
         for (var a = 0; a < assetPaths.length; a += 1) {
-            onProgress(64 + Math.round((a + 1) / Math.max(1, assetPaths.length) * 32), '正在读取素材 (' + (a + 1) + '/' + assetPaths.length + ')…');
             var assetPath = assetPaths[a];
             var sourceEntry = entryByPath[assetPath];
             var blob = await zip.files[sourceEntry.sourcePath].async('blob');
@@ -564,7 +558,6 @@
         // draft can be imported again without silently losing page templates.
         var importedDesign = named('design.json');
         if (!importedDesign || !Object.keys(importedDesign).length) importedDesign = named('design-settings.json');
-        onProgress(96, '内容与素材已读取，正在应用站点配置…');
         return {
             siteType: type,
             data: records,
@@ -784,12 +777,6 @@
         var featuredCard = (options.featuredCard || state.featuredCard || firstValue(packageData.design || {}, ['featured_card'], 'highlight')) === 'standard' ? 'standard' : 'highlight';
         var requestedCategoryLimit = Number(options.navCategoryLimit || state.navCategoryLimit || firstValue(packageData.design || {}, ['nav_category_limit', 'category_limit'], 4));
         var navCategoryLimit = [2, 3, 4, 5, 6].indexOf(requestedCategoryLimit) !== -1 ? requestedCategoryLimit : 4;
-        var suppliedHomeCategoryLayout = options.homeCategoryLayout;
-        if (suppliedHomeCategoryLayout === undefined) suppliedHomeCategoryLayout = state.homeCategoryLayout;
-        if (suppliedHomeCategoryLayout === undefined) suppliedHomeCategoryLayout = firstValue(packageData.design || {}, ['home_category_layout', 'group_home_categories'], false);
-        var homeCategoryLayout = suppliedHomeCategoryLayout === true || suppliedHomeCategoryLayout === 1 || suppliedHomeCategoryLayout === '1' || suppliedHomeCategoryLayout === 'true';
-        var requestedHomeCategoryLimit = Number(options.homeCategoryLimit || state.homeCategoryLimit || firstValue(packageData.design || {}, ['home_category_limit'], 4));
-        var homeCategoryLimit = [2, 3, 4, 5, 6].indexOf(requestedHomeCategoryLimit) !== -1 ? requestedHomeCategoryLimit : 4;
         // Reuse the ordinary builder's page controls without changing the
         // differentiated site's data-derived routes or content quality rules.
         var contactLayout = chooseValue(options.contactLayout || state.contactLayout || firstValue(packageData.design || {}, ['contact_layout', 'contact_template'], 'split'), ['direct', 'form', 'split'], 'split');
@@ -835,18 +822,15 @@
             if (!slug) return;
             categoryOverridesBySlug[slug] = {
                 name: stripMarkup(override.name || '').slice(0, 64),
-                icon: String(override.icon || '').trim().slice(0, 12),
-                homeCount: Number(override.homeCount)
+                icon: String(override.icon || '').trim().slice(0, 12)
             };
         });
         categories = categories.map(function (category) {
             var override = categoryOverridesBySlug[category.slug];
-            var sourceCount = Math.max(1, Number(category.count) || 1);
-            var requestedHomeCount = Number(override && override.homeCount);
+            if (!override) return category;
             return Object.assign({}, category, {
-                name: (override && override.name) || category.name,
-                icon: (override && override.icon) || '',
-                homeCount: requestedHomeCount >= 1 ? Math.min(sourceCount, Math.floor(requestedHomeCount)) : Math.min(6, sourceCount)
+                name: override.name || category.name,
+                icon: override.icon || ''
             });
         });
         var fingerprint = [type, domainId, design.id, design.layout, design.direction || '', design.domainMode || '', design.tone, homeIntro, summaryMode, contentDensity, stableHash(seed)].join(':');
@@ -904,8 +888,6 @@
             themePalette: themePalette,
             featuredCard: featuredCard,
             navCategoryLimit: navCategoryLimit,
-            homeCategoryLayout: homeCategoryLayout,
-            homeCategoryLimit: homeCategoryLimit,
             contactLayout: contactLayout,
             contactFields: contactFields,
             footerStyle: footerStyle,
@@ -1204,19 +1186,7 @@
         var cards = config.items.map(function (item, index) { return card(config, item, config.featuredCard === 'highlight' && index === 0); }).join('');
         var counts = config.type === 'editorial' ? config.items.length + ' articles loaded' : config.type === 'tools' ? config.items.length + ' tool records loaded' : config.items.length + ' game records loaded';
         var intro = config.homeIntro === 'hidden' ? '' : '<section class="publication-intro"><p class="kicker">' + escapeHtml(config.vertical) + '</p><h1>' + escapeHtml(config.siteTitle) + '</h1><p class="dek">' + escapeHtml(config.scope) + '</p><div class="edition-meta"><span>' + escapeHtml(counts) + '</span><span>For ' + escapeHtml(config.audience) + '</span><span>Design: ' + escapeHtml(config.design.name) + '</span></div></section>';
-        var groupedSections = '';
-        if (config.homeCategoryLayout) {
-            groupedSections = config.categories.slice(0, config.homeCategoryLimit || 4).map(function(category) {
-                var selected = config.items.filter(function(item) { return item.categorySlug === category.slug; }).slice(0, Math.max(1, Number(category.homeCount) || 1));
-                if (!selected.length) return '';
-                var categoryCards = selected.map(function(item) { return card(config, item, false); }).join('');
-                var categoryLabel = (category.icon ? category.icon + ' ' : '') + category.name;
-                var moreLink = selected.length < category.count ? '<a class="home-category-more" href="sections/' + escapeHtml(category.slug) + '/index.html">View all <span aria-hidden="true">→</span></a>' : '';
-                return '<section class="home-category-section" data-home-category="' + escapeHtml(category.slug) + '" aria-labelledby="home-category-' + escapeHtml(category.slug) + '"><header class="home-category-heading"><div><p class="kicker">Section</p><h2 id="home-category-' + escapeHtml(category.slug) + '">' + escapeHtml(categoryLabel) + '</h2></div>' + moreLink + '</header><div class="content-grid home-category-grid" aria-label="' + escapeHtml(category.name) + ' content">' + categoryCards + '</div></section>';
-            }).join('');
-        }
-        var content = groupedSections ? '<div class="home-category-sections">' + groupedSections + '</div>' : '<section class="content-grid" aria-label="Latest content">' + cards + '</section>';
-        var body = intro + adBlock(config, 1) + content + adBlock(config, 2);
+        var body = intro + adBlock(config, 1) + '<section class="content-grid" aria-label="Latest content">' + cards + '</section>' + adBlock(config, 2);
         return shell(config, { title: config.siteTitle, description: config.scope, path: '', kind: 'website' }, body);
     }
 
@@ -1485,20 +1455,21 @@
             'html[data-layout="soft-showcase"] .content-card:last-child:nth-child(odd){display:grid;flex-basis:100%;grid-template-columns:minmax(280px,.8fr) minmax(0,1.2fr)}',
             'html[data-layout="soft-showcase"] .content-card:last-child:nth-child(odd) figure{height:100%;aspect-ratio:auto}',
 
-            /* Industrial catalog: a quiet, high-density reference system instead of a terminal screen. */
-            'html[data-layout="industrial-board"] body{background:var(--paper)}',
-            'html[data-layout="industrial-board"] .site-header{border-width:0 0 1px;border-radius:0;background:color-mix(in srgb,var(--surface) 90%,var(--paper));box-shadow:none}',
-            'html[data-layout="industrial-board"] .brand,html[data-layout="industrial-board"] .site-header nav{font-family:var(--font-body);letter-spacing:.01em}',
-            'html[data-layout="industrial-board"] .publication-intro{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(240px,.65fr);gap:clamp(24px,5vw,72px);align-items:end;padding:clamp(34px,6vw,76px) 0;border-bottom:1px solid var(--ink);background:transparent;box-shadow:none}',
-            'html[data-layout="industrial-board"] .publication-intro h1{max-width:10ch;font-size:clamp(3rem,7vw,6.4rem);font-weight:500;line-height:.94;letter-spacing:-.035em}',
-            'html[data-layout="industrial-board"] .publication-intro .dek{align-self:end;max-width:38ch;font-size:clamp(1rem,1.4vw,1.25rem);line-height:1.6}',
-            'html[data-layout="industrial-board"] .publication-intro .edition-meta{grid-column:2}',
-            'html[data-layout="industrial-board"] .content-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:clamp(16px,2.2vw,30px);padding:clamp(24px,4vw,48px) 0;background:transparent}',
-            'html[data-layout="industrial-board"] .content-card,html[data-layout="industrial-board"] .content-card.featured,html[data-layout="industrial-board"] .content-card:nth-child(n){display:flex;min-width:0;padding:0;border:1px solid color-mix(in srgb,var(--line) 86%,transparent);border-radius:12px;background:var(--surface);box-shadow:0 8px 24px color-mix(in srgb,var(--ink) 6%,transparent)}',
-            'html[data-layout="industrial-board"] .content-card figure{aspect-ratio:16/10;border:0;border-bottom:1px solid var(--line)}',
-            'html[data-layout="industrial-board"] .content-card .card-copy{flex:1;padding:clamp(18px,2vw,26px)}',
-            'html[data-layout="industrial-board"] .content-card h2{font-family:var(--font-display);font-size:clamp(1.25rem,1.75vw,1.72rem);font-weight:500;line-height:1.16;letter-spacing:-.02em}',
-            'html[data-layout="industrial-board"] .content-card .eyebrow{color:var(--accent);font-family:var(--font-body);font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}',
+            /* Industrial board: numbered modules, exposed grid and telemetry rhythm. */
+            'html[data-layout="industrial-board"] body{background-image:linear-gradient(color-mix(in srgb,var(--line) 35%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--line) 35%,transparent) 1px,transparent 1px);background-size:32px 32px}',
+            'html[data-layout="industrial-board"] .site-header{border:2px solid var(--ink);border-radius:0;background:var(--paper);box-shadow:7px 7px 0 var(--accent)}',
+            'html[data-layout="industrial-board"] .brand,html[data-layout="industrial-board"] .site-header nav,html[data-layout="industrial-board"] .publication-intro{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}',
+            'html[data-layout="industrial-board"] .publication-intro{display:grid;grid-template-columns:2fr 1fr;padding:clamp(24px,4vw,52px);border:2px solid var(--ink);background:var(--surface);box-shadow:10px 10px 0 var(--accent)}',
+            'html[data-layout="industrial-board"] .publication-intro h1{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:clamp(2.8rem,7vw,6.4rem);font-weight:800;line-height:.88;text-transform:uppercase}',
+            'html[data-layout="industrial-board"] .publication-intro .dek{align-self:end}',
+            'html[data-layout="industrial-board"] .content-grid{display:flex;flex-wrap:wrap;align-items:stretch;gap:2px;padding:2px;background:var(--ink);counter-reset:board}',
+            'html[data-layout="industrial-board"] .content-card,html[data-layout="industrial-board"] .content-card.featured,html[data-layout="industrial-board"] .content-card:nth-child(n){display:flex;flex:1 1 calc(33.333% - 2px);min-width:270px;padding:14px;border:0;border-radius:0;background:var(--surface);box-shadow:none;counter-increment:board}',
+            'html[data-layout="industrial-board"] .content-card figure{aspect-ratio:4/3;border:2px solid var(--ink)}',
+            'html[data-layout="industrial-board"] .content-card .card-copy{flex:1;padding:18px 2px 4px}',
+            'html[data-layout="industrial-board"] .content-card .card-copy:before{content:"MODULE_" counter(board,decimal-leading-zero);display:block;margin-bottom:14px;color:var(--accent);font:800 .7rem/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.14em}',
+            'html[data-layout="industrial-board"] .content-card h2{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:clamp(1.15rem,1.8vw,1.7rem);line-height:1.08;text-transform:uppercase}',
+            'html[data-layout="industrial-board"] .content-card:last-child:nth-child(3n+1){display:grid;flex-basis:100%;grid-template-columns:minmax(260px,38%) minmax(0,62%)}',
+            'html[data-layout="industrial-board"] .content-card:last-child:nth-child(3n+1) figure{height:100%;aspect-ratio:auto}',
 
             /* Domain composition modes alter information density and reading priority across the same layout. */
             'html[data-domain-mode="signal"] .publication-intro .edition-meta{order:-1}',
@@ -1523,9 +1494,9 @@
             'html[data-layout="swiss-index"] .content-card,html[data-layout="swiss-index"] .content-card.featured,html[data-layout="swiss-index"] .content-card:nth-child(n){min-width:300px}',
             'html[data-layout="broadsheet"] .content-card,html[data-layout="broadsheet"] .content-card.featured,html[data-layout="broadsheet"] .content-card:nth-child(n){flex-basis:46%}',
             'html[data-layout="timeline-ledger"] .content-card,html[data-layout="timeline-ledger"] .content-card.featured,html[data-layout="timeline-ledger"] .content-card:nth-child(n){grid-template-columns:72px minmax(190px,36%) minmax(0,1fr)}',
-            'html[data-layout="lead-grid"] .content-card:last-child:nth-child(even),html[data-layout="catalog-grid"] .content-card:last-child:nth-child(odd),html[data-layout="broadsheet"] .content-card:last-child:nth-child(odd),html[data-layout="soft-showcase"] .content-card:last-child:nth-child(odd),html[data-layout="swiss-index"] .content-card:last-child:nth-child(odd){display:grid;flex-basis:100%;grid-template-columns:minmax(240px,38%) minmax(0,62%)}',
-            'html[data-layout="lead-grid"] .content-card:last-child:nth-child(even) figure,html[data-layout="catalog-grid"] .content-card:last-child:nth-child(odd) figure,html[data-layout="broadsheet"] .content-card:last-child:nth-child(odd) figure,html[data-layout="soft-showcase"] .content-card:last-child:nth-child(odd) figure,html[data-layout="swiss-index"] .content-card:last-child:nth-child(odd) figure{height:100%;aspect-ratio:auto}',
-            'html[data-layout="industrial-board"] .content-grid{grid-template-columns:repeat(2,minmax(0,1fr))}',
+            'html[data-layout="lead-grid"] .content-card:last-child:nth-child(even),html[data-layout="catalog-grid"] .content-card:last-child:nth-child(odd),html[data-layout="broadsheet"] .content-card:last-child:nth-child(odd),html[data-layout="industrial-board"] .content-card:last-child:nth-child(odd),html[data-layout="soft-showcase"] .content-card:last-child:nth-child(odd),html[data-layout="swiss-index"] .content-card:last-child:nth-child(odd){display:grid;flex-basis:100%;grid-template-columns:minmax(240px,38%) minmax(0,62%)}',
+            'html[data-layout="lead-grid"] .content-card:last-child:nth-child(even) figure,html[data-layout="catalog-grid"] .content-card:last-child:nth-child(odd) figure,html[data-layout="broadsheet"] .content-card:last-child:nth-child(odd) figure,html[data-layout="industrial-board"] .content-card:last-child:nth-child(odd) figure,html[data-layout="soft-showcase"] .content-card:last-child:nth-child(odd) figure,html[data-layout="swiss-index"] .content-card:last-child:nth-child(odd) figure{height:100%;aspect-ratio:auto}',
+            'html[data-layout="industrial-board"] .content-card,html[data-layout="industrial-board"] .content-card.featured,html[data-layout="industrial-board"] .content-card:nth-child(n){flex-basis:calc(50% - 2px)}',
             '}',
 
             '@media(max-width:680px){',
@@ -1547,11 +1518,12 @@
             'html[data-layout="lead-grid"] .content-card.featured figure:after{display:none}',
             'html[data-layout="lead-grid"] .content-card.featured .card-copy{position:relative;inset:auto;width:100%;color:var(--ink);text-shadow:none}',
             'html[data-layout="lead-grid"] .content-card.featured .eyebrow,html[data-layout="lead-grid"] .content-card.featured .card-action{color:var(--accent)}',
-            'html[data-layout="swiss-index"] .content-card .card-copy:before,html[data-layout="timeline-ledger"] .content-card:before,html[data-layout="timeline-ledger"] .content-card:after{display:none}',
+            'html[data-layout="swiss-index"] .content-card .card-copy:before,html[data-layout="timeline-ledger"] .content-card:before,html[data-layout="timeline-ledger"] .content-card:after,html[data-layout="industrial-board"] .content-card .card-copy:before{display:none}',
             'html[data-layout="broadsheet"] .site-header{display:flex}',
             'html[data-layout="cinematic-strip"] .content-card:nth-child(even) figure,html[data-layout="cinematic-strip"] .content-card:nth-child(even) .card-copy{grid-column:auto;grid-row:auto}',
             'html[data-layout="soft-showcase"] .site-header{margin-top:0;border-radius:0}',
             'html[data-layout="soft-showcase"] .content-card,html[data-layout="soft-showcase"] .content-card:nth-child(n){border-radius:clamp(16px,var(--radius),24px)}',
+            'html[data-layout="industrial-board"] .content-card,html[data-layout="industrial-board"] .content-card:nth-child(n){padding:12px;border-radius:0}',
             '}',
             'body[data-home-intro="compact"] .publication-intro{min-height:0;padding-top:18px;padding-bottom:18px}',
             'body[data-home-intro="compact"] .publication-intro h1{font-size:clamp(2.25rem,6vw,3.6rem);line-height:.95}',
@@ -1661,9 +1633,6 @@
         // Keep this terminal layer last.  It is deliberately separated from
         // layoutSystemCss() so a template cannot silently undo a user choice.
         var manualOverrideCss = '';
-        if (config.homeCategoryLayout) {
-            manualOverrideCss += '.home-category-sections{display:grid;gap:clamp(38px,6vw,76px)}.home-category-section{min-width:0}.home-category-heading{display:flex;align-items:end;justify-content:space-between;gap:18px;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid var(--line)}.home-category-heading .kicker{margin:0 0 5px;color:var(--accent);font-size:.72rem;font-weight:800;text-transform:uppercase}.home-category-heading h2{margin:0;color:var(--ink);font:800 clamp(1.55rem,3vw,2.4rem)/1 var(--font-display)}.home-category-more{display:inline-flex;align-items:center;gap:7px;flex:0 0 auto;color:var(--accent);font-size:.85rem;font-weight:800;text-decoration:none}.home-category-more:hover{text-decoration:underline;text-underline-offset:4px}.home-category-grid{margin:0}@media(max-width:680px){.home-category-sections{gap:42px}.home-category-heading{align-items:start;flex-direction:column;gap:10px;margin-bottom:14px}.home-category-heading h2{font-size:clamp(1.45rem,8vw,2rem)}}';
-        }
         // A differentiated site starts as an index, not an advertising-style
         // splash page.  Keep the information block compact even when a family
         // contains a cinematic masthead rule earlier in the stylesheet.

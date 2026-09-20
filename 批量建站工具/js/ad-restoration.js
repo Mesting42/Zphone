@@ -237,10 +237,6 @@ const AdRestoration = (function() {
                 }
             });
         }
-        if (!config.bannerPath4 && config.bannerPath3) {
-            config.bannerPath4 = config.bannerPath3;
-            derived.push('bannerPath4');
-        }
         const missing = ['bannerPath1', 'bannerPath2', 'bannerPath3', 'interstitialPath', 'anchorPath'].filter(function(key) {
             return !config[key];
         });

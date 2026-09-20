@@ -1,14 +1,15 @@
 {
   "name": "sitefoundry-batch-publisher",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run && node ../shared/tests/differentiated-builder.test.cjs",
+    "test": "vitest run && node tests/verify-differentiated-copies.cjs && node tests/game-builder.smoke.cjs",
     "test:watch": "vitest",
+    "test:domain-corpus": "node scripts/evaluate-domain-corpus.mjs",
     "fixtures": "node scripts/generate-test-fixtures.mjs"
   },
   "dependencies": {

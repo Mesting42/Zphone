@@ -86,10 +86,29 @@ describe('batch ad restoration', () => {
       bannerPath1: '/23334460889/zp0903a.example.pro-banner1',
       bannerPath2: '/23334460889/zp0903a.example.pro-banner2',
       bannerPath3: '/23334460889/zp0903a.example.pro-banner3',
+      bannerPath4: '/23334460889/zp0903a.example.pro-banner3',
       interstitialPath: '/23334460889/zp0903a.example.pro-INT',
       anchorPath: '/23334460889/zp0903a.example.pro-ANC'
     });
     expect(result.configDerivedKeys).toEqual([]);
+  });
+
+  it('keeps bannerPath4 empty when a source only defines banner1 through banner3', () => {
+    const threeBannerSource = [
+      'const bannerPath1 = "/23334460889/zp0903a.example.pro-banner1";',
+      'const bannerPath2 = "/23334460889/zp0903a.example.pro-banner2";',
+      'const bannerPath3 = "/23334460889/zp0903a.example.pro-banner3";',
+      'const interstitialPath = "/23334460889/zp0903a.example.pro-INT";',
+      'const anchorPath = "/23334460889/zp0903a.example.pro-ANC";'
+    ].join('\n');
+    const result = context.__restoration.inspectSiteEntries([
+      { path: 'website/index.html', text: homeHtml },
+      { path: 'website/details/article1.html', text: detailHtml },
+      { path: 'website/js/ad.js', text: threeBannerSource }
+    ], 'three-banners.zip');
+    expect(result.valid).toBe(true);
+    expect(result.embeddedConfig.bannerPath4).toBe('');
+    expect(result.configDerivedKeys).not.toContain('bannerPath4');
   });
 
   it('can recover cleared paths from the surviving standard banner2 unit', () => {

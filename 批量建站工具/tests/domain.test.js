@@ -6,11 +6,11 @@ const context = {};
 const dataSource = readFileSync(new URL('../js/data.js', import.meta.url), 'utf8');
 const domainSource = readFileSync(new URL('../js/domain.js', import.meta.url), 'utf8');
 const generatorSource = readFileSync(new URL('../js/generator.js', import.meta.url), 'utf8');
-vm.runInNewContext(`${dataSource}\nthis.__catalog = DOMAIN_CATALOG; this.__templates = TEMPLATE_PRESETS; this.__styles = STYLE_PRESETS; this.__brands = BRAND_PRESETS; this.__logoIconGroups = LOGO_ICON_GROUPS; this.__logoIconDefaults = LOGO_ICON_DEFAULTS; this.__categoryEmojiPools = DOMAIN_CATEGORY_EMOJI_POOLS; this.__themes = THEMES; this.__iconSets = ICON_SET_PRESETS;`, context);
+vm.runInNewContext(`${dataSource}\nthis.__catalog = DOMAIN_CATALOG; this.__templates = TEMPLATE_PRESETS; this.__styles = STYLE_PRESETS; this.__brands = BRAND_PRESETS; this.__logoIconGroups = LOGO_ICON_GROUPS; this.__logoIconDefaults = LOGO_ICON_DEFAULTS; this.__allCategoryEmojiIcons = ALL_CATEGORY_EMOJI_ICONS; this.__categoryEmojiPools = DOMAIN_CATEGORY_EMOJI_POOLS; this.__themes = THEMES; this.__iconSets = ICON_SET_PRESETS;`, context);
 vm.runInNewContext(domainSource, context);
 vm.runInNewContext(`${generatorSource}\nthis.__generator = Generator;`, context);
 
-const { DomainEngine, __catalog: catalog, __templates: templates, __styles: styles, __brands: brands, __logoIconGroups: logoIconGroups, __logoIconDefaults: logoIconDefaults, __categoryEmojiPools: categoryEmojiPools, __themes: themes, __iconSets: iconSets, __generator: generator } = context;
+const { DomainEngine, __catalog: catalog, __templates: templates, __styles: styles, __brands: brands, __logoIconGroups: logoIconGroups, __logoIconDefaults: logoIconDefaults, __allCategoryEmojiIcons: allCategoryEmojiIcons, __categoryEmojiPools: categoryEmojiPools, __themes: themes, __iconSets: iconSets, __generator: generator } = context;
 
 describe('local domain detection', () => {
   it.each([
@@ -46,12 +46,63 @@ describe('local domain detection', () => {
     expect(result.suggestedId).toBe('general');
   });
 
-  it('provides at least six valid exclusive blueprints for every supported domain', () => {
+  it('uses technology category labels to classify broad AI and frontier-tech editorial datasets', () => {
+    const rows = [
+      ['Artificial Intelligence', 'Synthetic data models reshape AI training.'],
+      ['Semiconductors', 'Chip manufacturers race to build faster accelerators.'],
+      ['Hardware', 'New device architectures improve compute efficiency.'],
+      ['Cybersecurity', 'Security teams defend cloud infrastructure.'],
+      ['Developer Tools', 'Software developers adopt new AI coding tools.'],
+      ['Space', 'Satellite technology expands global connectivity.']
+    ].map(([category, content], index) => ({
+      id: index + 1,
+      title: category + ' frontier report',
+      category,
+      content
+    }));
+    const result = DomainEngine.detect(rows, catalog);
+    expect(result.id).toBe('tech');
+    expect(result.reliable).toBe(true);
+    expect(result.evidence).toContain('分类关键词 “artificial intelligence”');
+  });
+
+  it('uses upload names as supporting evidence without requiring a local file path', () => {
+    const result = DomainEngine.detect([
+      { title: 'Frontier models update', content: 'A weekly editorial update.', category: 'Research' }
+    ], catalog, { fileName: '01-AI与前沿科技全景.rar', entryPath: 'technology_articles.json' });
+    expect(result.id).toBe('tech');
+    expect(result.evidence).toContain('来源关键词 “科技”');
+  });
+
+  it('prioritizes medical evidence over an incidental AI reference', () => {
+    const result = DomainEngine.detect([
+      {
+        title: 'FDA clears an AI-assisted medical device for cancer patients',
+        category: 'Medical Devices',
+        content: 'The clinical trial evaluated patient safety and treatment outcomes.'
+      }
+    ], catalog);
+    expect(result.id).toBe('health');
+    expect(result.reliable).toBe(true);
+  });
+
+  it('treats repeated category labels as stronger evidence than incidental body words', () => {
+    const rows = Array.from({ length: 12 }, (_, index) => ({
+      title: `Dog profile ${index + 1}`,
+      category: 'Dog',
+      content: 'A companion animal profile with a historical note.'
+    }));
+    const result = DomainEngine.detect(rows, catalog, { fileName: 'pets_articles.json' });
+    expect(result.id).toBe('pets');
+    expect(result.reliable).toBe(true);
+  });
+
+  it('provides twelve valid exclusive blueprints for every supported domain', () => {
     const templateIds = new Set(templates.map((template) => template.id));
     expect(Object.keys(catalog)).toHaveLength(32);
-    expect(templates).toHaveLength(192);
+    expect(templates).toHaveLength(384);
     Object.values(catalog).forEach((profile) => {
-      expect(profile.blueprints.length).toBeGreaterThanOrEqual(6);
+      expect(profile.blueprints).toHaveLength(12);
       profile.blueprints.forEach((id) => expect(templateIds.has(id)).toBe(true));
     });
   });
@@ -61,7 +112,7 @@ describe('local domain detection', () => {
     expect(foodTemplates.map((template) => template.name).slice(0, 5)).toEqual([
       '美食·食谱厨房', '美食·餐桌灵感', '美食·时令食材', '美食·餐馆指南', '美食·甜点画册'
     ]);
-    expect(foodTemplates).toHaveLength(6);
+    expect(foodTemplates).toHaveLength(12);
     foodTemplates.forEach((template) => {
       expect(template.structure.heroEnabled).toBe(false);
       expect(template.structure.navbarLayout).toBe('normal');
@@ -80,9 +131,9 @@ describe('local domain detection', () => {
       return JSON.stringify({ structure: template.structure, style: visualStyle });
     });
 
-    expect(new Set(ids).size).toBe(192);
-    expect(new Set(names).size).toBe(192);
-    expect(new Set(signatures).size).toBe(192);
+    expect(new Set(ids).size).toBe(384);
+    expect(new Set(names).size).toBe(384);
+    expect(new Set(signatures).size).toBe(384);
     allReferences.forEach(({ domainId, templateId }) => {
       const template = templates.find((item) => item.id === templateId);
       expect(template.domainId).toBe(domainId);
@@ -130,13 +181,15 @@ describe('local domain detection', () => {
     });
   });
 
-  it('uses a 24-item Emoji category pool and 50 rebuilt combinations for every domain', () => {
+  it('uses 48 current-domain Emoji icons for random combinations and retains a broad manual library', () => {
     const oldAbstractSymbols = new Set(['◆','○','△','□','◇','◎','◉','◒','◫','▦','⊕','⌁','※','✦','↗','▤','♟️','🪙']);
     expect(Object.keys(categoryEmojiPools)).toHaveLength(32);
+    expect(allCategoryEmojiIcons.length).toBeGreaterThanOrEqual(200);
+    expect(new Set(allCategoryEmojiIcons).size).toBe(allCategoryEmojiIcons.length);
     Object.keys(catalog).forEach((domainId) => {
       const pool = categoryEmojiPools[domainId];
-      expect(pool).toHaveLength(24);
-      expect(new Set(pool).size).toBe(24);
+      expect(pool).toHaveLength(48);
+      expect(new Set(pool).size).toBe(48);
       pool.forEach((icon) => expect(oldAbstractSymbols.has(icon)).toBe(false));
       expect(Array.from(themes[domainId].iconPool)).toEqual(Array.from(pool));
       expect(iconSets[domainId]).toHaveLength(50);
@@ -144,6 +197,7 @@ describe('local domain detection', () => {
         set.icons.forEach((icon) => expect(pool).toContain(icon));
       });
     });
+    expect(categoryEmojiPools.health).toEqual(expect.arrayContaining(['🩺', '💊', '🏥', '🏃', '🥗']));
   });
 
   it('uses Emoji rather than abstract glyphs for every configurable template icon', () => {
@@ -214,6 +268,114 @@ describe('local domain detection', () => {
         expect(preview).toContain('href="index.html#category-research"');
       }
     });
+  });
+
+  it('keeps every generated header full-width, top-sticky, and its mobile menu attached', () => {
+    expect(generatorSource).toContain('--navbar-frame-gap: 0px;');
+    expect(generatorSource).toContain('--navbar-menu-offset: 0px;');
+    expect(generatorSource).toMatch(/\.navbar\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*width:\s*100%;[^}]*margin:\s*0;/);
+    expect(generatorSource).toContain('position: absolute;\n        top: 100%;');
+    expect(generatorSource).toContain('scroll-margin-top: calc(var(--navbar-height) + var(--navbar-scroll-offset));');
+  });
+
+  it('gives every domain twelve meaningfully different layout compositions', () => {
+    const meaningfulKeys = [
+      'heroEnabled', 'homeLayout', 'cardColumns', 'cardViewMode', 'navbarLayout',
+      'footerStyle', 'metaLayout', 'detailLayout', 'navbarStyle', 'logoStyle',
+      'cardBorder', 'cardRadius', 'cardHover', 'categoryTitleStyle',
+      'categoryTitleAlign', 'heroStyle', 'detailImgStyle', 'btnStyle', 'btnSize'
+    ];
+    Object.keys(catalog).forEach((domainId) => {
+      const variants = templates.filter((template) => template.domainId === domainId);
+      const fingerprints = variants.map((template) => JSON.stringify(Object.fromEntries(
+        meaningfulKeys.map((key) => [key, template.structure[key] ?? template.style[key]])
+      )));
+      expect(new Set(fingerprints).size).toBe(12);
+    });
+  });
+
+  it('gives every domain twelve non-repeating visible template identities', () => {
+    Object.keys(catalog).forEach((domainId) => {
+      const variants = templates.filter((template) => template.domainId === domainId);
+      expect(variants).toHaveLength(12);
+      expect(new Set(variants.map((template) => template.style.selectedStyle)).size).toBe(12);
+      expect(new Set(variants.map((template) => template.style.fontStyle)).size).toBe(12);
+      expect(new Set(variants.map((template) => template.brand.id)).size).toBe(12);
+      expect(new Set(variants.map((template) => template.brand.siteTitle.toLowerCase())).size).toBe(12);
+      variants.forEach((template, index) => {
+        expect(template.brand).toEqual({
+          id: brands[domainId][index].id,
+          siteTitle: brands[domainId][index].siteTitle,
+          logoText: brands[domainId][index].logoText
+        });
+        expect(styles.some((style) => style.id === template.style.selectedStyle)).toBe(true);
+      });
+    });
+  });
+
+  it('keeps every midnight radio blueprint genuinely dark', () => {
+    const darkPaletteIds = new Set(['minimaldark', 'nightflight', 'starry', 'navy', 'wine', 'tealnight', 'dark']);
+    const midnightTemplates = templates.filter((template) => template.name.endsWith('·午夜电台'));
+    expect(midnightTemplates.length).toBeGreaterThan(0);
+    midnightTemplates.forEach((template) => {
+      expect(darkPaletteIds.has(template.style.selectedStyle)).toBe(true);
+    });
+  });
+
+  it('shows four populated categories in horizontal headers when the uploaded data can populate them', () => {
+    const categories = [
+      { name: 'Hardware', icon: '🖥️', count: 1 },
+      { name: 'Software', icon: '💾', count: 1 },
+      { name: 'AI & ML', icon: '🤖', count: 1 },
+      { name: 'Cybersecurity', icon: '🔒', count: 1 },
+      { name: 'Tech Industry', icon: '🏭', count: 1 }
+    ];
+    const appState = {
+      selectedTheme: 'science',
+      data: categories.map((category, index) => ({
+        title: `${category.name} update`, content: 'Preview content', image: `cover-${index}.jpg`
+      })),
+      fieldMapping: { title: 'title', content: 'content', image: 'image' },
+      config: { siteTitle: 'Signal Journal', logoText: 'Signal Journal', categories },
+      adPlacementMode: null,
+      isLocalImages: false
+    };
+    const preview = generator.generatePreviewHtml(appState, 'home');
+    const nav = preview.slice(preview.indexOf('<nav'), preview.indexOf('</nav>') + 6);
+
+    expect((nav.match(/<li>/g) || []).length).toBe(5);
+    expect(nav).toContain('>Home</a>');
+    ['Hardware', 'Software', 'AI &amp; ML', 'Cybersecurity'].forEach((name) => expect(nav).toContain(`>${name}</a>`));
+    expect(nav).not.toContain('>Tech Industry</a>');
+    expect(preview).toContain('id="category-cybersecurity"');
+    expect(preview).toContain('id="category-tech-industry"');
+  });
+
+  it('falls back to three category links when the uploaded data cannot populate a fourth section', () => {
+    const categories = [
+      { name: 'Wellness', icon: '🩺', count: 1 },
+      { name: 'Nutrition', icon: '🥗', count: 1 },
+      { name: 'Fitness', icon: '💪', count: 1 },
+      { name: 'Conditions', icon: '🧬', count: 1 }
+    ];
+    const appState = {
+      selectedTheme: 'health',
+      data: [
+        { title: 'Wellness update', content: 'Preview content', image: 'one.jpg' },
+        { title: 'Nutrition update', content: 'Preview content', image: 'two.jpg' },
+        { title: 'Fitness update', content: 'Preview content', image: 'three.jpg' }
+      ],
+      fieldMapping: { title: 'title', content: 'content', image: 'image' },
+      config: { siteTitle: 'Vital Journal', logoText: 'Vital Journal', categories },
+      adPlacementMode: null,
+      isLocalImages: false
+    };
+    const preview = generator.generatePreviewHtml(appState, 'home');
+    const nav = preview.slice(preview.indexOf('<nav'), preview.indexOf('</nav>') + 6);
+
+    expect((nav.match(/<li>/g) || []).length).toBe(4);
+    ['Wellness', 'Nutrition', 'Fitness'].forEach((name) => expect(nav).toContain(`>${name}</a>`));
+    expect(nav).not.toContain('>Conditions</a>');
   });
 
   it('builds four domain-aware trust pages and applies the configured contact email everywhere', () => {

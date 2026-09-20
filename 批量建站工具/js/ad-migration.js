@@ -141,7 +141,6 @@ const AdMigration = (function() {
             else if (/-anc$/.test(lower)) config.anchorPath = path;
         }
 
-        if (!config.bannerPath4) config.bannerPath4 = config.bannerPath3;
         const gaMatch = source.match(/gtag\(\s*['"]config['"]\s*,\s*['"](G-[A-Z0-9]+)['"]\s*\)/i);
         if (gaMatch) config.analyticsID = gaMatch[1].toUpperCase();
 
@@ -287,7 +286,7 @@ const AdMigration = (function() {
         const errors = [];
         const expectedAdPath = pageType === 'home' ? 'js/ad.js' : '../js/ad.js';
         const gptCount = countMatch(html, /<script\b[^>]*\bsrc=["']https:\/\/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js["'][^>]*>/gi);
-        const adCount = countMatch(html, new RegExp('<script\\b[^>]*\\bsrc=["\\\']' + expectedAdPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '["\\\'][^>]*>', 'gi'));
+        const adCount = countMatch(html, new RegExp('<script\\b[^>]*\\bsrc=["\\\']' + expectedAdPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\?v=[a-z0-9-]+)?["\\\'][^>]*>', 'gi'));
         if (gptCount !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'GPT_COUNT_INVALID'));
         if (adCount !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' ad.js 数量为 ' + adCount + '，应为 1。', 'AD_JS_COUNT_INVALID'));
         CONTAINER_IDS.forEach(function(id) {

@@ -490,7 +490,7 @@ const DOMAIN_CATALOG = {
         label: '科技资讯', nameEn: 'Technology', icon: '💻', accent: '#2375d8', soft: '#edf5ff',
         description: 'AI、软件、硬件、网络安全与科技产业',
         fieldSignals: ['software', 'hardware', 'device', 'technology', 'tech_stack'],
-        keywords: ['artificial intelligence', 'ai', 'tech', 'software', 'hardware', 'cybersecurity', 'cloud', 'developer', 'technology', '科技', '人工智能', '网络安全', '软件', '硬件'],
+        keywords: ['artificial intelligence', 'machine learning', 'large language model', 'generative ai', 'semiconductor', 'chip', 'compute', 'data center', 'artificial', 'ai', 'tech', 'software', 'hardware', 'cybersecurity', 'cloud', 'developer', 'technology', '科技', '人工智能', '大模型', '芯片', '半导体', '网络安全', '软件', '硬件'],
         blueprints: ['terminal', 'dashboard', 'neon', 'editorial', 'magazine']
     },
     game: {
@@ -518,14 +518,14 @@ const DOMAIN_CATALOG = {
         label: '财经商业', nameEn: 'Finance & Business', icon: '📈', accent: '#13715b', soft: '#e8f5f0',
         description: '金融、投资、市场、公司与商业趋势',
         fieldSignals: ['ticker', 'symbol', 'market', 'stock_price', 'market_cap', 'risk_level'],
-        keywords: ['finance', 'stock', 'market', 'investment', 'business', 'economy', 'bank', 'revenue', '财经', '金融', '股票', '投资', '商业', '经济'],
+        keywords: ['central bank', 'monetary policy', 'federal reserve', 'foreign exchange', 'sovereign rating', 'hedge fund', 'blockchain', 'cryptocurrency', 'bond market', 'interest rate', 'payment', 'finance', 'stock', 'market', 'investment', 'business', 'economy', 'bank', 'revenue', '财经', '金融', '央行', '货币政策', '债券', '汇率', '区块链', '加密资产', '股票', '投资', '商业', '经济'],
         blueprints: ['dashboard', 'terminal', 'magazine', 'editorial', 'luxury']
     },
     health: {
         label: '健康医疗', nameEn: 'Health & Wellness', icon: '🩺', accent: '#17856f', soft: '#e7f7f2',
         description: '健康、医疗、营养、运动与身心管理',
         fieldSignals: ['condition', 'symptoms', 'specialty', 'reviewed_by', 'medical_disclaimer'],
-        keywords: ['health', 'medical', 'doctor', 'wellness', 'nutrition', 'symptom', 'treatment', 'fitness', '健康', '医疗', '医生', '营养', '疾病', '健身'],
+        keywords: ['food and drug administration', 'clinical trial', 'drug approval', 'medical device', 'public health', 'healthcare policy', 'medicare', 'medicaid', 'pharmaceutical', 'biopharma', 'biotech', 'oncology', 'cancer', 'therapy', 'patient', 'vaccine', 'fda', 'health', 'medical', 'doctor', 'wellness', 'nutrition', 'symptom', 'treatment', 'fitness', '健康', '医疗', '医药', '药物', '临床', '患者', '癌症', '肿瘤', '疫苗', '医生', '营养', '疾病', '健身'],
         blueprints: ['editorial', 'bento', 'botanical', 'pastel', 'timeline']
     },
     travel: {
@@ -581,7 +581,7 @@ Object.assign(DOMAIN_CATALOG, {
     entertainment: {
         label: '娱乐明星', nameEn: 'Entertainment', icon: '🎭', accent: '#a83f78', soft: '#faedf4',
         description: '明星、综艺、电视、演出与流行文化', fieldSignals: ['celebrity', 'show_name', 'network', 'premiere_date'],
-        keywords: ['entertainment', 'celebrity', 'showbiz', 'variety show', 'television', '娱乐', '明星', '综艺', '演出', '娱乐圈'],
+        keywords: ['film festival', 'streaming', 'music industry', 'television', 'entertainment', 'celebrity', 'showbiz', 'variety show', 'concert', 'album', 'cannes', '娱乐', '明星', '综艺', '演出', '影视', '电影', '音乐', '娱乐圈'],
         blueprints: ['magazine', 'twilight', 'sakura', 'immersive', 'pastel']
     },
     film: {
@@ -605,7 +605,7 @@ Object.assign(DOMAIN_CATALOG, {
     science: {
         label: '科学研究', nameEn: 'Science', icon: '🔬', accent: '#28738a', soft: '#eaf5f7',
         description: '科研、发现、实验、太空与自然科学', fieldSignals: ['doi', 'journal', 'research_field', 'institution', 'study_date'],
-        keywords: ['science', 'research', 'study', 'experiment', 'scientist', 'space', '科学', '科研', '研究', '实验', '太空', '科学家'],
+        keywords: ['marine biology', 'deep sea', 'oceanography', 'paleontology', 'dinosaur', 'cephalopod', 'fossil', 'zoology', 'astronomy', 'science', 'research', 'study', 'experiment', 'scientist', 'space', '科学', '科研', '研究', '实验', '古生物', '恐龙', '化石', '深海', '海洋学', '太空', '科学家'],
         blueprints: ['editorial', 'terminal', 'dashboard', 'deepsea', 'magazine']
     },
     environment: {
@@ -677,13 +677,13 @@ Object.assign(DOMAIN_CATALOG, {
     history: {
         label: '历史人文', nameEn: 'History & Humanities', icon: '📜', accent: '#81623d', soft: '#f5efe6',
         description: '历史事件、人物、考古、文明与人文知识', fieldSignals: ['era', 'historical_period', 'event_year', 'historical_figure'],
-        keywords: ['history', 'historical', 'ancient', 'archaeology', 'civilization', '历史', '古代', '考古', '文明', '朝代', '历史人物'],
+        keywords: ['lighthouse', 'castle', 'fortress', 'heritage', 'monarchy', 'royal palace', 'historic bridge', 'history', 'historical', 'ancient', 'archaeology', 'civilization', '历史', '古代', '考古', '文明', '城堡', '灯塔', '桥梁', '遗产', '朝代', '历史人物'],
         blueprints: ['timeline', 'editorial', 'luxury', 'desert', 'magazine']
     },
     agriculture: {
         label: '农业园艺', nameEn: 'Agriculture', icon: '🌾', accent: '#647632', soft: '#f1f5e7',
         description: '种植、养殖、农技、农产品与乡村发展', fieldSignals: ['crop', 'farm', 'harvest', 'livestock', 'growing_season'],
-        keywords: ['agriculture', 'farming', 'crop', 'harvest', 'livestock', 'soil', '农业', '种植', '养殖', '农场', '作物', '土壤'],
+        keywords: ['horticulture', 'botany', 'cactus', 'cacti', 'succulent', 'succulents', 'botanical garden', 'plant conservation', 'agriculture', 'farming', 'crop', 'harvest', 'livestock', 'soil', '农业', '园艺', '植物学', '仙人掌', '多肉', '种植', '养殖', '农场', '作物', '土壤'],
         blueprints: ['botanical', 'dashboard', 'editorial', 'bento', 'catalog']
     },
     energy: {
@@ -815,6 +815,31 @@ const LOGO_ICON_GROUPS = [
     ]}
 ];
 
+// Windows 上部分较新的 Emoji 和医疗符号的彩色变体会显示为方框。所有图标
+// 在进入分类/Logo 选择器前统一映射为已验证的替代符号。
+const WINDOWS_UNSUPPORTED_EMOJI = ['🫀', '🫶', '🪄', '🫕', '🧋', '🛻', '🪟', '🪩', '🪽', '⚕️'];
+const WINDOWS_EMOJI_REPLACEMENTS = {
+    '🫀': '❤️', '🫶': '🤲', '🪄': '✨', '🫕': '🥘', '🧋': '🥤',
+    '🛻': '🚙', '🪟': '🏠', '🪩': '💿', '🪽': '🕊️', '⚕️': '🩺'
+};
+function getWindowsSafeEmoji(icon) {
+    return WINDOWS_EMOJI_REPLACEMENTS[icon] || icon;
+}
+LOGO_ICON_GROUPS.forEach(function(group) {
+    group.icons.forEach(function(item) {
+        item[0] = getWindowsSafeEmoji(item[0]);
+    });
+});
+
+// 分类图标的手动选择库：保留图标库的原始顺序并去重。它只用于“手动挑选”，
+// 不能作为随机组合的来源，避免随机后混入不属于当前领域的图标。
+const ALL_CATEGORY_EMOJI_ICONS = [];
+LOGO_ICON_GROUPS.forEach(function(group) {
+    group.icons.forEach(function(item) {
+        if (item[0] && ALL_CATEGORY_EMOJI_ICONS.indexOf(item[0]) === -1) ALL_CATEGORY_EMOJI_ICONS.push(item[0]);
+    });
+});
+
 const LOGO_ICON_DEFAULTS = {
     tech: '💻', game: '🎮', food: '🍽️', anime: '🌸', finance: '📈', health: '🩺', travel: '🧭', sports: '🏆',
     automotive: '🚗', education: '🎓', fashion: '✨', home: '🏠', general: '🌐', entertainment: '🎭', film: '🎬', music: '🎵',
@@ -828,8 +853,8 @@ Object.keys(LOGO_ICON_DEFAULTS).forEach(function(themeId) {
 });
 
 // ========== 32 个领域的分类 Emoji 图标池 ==========
-// 每个领域先使用强相关核心图标，再从相近类别补足为 24 个不重复 Emoji。
-// 这套池同时驱动分类默认图标、单项图标选择器和 50 套图标组合。
+// 每个领域先使用强相关核心图标，再从相近类别补足为 48 个不重复 Emoji。
+// 这套池仅驱动分类默认图标和随机的 50 套图标组合；手动选择器另行开放全量图标库。
 const DOMAIN_CATEGORY_EMOJI_SEEDS = {
     tech: ['💻','🖥️','📱','🤖','🧠','⚙️','🛰️','📡','🔋','💡'],
     game: ['🎮','🕹️','👾','🎲','🏆','⚔️','🐉','🎯','🚀','🧩'],
@@ -866,20 +891,21 @@ const DOMAIN_CATEGORY_EMOJI_SEEDS = {
 };
 
 const DOMAIN_CATEGORY_EMOJI_GROUPS = {
-    tech: ['technology','general'], game: ['games_anime','technology'], food: ['food','home_nature'], anime: ['games_anime','culture'],
-    finance: ['business','general'], health: ['health','education'], travel: ['travel','general'], sports: ['sports','health'],
-    automotive: ['travel','technology'], education: ['education','general'], fashion: ['culture','business'], home: ['home_nature','general'],
-    general: ['media','general','community'], entertainment: ['media','culture'], film: ['media','culture'], music: ['culture','media'],
-    books: ['education','media'], science: ['education','technology'], environment: ['home_nature','travel'], politics: ['community','media','business'],
-    legal: ['business','education','community'], realestate: ['home_nature','business'], career: ['business','community','education'], marketing: ['business','media'],
-    ecommerce: ['business','media'], pets: ['community','home_nature'], parenting: ['community','health','education'], outdoors: ['travel','sports','home_nature'],
-    photography: ['media','travel','culture'], history: ['education','media'], agriculture: ['home_nature','food'], energy: ['technology','home_nature','business']
+    tech: ['technology','education','media'], game: ['games_anime','technology','sports'], food: ['food','home_nature','health'], anime: ['games_anime','culture','media'],
+    finance: ['business','technology','media'], health: ['health','education','sports','food'], travel: ['travel','home_nature','sports'], sports: ['sports','health','travel'],
+    automotive: ['travel','technology','business'], education: ['education','technology','media'], fashion: ['culture','business','media'], home: ['home_nature','business','food'],
+    general: ['media','general','community'], entertainment: ['media','culture','games_anime'], film: ['media','culture','games_anime'], music: ['culture','media','games_anime'],
+    books: ['education','media','culture'], science: ['education','technology','health'], environment: ['home_nature','travel','health'], politics: ['community','media','business'],
+    legal: ['business','education','community','media'], realestate: ['home_nature','business','travel'], career: ['business','community','education'], marketing: ['business','media','technology'],
+    ecommerce: ['business','media','community'], pets: ['community','home_nature','health'], parenting: ['community','health','education'], outdoors: ['travel','sports','home_nature'],
+    photography: ['media','travel','culture'], history: ['education','media','culture'], agriculture: ['home_nature','food','health'], energy: ['technology','home_nature','business']
 };
 
 const DOMAIN_CATEGORY_EMOJI_POOLS = {};
 Object.keys(DOMAIN_CATALOG).forEach(function(themeId) {
     var pool = [];
     var addIcon = function(icon) {
+        icon = getWindowsSafeEmoji(icon);
         if (icon && pool.indexOf(icon) === -1) pool.push(icon);
     };
     (DOMAIN_CATEGORY_EMOJI_SEEDS[themeId] || []).forEach(addIcon);
@@ -887,7 +913,7 @@ Object.keys(DOMAIN_CATALOG).forEach(function(themeId) {
         var group = LOGO_ICON_GROUPS.find(function(item) { return item.id === groupId; });
         if (group) group.icons.forEach(function(item) { addIcon(item[0]); });
     });
-    DOMAIN_CATEGORY_EMOJI_POOLS[themeId] = pool.slice(0, 24);
+    DOMAIN_CATEGORY_EMOJI_POOLS[themeId] = pool.slice(0, 48);
     THEMES[themeId].iconPool = DOMAIN_CATEGORY_EMOJI_POOLS[themeId].slice();
     THEMES[themeId].categories.forEach(function(category, index) {
         category.icon = DOMAIN_CATEGORY_EMOJI_POOLS[themeId][index % DOMAIN_CATEGORY_EMOJI_POOLS[themeId].length];
@@ -1010,7 +1036,7 @@ Object.keys(BRAND_PRESETS).forEach(function(themeId) {
 
 // ========== 分类图标组合 ==========
 // 每个内容主题生成 50 套可选组合；每套最多覆盖 8 个分类且套内不重复。
-// 使用与 24 互质的步长生成不同排列，保证 50 套组合本身不重复。
+// 使用与 48 互质的步长生成不同排列，保证 50 套组合本身不重复。
 const ICON_SET_STEPS = [1, 5, 7, 11, 13, 17, 19, 23];
 const ICON_SET_PRESETS = {};
 
@@ -1760,7 +1786,7 @@ const TEMPLATE_ARCHETYPES = [
 ];
 
 // ========== 领域独占模板蓝图 ==========
-// 20 种母版只用于生成阶段；应用实际使用的是下方 160 个独立蓝图。
+// 25 种母版只用于生成阶段；应用实际使用的是下方 384 个独立蓝图。
 // 每个蓝图只有一个 domainId，ID、名称及最终结构/样式配置均不跨领域复用。
 const DOMAIN_TEMPLATE_SHORT_NAMES = {
     tech: '科技', game: '游戏', food: '美食', anime: '动漫', finance: '财经', health: '健康', travel: '旅行', sports: '体育',
@@ -1788,26 +1814,72 @@ const DOMAIN_TEMPLATE_PALETTES = {
     agriculture: ['jade','forest','amber','mint','celadon'], energy: ['celadon','carbon','neon','sunset','minimal']
 };
 
+// 每个领域的 12 个蓝图必须使用不同配色。前五个仍优先保留领域调性，
+// 后续从这个不与前项重复的通用集合补足，绝不回绕复用已有配色。
+const TEMPLATE_PALETTE_EXTENSIONS = [
+    'porcelain','terracotta','sage','plum','coffee','nordic','coral','cobalt',
+    'moss','ivorygold','navy','peach','rainteal','wine','slate','tealnight',
+    'dune','orchid','nightflight','copper','newsprint','citrus','azure','burgundy',
+    'starry','dark','ocean','gradient'
+];
+
+function uniqueTemplateValues(primary, extensions, count) {
+    var values = [];
+    primary.concat(extensions).forEach(function(value) {
+        if (values.indexOf(value) === -1 && values.length < count) values.push(value);
+    });
+    return values;
+}
+
+// 蓝图的名称也是视觉承诺。先满足“午夜”“深海”“霓虹”等具象主题，
+// 再用领域配色补位；同一领域里仍然绝不复用配色。
+const TEMPLATE_ARCHETYPE_PALETTE_PREFERENCES = {
+    terminal: ['carbon', 'slate', 'navy', 'tealnight', 'nightflight'],
+    brutalist: ['carbon', 'crimson', 'minimaldark', 'slate', 'copper'],
+    midnight: ['minimaldark', 'nightflight', 'starry', 'navy', 'wine', 'tealnight', 'dark'],
+    neon: ['neon', 'cyberpunk', 'starry', 'minimaldark', 'tealnight'],
+    deepsea: ['deepsea', 'tealnight', 'navy', 'rainteal', 'ocean', 'nightflight'],
+    crimson: ['crimson', 'wine', 'burgundy', 'copper', 'terracotta'],
+    desert: ['desert', 'dune', 'ivorygold', 'amber', 'coffee'],
+    luxury: ['rosegold', 'ivorygold', 'plum', 'wine', 'copper'],
+    botanical: ['jade', 'sage', 'moss', 'forest', 'celadon'],
+    pastel: ['lavender', 'sakura', 'peach', 'porcelain', 'orchid'],
+    timeline: ['newsprint', 'porcelain', 'denim', 'cobalt', 'slate']
+};
+
+function pickTemplatePalette(archetypeId, fallbackPalette, usedPalettes) {
+    var preferred = TEMPLATE_ARCHETYPE_PALETTE_PREFERENCES[archetypeId] || [];
+    var candidates = preferred.concat(fallbackPalette, TEMPLATE_PALETTE_EXTENSIONS);
+    return candidates.find(function(paletteId) {
+        return usedPalettes.indexOf(paletteId) === -1;
+    });
+}
+
 const DOMAIN_TEMPLATE_MODES = {
     data: {
         domains: ['tech','finance','science','politics','legal','career','marketing','energy'],
-        fonts: ['monospace','clean','tech','modern','display'], imageHeights: ['140px','160px','180px','150px','200px']
+        fonts: ['monospace','clean','tech','modern','display','space-grotesk','ibm-plex','source-serif','roboto-mono','barlow-condensed','rubik','archivo'], imageHeights: ['140px','160px','180px','150px','200px'],
+        extensionArchetypes: ['catalog','immersive','brutalist','midnight','crimson','timeline','luxury','deepsea','bento','editorial','magazine','terminal','dashboard','neon']
     },
     visual: {
         domains: ['game','anime','travel','fashion','entertainment','film','music','outdoors','photography'],
-        fonts: ['display','modern','elegant','rounded','literary'], imageHeights: ['260px','220px','300px','240px','280px']
+        fonts: ['display','modern','elegant','rounded','literary','retro','handwrite','dm-sans','plus-jakarta','space-grotesk','source-serif','satisfy'], imageHeights: ['260px','220px','300px','240px','280px'],
+        extensionArchetypes: ['immersive','twilight','midnight','sakura','pastel','neon','luxury','editorial','magazine','bento','deepsea','desert','crimson']
     },
     lifestyle: {
         domains: ['food','health','home','environment','pets','parenting','agriculture'],
-        fonts: ['rounded','literary','clean','elegant','modern'], imageHeights: ['220px','180px','240px','200px','260px']
+        fonts: ['rounded','literary','clean','elegant','modern','nunito-sans','rubik','cursive','dm-serif','merriweather','handwrite','kalam'], imageHeights: ['220px','180px','240px','200px','260px'],
+        extensionArchetypes: ['magazine','luxury','botanical','bento','pastel','catalog','immersive','terminal','dashboard','crimson','timeline','editorial']
     },
     reference: {
         domains: ['education','general','books','history'],
-        fonts: ['literary','display','clean','serif','modern'], imageHeights: ['180px','160px','200px','150px','220px']
+        fonts: ['literary','display','clean','serif','modern','source-serif','dm-serif','merriweather','condensed','plus-jakarta','ibm-plex','barlow-condensed'], imageHeights: ['180px','160px','200px','150px','220px'],
+        extensionArchetypes: ['magazine','timeline','luxury','catalog','editorial','botanical','deepsea','desert','bento','pastel','immersive','terminal']
     },
     commerce: {
         domains: ['sports','automotive','realestate','ecommerce'],
-        fonts: ['clean','modern','display','rounded','tech'], imageHeights: ['200px','180px','240px','160px','220px']
+        fonts: ['clean','modern','display','rounded','tech','space-grotesk','ibm-plex','archivo','barlow-condensed','roboto-mono','jetbrains','dm-sans'], imageHeights: ['200px','180px','240px','160px','220px'],
+        extensionArchetypes: ['catalog','dashboard','brutalist','magazine','terminal','neon','editorial','luxury','bento','timeline','immersive','crimson']
     }
 };
 
@@ -1824,24 +1896,38 @@ Object.keys(DOMAIN_CATALOG).forEach(function(themeId, domainIndex) {
     var archetypeIds = profile.blueprints.slice();
     var palette = DOMAIN_TEMPLATE_PALETTES[themeId];
     var mode = getDomainTemplateMode(themeId);
+    var visualPalette = uniqueTemplateValues(palette, TEMPLATE_PALETTE_EXTENSIONS, 12);
+    var templateFonts = uniqueTemplateValues(mode.fonts, [], 12);
+    var templateBrands = BRAND_PRESETS[themeId] || [];
+    var usedPalettes = [];
     var exclusiveIds = [];
     var primaryArchetype = TEMPLATE_ARCHETYPES.find(function(item) { return item.id === archetypeIds[0]; });
 
-    // Every detected vertical needs a sixth, independently selectable blueprint.
-    // Choose an archetype absent from the domain's original five so the existing
-    // field-aware compositions are preserved while the new option is still a
-    // genuine structural variant rather than a duplicate palette swap.
+    // Preserve the existing sixth option, then add six domain-appropriate
+    // structural compositions. Each choice changes page architecture rather
+    // than merely changing a color palette.
     TEMPLATE_ARCHETYPES.some(function(candidate) {
         if (archetypeIds.length >= 6 || archetypeIds.indexOf(candidate.id) !== -1) return false;
         archetypeIds.push(candidate.id);
         return true;
     });
+    (mode.extensionArchetypes || []).some(function(archetypeId) {
+        if (archetypeIds.length >= 12) return true;
+        if (archetypeIds.indexOf(archetypeId) === -1) archetypeIds.push(archetypeId);
+        return false;
+    });
+    TEMPLATE_ARCHETYPES.some(function(candidate) {
+        if (archetypeIds.length >= 12 || archetypeIds.indexOf(candidate.id) !== -1) return false;
+        archetypeIds.push(candidate.id);
+        return false;
+    });
 
     archetypeIds.forEach(function(archetypeId, variantIndex) {
         var archetype = TEMPLATE_ARCHETYPES.find(function(item) { return item.id === archetypeId; });
         if (!archetype) return;
+        var brand = templateBrands[variantIndex];
         var templateId = themeId + '-blueprint-' + String(variantIndex + 1).padStart(2, '0');
-        var serial = domainIndex * 6 + variantIndex;
+        var serial = domainIndex * 12 + variantIndex;
         var structure = Object.assign({}, archetype.structure);
         if (variantIndex >= 5 && primaryArchetype) {
             // The extension preserves the field-specific template family's
@@ -1850,9 +1936,11 @@ Object.keys(DOMAIN_CATALOG).forEach(function(themeId, domainIndex) {
             structure.heroEnabled = primaryArchetype.structure.heroEnabled;
             structure.navbarLayout = primaryArchetype.structure.navbarLayout;
         }
+        var selectedPalette = pickTemplatePalette(archetypeId, visualPalette, usedPalettes);
+        usedPalettes.push(selectedPalette);
         var style = Object.assign({}, archetype.style, {
-            selectedStyle: palette[variantIndex % palette.length],
-            fontStyle: mode.fonts[variantIndex % mode.fonts.length],
+            selectedStyle: selectedPalette,
+            fontStyle: templateFonts[variantIndex],
             cardImageHeight: mode.imageHeights[variantIndex % mode.imageHeights.length],
             contentMaxWidth: (parseInt(archetype.style.contentMaxWidth, 10) + domainIndex * 2 + variantIndex + 1) + 'px',
             transitionSpeed: (0.2 + serial * 0.001).toFixed(3) + 's'
@@ -1865,6 +1953,11 @@ Object.keys(DOMAIN_CATALOG).forEach(function(themeId, domainIndex) {
             name: DOMAIN_TEMPLATE_SHORT_NAMES[themeId] + '·' + archetype.name,
             icon: DOMAIN_CATEGORY_EMOJI_POOLS[themeId][variantIndex],
             description: '面向' + profile.description + '，' + archetype.description,
+            brand: {
+                id: brand.id,
+                siteTitle: brand.siteTitle,
+                logoText: brand.logoText
+            },
             structure: structure,
             style: style
         });

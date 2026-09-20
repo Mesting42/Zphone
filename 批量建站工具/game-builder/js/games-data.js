@@ -1,0 +1,584 @@
+/* 由 gamesData.json 同步生成，支持直接通过 file:// 打开工具。 */
+window.BUILTIN_GAME_DATA = [
+    {
+      "title": "BoulderBlast",
+      "description": "In BoulderBlast, take control of a powerful stationary cannon that launches projectiles straight up to destroy falling spheres marked with numbers. Each sphere represents a level of durability, and players must strategically fire to reduce the numbers and eliminate them before they reach the bottom. As the game progresses, the numbered spheres fall faster and in greater quantities, challenging your reflexes and aim. Unlock upgrades, power-ups, and special effects to survive longer and achieve higher scores. It's an exciting blend of arcade shooter and math puzzle fun, suitable for all ages and perfect for quick gaming sessions.",
+      "url": "https://xp1.gamecenter.top/BoulderBlast",
+      "thumb": "https://xp1.gamecenter.top/BoulderBlast/BoulderBlast.jpg",
+      "id": 1
+    },
+    {
+      "title": "TowerBuster",
+      "description": "TowerBuster puts you in the seat of a heavily armored tank, tasked with taking down towering structures that stand in your way. Navigate forward while launching powerful cannon shots to break apart enemy towers block by block. Some structures require precision, while others demand brute force. As you progress, new challenges appear such as moving towers, reinforced walls, and time-limited missions. Customize your tank, upgrade its weapons, and enjoy explosive action in this engaging destruction-based game that's all about physics, power, and precision.",
+      "url": "https://xp1.gamecenter.top/TowerBuster",
+      "thumb": "https://xp1.gamecenter.top/TowerBuster/TowerBuster.jpg",
+      "id": 2
+    },
+    {
+      "title": "SubmarineDash",
+      "description": "In SubmarineDash, guide a handcrafted, fish-shaped wooden submarine through the depths of a beautifully rendered underwater world. Dodge colorful coral reefs, avoid sea mines, and weave between jellyfish and treasure chests as you dive deeper into this serene but challenging adventure. The controls are easy to learn, allowing players of all ages to enjoy the experience, but the difficulty increases as the journey goes on. The game features a calm soundtrack and gentle visuals, making it a relaxing escape with moments of high-stakes maneuvering.",
+      "url": "https://xp1.gamecenter.top/SubmarineDash",
+      "thumb": "https://xp1.gamecenter.top/SubmarineDash/SubmarineDash.jpg",
+      "id": 3
+    },
+    {
+      "title": "AquaThief",
+      "description": "AquaThief is a puzzle adventure set in a vibrant ocean world. Draw lines to guide your sneaky aquatic character through mazes, avoiding hazards while collecting gold coins along the way. The challenge lies in planning the perfect path with just a single stroke, avoiding traps, and reaching the goal efficiently. Each level becomes more complex, introducing new mechanics like underwater currents, spinning blades, and moving enemies. With its creative puzzle design, relaxing underwater visuals, and satisfying gameplay, AquaThief offers a unique blend of strategy and reflex.",
+      "url": "https://xp1.gamecenter.top/AquaThief",
+      "thumb": "https://xp1.gamecenter.top/AquaThief/AquaThief.jpg",
+      "id": 4
+    },
+    {
+      "title": "MergeMania",
+      "description": "In MergeMania, players shoot even-numbered cubes upward to merge them with others, aiming to reach the highest number possible—2048 and beyond! Each cube carries a number like 2, 4, 8, etc., and when two identical numbers collide, they combine into one. But don't let the grid fill up or the game ends! The challenge increases as more blocks appear faster and with trickier positions. With vibrant visuals, smooth controls, and satisfying merge animations, MergeMania delivers an addictive puzzle-shooter hybrid that will keep you hooked.",
+      "url": "https://xp1.gamecenter.top/MergeMania",
+      "thumb": "https://xp1.gamecenter.top/MergeMania/MergeMania.jpg",
+      "id": 5
+    },
+    {
+      "title": "FootChinko",
+      "description": "FootChinko blends soccer with pinball-style mechanics in a fun and unpredictable sports experience. Choose your favorite national team and guide the ball through a field full of obstacles, bouncers, and quirky defenders. Your goal is to score by launching the ball with perfect timing and watching it bounce off bumpers and players toward the net. Each level introduces new challenges like moving goalkeepers, tricky angles, and fast-paced gameplay. With colorful visuals and easy-to-learn mechanics, FootChinko offers an exciting twist on traditional soccer games that's enjoyable for both sports fans and casual gamers alike.",
+      "url": "https://xp1.gamecenter.top/FootChinko",
+      "thumb": "https://xp1.gamecenter.top/FootChinko/FootChinko.jpg",
+      "id": 6
+    },
+    {
+      "title": "AliensAttack",
+      "description": "In AliensAttack, gear up as a fearless space hero armed with an upgradable weapon and face wave after wave of alien invaders. The action never stops as you continuously shoot upwards, dodging energy blasts and collecting power-ups. Each alien has unique movement patterns and abilities, requiring quick reflexes and smart positioning to survive. As you level up, new abilities and stronger weapons become available, letting you take on even larger threats. With colorful sci-fi visuals and exciting arcade-style gameplay, AliensAttack is a perfect pick for fans of action-packed shooters.",
+      "url": "https://xp1.gamecenter.top/AliensAttack",
+      "thumb": "https://xp1.gamecenter.top/AliensAttack/AliensAttack.jpg",
+      "id": 7
+    },
+    {
+      "title": "PetsBlast",
+      "description": "PetsBlast is a delightful match-3 puzzle game featuring adorable animal faces as the main tiles. Match three or more of the same animals to clear them from the Strategy, score points, and complete fun objectives. Each level brings new challenges—locked tiles, tricky layouts, or limited moves—requiring strategy and creativity. With hundreds of levels, cheerful animations, and relaxing music, PetsBlast offers an engaging and heartwarming experience. Whether you're playing for a few minutes or aiming for a high score, this animal-themed puzzle game is sure to bring a smile to your face.",
+      "url": "https://xp1.gamecenter.top/PetsBlast",
+      "thumb": "https://xp1.gamecenter.top/PetsBlast/PetsBlast.jpg",
+      "id": 8
+    },
+    {
+      "title": "RopeStar",
+      "description": "In RopeStar, stretch your mind as you solve creative rope puzzles by wrapping colorful strings around fixed nails to form specific shapes. The levels start simple but quickly introduce complex geometries, requiring spatial thinking and clever manipulation of the ropes. The soothing visuals and relaxing music make it a calm yet mentally stimulating experience. Each puzzle has multiple solutions, encouraging creativity and experimentation. With intuitive touch controls and satisfying results when a shape snaps into place, RopeStar offers a perfect mix of art, logic, and relaxation.",
+      "url": "https://xp1.gamecenter.top/RopeStar",
+      "thumb": "https://xp1.gamecenter.top/RopeStar/RopeStar.jpg",
+      "id": 9
+    },
+    {
+      "title": "LuckyToss",
+      "description": "LuckyToss recreates the charm of the classic ring toss carnival game, now in a bright and colorful digital form. Flick rings of different sizes and try to land them precisely on various prizes scattered across a rotating platform. Timing and aim are key—some prizes are larger and easier to hit, while others offer bigger rewards but are harder to reach. The game features fun sound effects, increasingly challenging levels, and a prize collection system to keep you coming back. It's a simple yet satisfying game that's perfect for casual play.",
+      "url": "https://xp1.gamecenter.top/LuckyToss",
+      "thumb": "https://xp1.gamecenter.top/LuckyToss/LuckyToss.jpg",
+      "id": 10
+    },
+    {
+      "title": "solosurvivor",
+      "description": "solosurvivor is a fast-paced survival game where you play as a lone ninja fighting off endless waves of enemies. Choose from a variety of random upgrades and special skills after each level to enhance your abilities—faster attacks, wider range, or explosive damage. Every run is different thanks to the roguelike mechanics, keeping each session fresh and challenging. Enemies come in different forms with unique attack patterns, and only sharp reflexes and strategic thinking will keep you alive. Whether you're dodging projectiles or slicing through hordes, this game tests your skill in a dynamic, action-filled arena.",
+      "url": "https://xp1.gamecenter.top/solosurvivor",
+      "thumb": "https://xp1.gamecenter.top/solosurvivor/solosurvivor.jpg",
+      "id": 11
+    },
+    {
+      "title": "blockpuzzleguardian",
+      "description": "Set in a mystical forest temple, blockpuzzleguardian is a tile-matching puzzle game where players must strategically fit colored squares into grid patterns to clear the Strategy. With each level, the layout becomes more complex, requiring forward-thinking and careful placement. Special blocks and bonus objectives add variety and excitement. The game's atmospheric background, inspired by ancient ruins and magical elements, adds depth to the experience. It's a great choice for fans of logic-based games who enjoy visual puzzles with a nature-inspired twist.",
+      "url": "https://xp1.gamecenter.top/blockpuzzleguardian",
+      "thumb": "https://xp1.gamecenter.top/blockpuzzleguardian/blockpuzzleguardian.jpg",
+      "id": 12
+    },
+    {
+      "title": "fashiongirl",
+      "description": "In fashiongirl, unleash your inner stylist by decorating and customizing fashionable outfits for a variety of stylish characters. Choose from an array of clothing, accessories, makeup, and more to create stunning looks for different occasions. You can also color and design unique patterns on dresses, shoes, and handbags, making each creation your own. With vibrant animations and intuitive drag-and-drop controls, the game is fun for anyone who loves creativity and fashion. It's a relaxing, artistic game filled with endless style possibilities.",
+      "url": "https://xp1.gamecenter.top/fashiongirl",
+      "thumb": "https://xp1.gamecenter.top/fashiongirl/fashiongirl.jpg",
+      "id": 13
+    },
+    {
+      "title": "familybonds",
+      "description": "familybonds is a unique logic puzzle game that explores relationships through interactive storytelling. Read short statements that describe how people are related—like \"Amy is John's daughter\" or \"Mike is Sarah's cousin\"—and place characters into the correct position within a family tree. As you progress, the puzzles become more intricate, challenging your reasoning and memory. It's a thoughtful game that encourages critical thinking while offering a calm and educational gameplay experience. Ideal for players who enjoy brain teasers and relationship-based puzzles.",
+      "url": "https://xp1.gamecenter.top/familybonds",
+      "thumb": "https://xp1.gamecenter.top/familybonds/familybonds.jpg",
+      "id": 14
+    },
+    {
+      "title": "CubeMaina2",
+      "description": "CubeMaina2 is a charming tile-matching puzzle game filled with sweet dessert-themed visuals. Match identical dessert cubes in groups of three to clear them from the Strategy. The goal is to remove all items within limited moves, testing your pattern recognition and strategy. With each level, obstacles like locked tiles and shifting patterns make the gameplay more exciting. The bright candy-like visuals and satisfying sound effects make it a relaxing and enjoyable experience. Great for casual puzzle lovers who appreciate cute aesthetics and clever level design.",
+      "url": "https://xp1.gamecenter.top/CubeMaina2",
+      "thumb": "https://xp1.gamecenter.top/CubeMaina2/CubeMaina2.jpg",
+      "id": 15
+    },
+    {
+      "title": "Mahjong3D",
+      "description": "Mahjong3D brings the classic tile-matching game into a new dimension. Rotate 3D structures made of tiles and find matching pairs to clear them away. Unlike flat Mahjong, this version requires spatial awareness and careful observation from multiple angles. With soothing background music and elegant visual design, the game is both relaxing and mentally engaging. It offers hundreds of levels, gradually increasing in difficulty, making it suitable for both beginners and seasoned puzzle enthusiasts. Dive into this modern take on an ancient classic.",
+      "url": "https://xp1.gamecenter.top/Mahjong3D",
+      "thumb": "https://xp1.gamecenter.top/Mahjong3D/Mahjong3D.jpg",
+      "id": 16
+    },
+    {
+      "title": "JustDivide",
+      "description": "In JustDivide, solve number-based puzzles by placing values into grid cells to create perfect divisions. You'll move numbered tiles strategically across a grid to ensure they divide evenly and clear space. As you progress, new rules and constraints appear, requiring more complex planning and mathematical thinking. The minimalist design and calming background music make it perfect for focused gameplay. Whether you're a math lover or just enjoy logic puzzles, JustDivide offers a rewarding and brain-boosting experience with a clean and clever concept.",
+      "url": "https://xp1.gamecenter.top/JustDivide",
+      "thumb": "https://xp1.gamecenter.top/JustDivide/JustDivide.jpg",
+      "id": 17
+    },
+    {
+      "title": "Taxistory",
+      "description": "Become a city cab driver in Taxistory, a game where you must pick up passengers and deliver them safely to their destinations across busy streets and winding roads. Navigate traffic, avoid obstacles, and make quick turns to stay on course. Each passenger has a time limit and special requests, adding variety to every ride. Upgrade your vehicle, unlock new areas, and experience a bustling urban world from behind the wheel. It's a fun blend of driving simulation and time management, ideal for casual play.",
+      "url": "https://xp1.gamecenter.top/Taxistory",
+      "thumb": "https://xp1.gamecenter.top/Taxistory/Taxistory.jpg",
+      "id": 18
+    },
+    {
+      "title": "BikeRacing3",
+      "description": "BikeRacing3 is a thrilling 2D motocross game where players ride across bumpy hills, steep ramps, and rocky terrain. Maintain balance while accelerating and avoid flipping over on rough landings. Each track offers unique challenges, including narrow bridges, high jumps, and moving platforms. Upgrade your bike, unlock new riders, and try to beat your best times. With responsive controls and dynamic level design, BikeRacing3 delivers an exciting off-road racing experience that's easy to pick up but tough to master.",
+      "url": "https://xp1.gamecenter.top/BikeRacing3",
+      "thumb": "https://xp1.gamecenter.top/BikeRacing3/BikeRacing3.jpg",
+      "id": 20
+    },
+    {
+      "title": "MusicLine2",
+      "description": "MusicLine2 combines rhythm and reflex in a musical journey filled with festive cheer. Guide a bright line along a narrow path that twists and turns in sync with holiday-themed music. Tap to change direction at the right moment and avoid falling off the edge. The levels are designed around popular Christmas tunes, making each challenge feel like a dance. With vibrant graphics, catchy melodies, and increasing difficulty, this game offers a joyful way to test your rhythm and timing skills.",
+      "url": "https://xp1.gamecenter.top/MusicLine2",
+      "thumb": "https://xp1.gamecenter.top/MusicLine2/MusicLine2.jpg",
+      "id": 21
+    },
+    {
+      "title": "JewelPetsMatch",
+      "description": "JewelPetsMatch is a colorful match-3 puzzle game featuring lovable pet characters and sparkling jewels. Swap tiles to align three or more identical items, clear obstacles, and complete level goals. Each stage introduces new mechanics—ice blocks, locked tiles, or timed challenges—to keep the game engaging. Collect stars, earn rewards, and unlock new pets as you progress. With its cheerful art, smooth animations, and relaxing gameplay, this game is perfect for all ages and a great way to unwind with cute animals and vibrant puzzles.",
+      "url": "https://xp1.gamecenter.top/JewelPetsMatch",
+      "thumb": "https://xp1.gamecenter.top/JewelPetsMatch/JewelPetsMatch.jpg",
+      "id": 22
+    },
+    {
+      "title": "ToyGo",
+      "description": "Step into the claw machine in ToyGo, a virtual arcade game where you control a mechanical claw to grab and collect adorable toys. Each level has different toy arrangements and movement patterns, requiring skill and timing to succeed. Watch out for swinging prizes and rotating platforms that make your goal more challenging. Earn points to unlock new claw types, backgrounds, and prize sets. With charming visuals and fun sound effects, ToyGo recreates the magic of the arcade right on your device.",
+      "url": "https://xp1.gamecenter.top/ToyGo",
+      "thumb": "https://xp1.gamecenter.top/ToyGo/ToyGo.jpg",
+      "id": 23
+    },
+    {
+      "title": "HelixjJump",
+      "description": "HelixjJump is a fast-paced arcade game where you control a bouncing ball that drops through spiral platforms while avoiding colored obstacles. Rotate the tower to create a safe path and guide the ball downward. The further you go, the faster and trickier the levels become, requiring quick reflexes and sharp focus. Collect power-ups along the way for bonus points or temporary invincibility. With bright colors, dynamic gameplay, and satisfying effects, HelixjJump offers endless vertical fun for fans of action-packed puzzle games.",
+      "url": "https://xp1.gamecenter.top/HelixjJump",
+      "thumb": "https://xp1.gamecenter.top/HelixjJump/HelixjJump.jpg",
+      "id": 24
+    },
+    {
+      "title": "SweetCookie",
+      "description": "Satisfy your sweet tooth in SweetCookie, a match-3 puzzle game bursting with candy-themed visuals and fun challenges. Swap cookies, cupcakes, and other treats to form matches and complete level objectives. Some stages include chocolate blocks, jelly traps, or frosting barriers that require clever moves to overcome. As you advance, you unlock new boosters and encounter unique dessert-themed stages. The bright visuals and whimsical soundtrack make it a cheerful and relaxing game for all ages. Dive into this sugary puzzle world and start matching!",
+      "url": "https://xp1.gamecenter.top/SweetCookie",
+      "thumb": "https://xp1.gamecenter.top/SweetCookie/SweetCookie.jpg",
+      "id": 25
+    },
+    {
+      "title": "8BallPoolChallenge",
+      "description": "Test your aim in 8BallPoolChallenge, a realistic billiards game focused on the classic 8-ball format. Line up your shots, control the cue ball's spin, and sink balls into the pockets to win. Play solo practice rounds or timed challenges that test your speed and accuracy. The game features smooth controls, realistic physics, and immersive sound effects, giving you the feel of a real pool hall. Whether you're a seasoned player or just learning the ropes, this game is perfect for fans of precision and skill-based gameplay.",
+      "url": "https://xp1.gamecenter.top/8BallPoolChallenge",
+      "thumb": "https://xp1.gamecenter.top/8BallPoolChallenge/8BallPoolChallenge.jpg",
+      "id": 26
+    },
+    {
+      "title": "GinRummy2",
+      "description": "GinRummy2 is a classic card game reimagined with a charming kingdom-style theme. Play against intelligent opponents in turn-based matches where strategy and memory are key. Arrange your hand into runs and sets, discard wisely, and try to \"go gin\" before your opponent does. The game features smooth animations, royal characters, and a relaxing soundtrack. With tutorials for beginners and deeper tactics for experienced players, GinRummy2 offers an accessible and enjoyable take on a timeless card game tradition.",
+      "url": "https://xp1.gamecenter.top/GinRummy2",
+      "thumb": "https://xp1.gamecenter.top/GinRummy2/GinRummy2.jpg",
+      "id": 27
+    },
+    {
+      "title": "LooksFun",
+      "description": "LooksFun is a cheerful memory game where players must find matching musical instruments hidden within colorful grids. With dozens of instrument types like guitars, drums, pianos, and trumpets, each level challenges your visual memory and focus. The game grows progressively harder, introducing more items and tighter time limits. Its friendly visuals, smooth gameplay, and casual pace make it perfect for all ages. Whether you're playing for relaxation or to sharpen your memory, this musical-themed puzzle offers plenty of fun.",
+      "url": "https://xp1.gamecenter.top/LooksFun",
+      "thumb": "https://xp1.gamecenter.top/LooksFun/LooksFun.jpg",
+      "id": 28
+    },
+    {
+      "title": "TowerMania",
+      "description": "TowerMania challenges your timing and focus as you stack swinging stone blocks to build a towering structure. Each block swings left and right, and a well-timed tap drops it on top of the previous one. Miss too far and the tower shrinks, raising the difficulty. As the pace quickens and the tower grows, precision becomes everything. With smooth animations, clean visuals, and simple one-tap gameplay, it's an addictive test of coordination and rhythm that anyone can enjoy.",
+      "url": "https://xp1.gamecenter.top/TowerMania",
+      "thumb": "https://xp1.gamecenter.top/TowerMania/TowerMania.jpg",
+      "id": 29
+    },
+    {
+      "title": "SpeedBoats",
+      "description": "SpeedBoats puts you in control of a sleek high-speed boat racing down fast-moving rivers. Navigate twisting paths, dodge floating obstacles, and collect power-ups to improve your score. The responsive controls and dynamic water effects make each race thrilling. Compete for the best time or distance as the speed increases. With vibrant aquatic scenery, intuitive gameplay, and an endless mode for nonstop excitement, this game offers the perfect mix of action and relaxation for racing fans.",
+      "url": "https://xp1.gamecenter.top/SpeedBoats",
+      "thumb": "https://xp1.gamecenter.top/SpeedBoats/SpeedBoats.jpg",
+      "id": 30
+    },
+    {
+      "title": "BridgeMastermvi",
+      "description": "In BridgeMastermvi, help a courageous girl cross endless platforms suspended in the sky by building perfectly sized bridges. Tap and hold to stretch the bridge, then release to drop it. If the length is right, she walks safely; too short or too long, and she falls. As the levels progress, the difficulty increases with moving platforms and varied distances. With a charming art style, relaxing music, and simple controls, this game is both a brain teaser and an adventure.",
+      "url": "https://xp1.gamecenter.top/BridgeMastermvi",
+      "thumb": "https://xp1.gamecenter.top/BridgeMastermvi/BridgeMastermvi.jpg",
+      "id": 31
+    },
+    {
+      "title": "RepairIt",
+      "description": "RepairIt turns you into a skilled mobile phone technician tasked with fixing a variety of smartphone problems. Cracked screens, faulty batteries, or damaged ports—you'll follow realistic repair steps and use virtual tools to bring each device back to life. Each level simulates real issues and teaches the basics of tech troubleshooting. With detailed animations, clear instructions, and a satisfying sense of progression, this casual simulation game is both fun and educational for tech lovers.",
+      "url": "https://xp1.gamecenter.top/RepairIt",
+      "thumb": "https://xp1.gamecenter.top/RepairIt/RepairIt.jpg",
+      "id": 32
+    },
+    {
+      "title": "DunkBrush",
+      "description": "DunkBrush is a physics puzzle game where you draw lines to help a falling basketball reach the hoop. Each level presents new obstacles and demands creative solutions. You must anticipate the ball's path and draw ramps, curves, or barriers that guide it to success. The visuals are minimal and clean, emphasizing strategic drawing and timing. With increasing difficulty and many levels to master, DunkBrush is a fun and brain-challenging experience that blends creativity with classic basketball mechanics.",
+      "url": "https://xp1.gamecenter.top/DunkBrush",
+      "thumb": "https://xp1.gamecenter.top/DunkBrush/DunkBrush.jpg",
+      "id": 33
+    },
+    {
+      "title": "ConquerTheCity",
+      "description": "ConquerTheCity is a charming strategy game where you connect buildings by drawing lines, sending adorable bear characters to occupy them. Each building is a potential base, and your goal is to expand your territory step by step. Timing and planning are key as the city grows larger and challenges increase. The visuals are cute and vibrant, while the gameplay blends casual fun with light tactical thinking. It's an engaging, feel-good experience for players who enjoy soft strategy and relaxing pace.",
+      "url": "https://xp1.gamecenter.top/ConquerTheCity",
+      "thumb": "https://xp1.gamecenter.top/ConquerTheCity/ConquerTheCity.jpg",
+      "id": 34
+    },
+    {
+      "title": "BrickOut",
+      "description": "BrickOut is a colorful arcade-style brick breaker game with a playful toy theme. Use your paddle to bounce the ball and break through layers of floating bricks above. Collect power-ups that boost your speed, create multiple balls, or expand your paddle. The levels become more complex, with moving bricks and challenging formations. Designed with bright visuals and smooth gameplay, BrickOut offers endless bouncing fun and a nostalgic nod to classic arcade challenges in a modern mobile format.",
+      "url": "https://xp1.gamecenter.top/BrickOut",
+      "thumb": "https://xp1.gamecenter.top/BrickOut/BrickOut.jpg",
+      "id": 35
+    },
+    {
+      "title": "RotateYourMinds",
+      "description": "RotateYourMinds is a visually rich puzzle game where you guide a rolling ball to its goal by rotating the entire environment. You can shift platforms, change directions, and activate triggers to clear a safe path. Each level introduces new mechanics that test your spatial reasoning and timing. With soothing background music and brain-teasing designs, this game delivers a calm yet challenging experience. It's perfect for players who love puzzles with a twist—literally—and a unique perspective on movement.",
+      "url": "https://xp1.gamecenter.top/RotateYourMinds",
+      "thumb": "https://xp1.gamecenter.top/RotateYourMinds/RotateYourMinds.jpg",
+      "id": 36
+    },
+    {
+      "title": "gemExcavator",
+      "description": "In gemExcavator, you operate a powerful drilling machine that digs deep into the earth in search of precious gems. Navigate layers of dirt, stone, and hidden hazards while collecting valuable treasures along the way. Upgrade your drill, improve fuel efficiency, and go deeper with each expedition. The game combines mining strategy with arcade action, offering a satisfying loop of exploration and progression. With colorful underground visuals and rewarding gameplay, it's a digging adventure you won't want to stop.",
+      "url": "https://xp1.gamecenter.top/gemExcavator",
+      "thumb": "https://xp1.gamecenter.top/gemExcavator/gemExcavator.jpg",
+      "id": 37
+    },
+    {
+      "title": "FindFaultTogether",
+      "description": "FindFaultTogether is a relaxing visual puzzle game where players compare two nearly identical images to spot the subtle differences. Each level features beautifully illustrated scenes filled with tiny details that challenge your observation skills. The game is perfect for playing solo or together with friends and family. With hundreds of levels, soothing music, and a variety of settings—from cozy kitchens to bustling streets—it's a peaceful, eye-training game that's both fun and great for mental sharpness.",
+      "url": "https://xp1.gamecenter.top/FindFaultTogether",
+      "thumb": "https://xp1.gamecenter.top/FindFaultTogether/FindFaultTogether.jpg",
+      "id": 38
+    },
+    {
+      "title": "GarageTycoon",
+      "description": "GarageTycoon puts you in charge of an overcrowded parking lot where you must move vehicles in the correct order to clear the space. Each level is a unique puzzle that tests your logic and sequencing. As you progress, new types of cars, barriers, and layouts appear, increasing the challenge. The game features clean graphics, satisfying mechanics, and smooth animations. It's an addictive brain game that transforms the everyday chaos of parking into a clever and fun puzzle-solving experience.",
+      "url": "https://xp1.gamecenter.top/GarageTycoon",
+      "thumb": "https://xp1.gamecenter.top/GarageTycoon/GarageTycoon.jpg",
+      "id": 39
+    },
+    {
+      "title": "musicat",
+      "description": "In musicat, you play as an adorable cat with a passion for music. Explore different levels, each featuring unique musical instruments like pianos, drums, and guitars. Tap in rhythm to create beautiful melodies and unlock charming scenes. The game blends light rhythm mechanics with heartwarming visuals and relaxing soundtracks. Suitable for all ages, musicat is a joyful audio-visual experience that celebrates creativity, musical expression, and cute feline charm in a stress-free and engaging gameplay format.",
+      "url": "https://xp1.gamecenter.top/musicat",
+      "thumb": "https://xp1.gamecenter.top/musicat/musicat.jpg",
+      "id": 40
+    },
+    {
+      "title": "eggadventure",
+      "description": "eggadventure is a charming hand-drawn puzzle game where you help a small egg-shaped character return home. Set in a monochrome world, you'll draw lines and bridges to overcome obstacles, avoid traps, and safely guide the fragile hero through each level. The gameplay combines creativity with problem-solving, and each puzzle requires thoughtful planning. With minimalistic art, gentle music, and touching story elements, this game is a delightful journey that celebrates simplicity, creativity, and gentle challenge.",
+      "url": "https://xp1.gamecenter.top/eggadventure",
+      "thumb": "https://xp1.gamecenter.top/eggadventure/eggadventure.jpg",
+      "id": 41
+    },
+    {
+      "title": "dailymatch",
+      "description": "dailymatch is a relaxing and satisfying tile-matching game where players connect identical images from a variety of categories—animals, food, tools, and more. The goal is to clear all tiles within a time limit, testing both memory and observation. Each level introduces new image themes and layouts, keeping gameplay fresh and challenging. With crisp visuals, calm music, and intuitive controls, it's perfect for daily brain training or a quick puzzle break. Enjoy a peaceful escape into a world of matching fun and visual delight.",
+      "url": "https://xp1.gamecenter.top/dailymatch",
+      "thumb": "https://xp1.gamecenter.top/dailymatch/dailymatch.jpg",
+      "id": 42
+    },
+    {
+      "title": "mergemaniax",
+      "description": "mergemaniax is an addictive puzzle game that challenges players to shoot numbered blocks upward, combining those with the same value to form higher numbers. Inspired by the 2048 mechanic, it adds an exciting twist with active aiming and timing. As the blocks stack, strategic placement becomes crucial. The game offers smooth animations, a clean interface, and increasingly complex levels. It's a brain-boosting fusion of arcade action and number merging that's easy to pick up and hard to put down.",
+      "url": "https://xp1.gamecenter.top/mergemaniax",
+      "thumb": "https://xp1.gamecenter.top/mergemaniax/mergemaniax.jpg",
+      "id": 43
+    },
+    {
+      "title": "RescueOfTitans",
+      "description": "RescueOfTitans is a futuristic action game set in a sci-fi universe where powerful heroes battle through waves of robotic enemies and advanced traps. As a tech-enhanced warrior, you'll fight across neon-lit stages, unlock skills, and rescue your fellow titans. With fluid combat, dramatic effects, and strategic upgrades, this game offers a fast-paced challenge with a cyberpunk vibe. Each level adds new obstacles and enemies, encouraging smart play and precision. It's an action-packed adventure with bold visuals and heroic gameplay.",
+      "url": "https://xp1.gamecenter.top/RescueOfTitans",
+      "thumb": "https://xp1.gamecenter.top/RescueOfTitans/RescueOfTitans.jpg",
+      "id": 45
+    },
+    {
+      "title": "worldindanger",
+      "description": "In worldindanger, you must defend Earth from an onslaught of meteors and cosmic threats. As the protector of the planet, rotate and maneuver Earth in space to destroy incoming dangers with precise timing and strategy. The game features striking space visuals, responsive controls, and increasingly complex waves of celestial hazards. Unlock power-ups and upgrades to strengthen your planetary defenses. With a mix of arcade action and reactive gameplay, worldindanger is a cosmic challenge that tests reflexes and quick thinking.",
+      "url": "https://xp1.gamecenter.top/worldindanger",
+      "thumb": "https://xp1.gamecenter.top/worldindanger/worldindanger.jpg",
+      "id": 46
+    },
+    {
+      "title": "BallDrop",
+      "description": "BallDrop is a vertical arcade challenge where you control a bouncing ball descending through increasingly dangerous levels. Avoid spikes, moving platforms, and tricky traps as you guide the ball to the bottom. Each drop requires perfect timing and quick reaction to survive. With minimalist design, smooth animations, and easy-to-learn controls, BallDrop offers addictive gameplay that's suitable for both short sessions and long runs. It's a classic test of hand-eye coordination wrapped in modern, sleek presentation.",
+      "url": "https://xp1.gamecenter.top/BallDrop",
+      "thumb": "https://xp1.gamecenter.top/BallDrop/BallDrop.jpg",
+      "id": 47
+    },
+    {
+      "title": "BEENVADERS",
+      "description": "BEENVADERS is a quirky shooter where you play as a heroic bee defending your garden from waves of alien flowers. Fly forward and shoot stingers to eliminate colorful enemies while dodging attacks. With its charming visuals, buzzing sound effects, and arcade-style mechanics, the game combines humor with fast-paced action. Collect pollen power-ups and unlock new bee skins as you progress. It's a lighthearted and fun shooting experience suitable for all ages—easy to pick up and hard to put down.",
+      "url": "https://xp1.gamecenter.top/BEENVADERS",
+      "thumb": "https://xp1.gamecenter.top/BEENVADERS/BEENVADERS.jpg",
+      "id": 48
+    },
+    {
+      "title": "MergeHexa",
+      "description": "MergeHexa is a brain-teasing number puzzle game where players combine identical hexagonal tiles to reach the highest possible value. With a clean grid layout and satisfying merge mechanics, the goal is to strategically place and match tiles, planning ahead to avoid running out of space. As the Strategy fills, the difficulty rises, challenging your logic and foresight. The colorful design and smooth animations make every match visually rewarding. MergeHexa is a perfect blend of relaxation and mental exercise, ideal for quick sessions or long puzzle marathons.",
+      "url": "https://xp1.gamecenter.top/MergeHexa",
+      "thumb": "https://xp1.gamecenter.top/MergeHexa/MergeHexa.jpg",
+      "id": 49
+    },
+    {
+      "title": "NutsAndBoltsScrewPuzzle",
+      "description": "NutsAndBoltsScrewPuzzle is a creative mechanical puzzle game where players must remove all screws from a wooden Strategy. Each level presents a new configuration of bolts and plates, requiring logic and planning to solve. Only the correct order of unscrewing will free all parts without getting stuck. With realistic graphics and satisfying physics, the game simulates a DIY challenge that exercises your problem-solving skills. It's perfect for fans of hands-on puzzles and mechanical logic games that reward clever thinking.",
+      "url": "https://xp1.gamecenter.top/NutsAndBoltsScrewPuzzle",
+      "thumb": "https://xp1.gamecenter.top/NutsAndBoltsScrewPuzzle/NutsAndBoltsScrewPuzzle.jpg",
+      "id": 50
+    },
+    {
+      "title": "numpuz",
+      "description": "numpuz is a classic sliding puzzle game where you rearrange numbered tiles in the correct order to complete the Strategy. Starting from a scrambled grid, you must move pieces one at a time using logic and planning. With various difficulty levels and minimalist design, numpuz provides a timeless mental workout. Whether you're a puzzle veteran or just learning, it offers a rewarding way to improve memory and spatial awareness. Enjoy this modern take on a beloved number puzzle.",
+      "url": "https://xp1.gamecenter.top/numpuz",
+      "thumb": "https://xp1.gamecenter.top/numpuz/numpuz.jpg",
+      "id": 51
+    },
+    {
+      "title": "buytobuy",
+      "description": "buytobuy is a food-themed tile-matching game inspired by classic merge mechanics. Combine cute fruits and vegetables in a grid-based puzzle to clear the Strategy and unlock new levels. The charming produce characters and colorful backgrounds add a cheerful vibe to each session. With easy-to-learn gameplay and increasing challenge, this game keeps players coming back for more. It's a relaxing yet strategic brain game perfect for players of all ages who enjoy casual puzzles with a foodie twist.",
+      "url": "https://xp1.gamecenter.top/buytobuy",
+      "thumb": "https://xp1.gamecenter.top/buytobuy/buytobuy.jpg",
+      "id": 52
+    },
+    {
+      "title": "naturestrikesback",
+      "description": "naturestrikesback is a unique merge-defense game where you grow and combine tree spirits to build a forest defense against invaders. Place tree guardians on the field, merge them to unlock new forms, and protect the sacred grove. As enemies grow stronger, so must your nature army. The game combines strategy, environmental themes, and satisfying upgrades. With soothing visuals and nature-inspired effects, it's both challenging and calming, ideal for those who love nature and tower defense hybrids.",
+      "url": "https://xp1.gamecenter.top/naturestrikesback",
+      "thumb": "https://xp1.gamecenter.top/naturestrikesback/naturestrikesback.jpg",
+      "id": 53
+    },
+    {
+      "title": "roostervszombies",
+      "description": "roostervszombies is an action-packed survival game where you play as a brave rooster defending the barnyard from waves of zombies. Upgrade your skills, unlock powerful weapons, and face increasingly dangerous enemies. Each round tests your reflexes and decision-making as you fight off the undead with feathery fury. The game features cartoonish visuals, fast-paced combat, and humorous animations, creating a light-hearted yet engaging defense experience. Can you survive the flock's final stand?",
+      "url": "https://xp1.gamecenter.top/roostervszombies",
+      "thumb": "https://xp1.gamecenter.top/roostervszombies/roostervszombies.jpg",
+      "id": 54
+    },
+    {
+      "title": "ludoking",
+      "description": "ludoking brings the classic ludo Strategy game to your device with vibrant colors and smooth multiplayer gameplay. Roll the dice, move your tokens, and race to reach the home zone before your opponents. Play against AI or challenge friends in local or online matches. With intuitive rules, nostalgic design, and strategic elements, this game is perfect for all ages. Relive the joy of traditional Strategy games in a modern format that's fun, fair, and endlessly replayable.",
+      "url": "https://xp1.gamecenter.top/ludoking",
+      "thumb": "https://xp1.gamecenter.top/ludoking/ludoking.jpg",
+      "id": 55
+    },
+    {
+      "title": "alphabetwar",
+      "description": "alphabetwar is a fast-paced arcade game where you control a launcher firing letter-shaped missiles to pop falling balloons. Each balloon represents a different letter or number, and you must match them accurately to clear the screen. With colorful visuals, simple controls, and increasing difficulty, this game tests your reaction speed and pattern recognition. Unlock new launchers and levels as you progress through alphabet-inspired chaos. Great for quick reflex training and casual fun.",
+      "url": "https://xp1.gamecenter.top/alphabetwar",
+      "thumb": "https://xp1.gamecenter.top/alphabetwar/alphabetwar.jpg",
+      "id": 56
+    },
+    {
+      "title": "pingpongprecision",
+      "description": "pingpongprecision is a skill-based arcade game where you control a bouncing ball, aiming to land it perfectly into a series of cups. Adjust angle and power for each shot to navigate obstacles and hit the target. With clean graphics, responsive controls, and satisfying physics, every successful shot feels rewarding. The game includes increasingly challenging stages that require focus and precision. It's a great pick-up-and-play title for fans of trick shots and aiming games.",
+      "url": "https://xp1.gamecenter.top/pingpongprecision",
+      "thumb": "https://xp1.gamecenter.top/pingpongprecision/pingpongprecision.jpg",
+      "id": 57
+    },
+    {
+      "title": "elasticcar",
+      "description": "elasticcar puts you behind the wheel of a super-stretchy car navigating through busy city streets. Twist, turn, and bounce through traffic while avoiding collisions. The elastic physics make movement dynamic and unpredictable, offering a unique challenge in every race. Unlock new cars and environments as you speed through levels filled with sharp turns and tight gaps. With colorful visuals and intuitive controls, it's a whimsical take on the driving genre, mixing chaos with creativity.",
+      "url": "https://xp1.gamecenter.top/elasticcar",
+      "thumb": "https://xp1.gamecenter.top/elasticcar/elasticcar.jpg",
+      "id": 58
+    },
+    {
+      "title": "burgerbar",
+      "description": "burgerbar is a fast-paced time management game where you run your own burger joint. Take customer orders, grill patties, stack ingredients, and serve delicious meals before time runs out. Each level adds new challenges—more ingredients, special orders, and impatient customers. With cheerful art, catchy music, and addictive gameplay, burgerbar is perfect for food lovers and strategy fans. Can you keep up with the lunch rush and become the ultimate burger chef?",
+      "url": "https://xp1.gamecenter.top/burgerbar",
+      "thumb": "https://xp1.gamecenter.top/burgerbar/burgerbar.jpg",
+      "id": 59
+    },
+    {
+      "title": "FieldrunnersTD",
+      "description": "FieldrunnersTD is a strategic tower defense game where players must build a variety of turrets to stop waves of invading enemies. Each level presents unique paths and enemy types, requiring smart turret placement and upgrades to succeed. Choose from different defense units—cannons, lasers, and more—and develop a strategy that adapts to changing threats. With engaging visuals, tactical depth, and endless gameplay modes, FieldrunnersTD offers a fun and challenging experience for fans of action-packed defense games.",
+      "url": "https://xp1.gamecenter.top/FieldrunnersTD",
+      "thumb": "https://xp1.gamecenter.top/FieldrunnersTD/FieldrunnersTD.jpg",
+      "id": 60
+    },
+    {
+      "title": "HexBubble",
+      "description": "HexBubble is a relaxing puzzle game featuring a clean hexagon grid and colorful bubble tiles. Match and pop groups of the same color to clear the Strategy and score big combos. As levels progress, new tile patterns and limited moves increase the challenge. Simple to learn yet hard to master, HexBubble combines calming visuals with addictive mechanics, making it a perfect pick for players who enjoy color-matching puzzles and casual brain teasers.",
+      "url": "https://xp1.gamecenter.top/HexBubble",
+      "thumb": "https://xp1.gamecenter.top/HexBubble/HexBubble.jpg",
+      "id": 61
+    },
+    {
+      "title": "BalloonSlicer",
+      "description": "BalloonSlicer challenges your aim and timing as you slice through floating balloons using a variety of throwing tools. Each level features different balloon patterns and obstacles, testing your precision and reaction speed. With bright visuals and smooth mechanics, the game delivers fast-paced arcade fun. Whether you're casually popping a few balloons or aiming for high scores, BalloonSlicer keeps the gameplay fresh with new challenges and rewards as you advance.",
+      "url": "https://xp1.gamecenter.top/BalloonSlicer",
+      "thumb": "https://xp1.gamecenter.top/BalloonSlicer/BalloonSlicer.jpg",
+      "id": 62
+    },
+    {
+      "title": "Driver",
+      "description": "Driver puts you in the seat of a sleek car navigating tight city streets. Pick up passengers and drop them off at designated points without crashing or missing turns. Each level adds new challenges, such as timed routes and narrow parking spaces. The game features smooth drift mechanics, responsive controls, and a modern city setting. Perfect for quick sessions or longer play, Driver blends arcade driving with delivery-style gameplay in a stylish urban environment.",
+      "url": "https://xp1.gamecenter.top/Driver",
+      "thumb": "https://xp1.gamecenter.top/Driver/Driver.jpg",
+      "id": 63
+    },
+    {
+      "title": "OkeyClassic",
+      "description": "OkeyClassic brings the traditional tile-based Turkish Strategy game to mobile devices. Arrange numbered tiles into matching sets and runs before your opponents do. With polished visuals and intuitive controls, it's easy for new players to pick up while offering deep strategy for experienced ones. Play solo or compete against friends in multiplayer matches. OkeyClassic captures the spirit of this beloved game in a sleek and modern format, perfect for game night on the go.",
+      "url": "https://xp1.gamecenter.top/OkeyClassic",
+      "thumb": "https://xp1.gamecenter.top/OkeyClassic/OkeyClassic.jpg",
+      "id": 64
+    },
+    {
+      "title": "CubeTower",
+      "description": "CubeTower is a futuristic tower defense game where you build and upgrade high-tech turrets to stop enemy waves. Each turret has unique functions—some slow enemies, others deal splash damage. Strategically place defenses along paths to protect your base from destruction. The game features sleek sci-fi visuals, challenging missions, and a variety of enemies that require adaptive strategies. CubeTower is a must-play for fans of fast-paced tower defense with a modern twist.",
+      "url": "https://xp1.gamecenter.top/CubeTower",
+      "thumb": "https://xp1.gamecenter.top/CubeTower/CubeTower.jpg",
+      "id": 65
+    },
+    {
+      "title": "Jeep",
+      "description": "Jeep is a rugged driving game set in a desert landscape. Navigate your jeep across sandy hills, rocky paths, and treacherous slopes while maintaining speed and balance. Collect fuel and bonuses along the way to go farther. With realistic vehicle physics and beautifully styled environments, Jeep offers a fun off-road driving experience. Whether you're climbing steep dunes or cruising across flat terrain, this game delivers a smooth and thrilling ride through nature's harshest tracks.",
+      "url": "https://xp1.gamecenter.top/Jeep",
+      "thumb": "https://xp1.gamecenter.top/Jeep/Jeep.jpg",
+      "id": 66
+    },
+    {
+      "title": "PuzzlebobbleDownload",
+      "description": "PuzzlebobbleDownload is a classic bubble shooter game where you aim and launch colorful orbs to match and pop groups of three or more. Clear the Strategy before the bubbles reach the bottom! With bright colors, fun animations, and a wide variety of levels, this game offers both casual fun and puzzling challenges. Power-ups and tricky angles keep gameplay engaging. It's a timeless arcade puzzle experience that's perfect for all ages.",
+      "url": "https://xp1.gamecenter.top/PuzzlebobbleDownload",
+      "thumb": "https://xp1.gamecenter.top/PuzzlebobbleDownload/PuzzlebobbleDownload.jpg",
+      "id": 67
+    },
+    {
+      "title": "DiceGang",
+      "description": "DiceGang is a quirky strategy game where you control a group of dice-shaped characters competing in a grid-based arena. Roll your dice, calculate the best moves, and defeat your rivals by landing higher rolls. The game blends chance and tactics as you try to capture zones and knock out opponents. With its unique concept, charming design, and multiplayer options, DiceGang offers a fresh and fun twist on competitive puzzle gameplay.",
+      "url": "https://xp1.gamecenter.top/DiceGang",
+      "thumb": "https://xp1.gamecenter.top/DiceGang/DiceGang.jpg",
+      "id": 68
+    },
+    {
+      "title": "DogEs",
+      "description": "DogEs is a puzzle game featuring adorable dog heads that need your help to escape tricky traps. Adjust the angle and power of each launch to send them flying toward safety. Each level introduces new obstacles and mechanics that require timing, precision, and a bit of creativity. With cute visuals, quirky sound effects, and brain-teasing levels, DogEs is a charming and funny physics-based puzzle game that's great for all ages.",
+      "url": "https://xp1.gamecenter.top/DogEs",
+      "thumb": "https://xp1.gamecenter.top/DogEs/DogEs.jpg",
+      "id": 69
+    },
+    {
+      "title": "DrawTheRest",
+      "description": "Use your imagination to complete partially drawn images by adding just the right lines. Each level presents a half-finished object or character, and it's your job to figure out what's missing. This creative puzzle game challenges your perception and drawing skills as you solve each visual riddle. Enjoy a relaxing yet stimulating experience filled with clever designs and satisfying reveals as your drawings bring the pictures to life.",
+      "url": "https://xp1.gamecenter.top/DrawTheRest",
+      "thumb": "https://xp1.gamecenter.top/DrawTheRest/DrawTheRest.jpg",
+      "id": 70
+    },
+    {
+      "title": "TowerDefense",
+      "description": "Defend your pixelated kingdom from waves of invading enemies by strategically placing towers along the path. Each tower type has unique abilities and upgrade paths, allowing for tactical depth and variation. As enemies become stronger, adapt your defense and manage your resources wisely. The retro visuals and satisfying explosions bring nostalgia and challenge together in this classic tower defense game.",
+      "url": "https://xp1.gamecenter.top/TowerDefense",
+      "thumb": "https://xp1.gamecenter.top/TowerDefense/TowerDefense.jpg",
+      "id": 71
+    },
+    {
+      "title": "BasketballGoal",
+      "description": "Move basketballs and hoops within a grid-based puzzle to line up the perfect shot. Think ahead to match each ball with its goal using limited moves. With each level increasing in complexity, this game offers a brain-teasing mix of logic and sports. Colorful graphics and satisfying animations make this puzzle game as fun as sinking a three-pointer at the buzzer.",
+      "url": "https://xp1.gamecenter.top/BasketballGoal",
+      "thumb": "https://xp1.gamecenter.top/BasketballGoal/BasketballGoal.jpg",
+      "id": 72
+    },
+    {
+      "title": "FruitKiller",
+      "description": "Slice and smash fruits with an arsenal of flying weapons in this juicy arcade-style game. Your goal is to eliminate all the fruits hovering in the center by aiming just right. Unlock new weapons, face faster challenges, and watch the fruity explosions pile up. It's fast, colorful, and refreshingly fun, combining quick reflexes with satisfying visuals.",
+      "url": "https://xp1.gamecenter.top/FruitKiller",
+      "thumb": "https://xp1.gamecenter.top/FruitKiller/FruitKiller.jpg",
+      "id": 73
+    },
+    {
+      "title": "PiggyBank",
+      "description": "Drop coins with precision and bounce them off various platforms into a piggy bank. Each level features unique obstacles and bounce mechanics, requiring you to plan the best angle and force for the drop. Earn more coins with perfect shots and unlock charming new designs. A relaxing physics puzzle game that mixes strategy and cute aesthetics.",
+      "url": "https://xp1.gamecenter.top/PiggyBank",
+      "thumb": "https://xp1.gamecenter.top/PiggyBank/PiggyBank.jpg",
+      "id": 74
+    },
+    {
+      "title": "CandyColorSortPuzzle",
+      "description": "Sort colorful candies into their matching jars by pouring them between containers. Each move counts as you work to separate the candies by color without spilling or mixing. Enjoy visually pleasing levels with candy-like animations that get progressively more complex. It's a satisfying challenge for puzzle lovers who enjoy both logic and sweet themes.",
+      "url": "https://xp1.gamecenter.top/CandyColorSortPuzzle",
+      "thumb": "https://xp1.gamecenter.top/CandyColorSortPuzzle/CandyColorSortPuzzle.jpg",
+      "id": 75
+    },
+    {
+      "title": "ImpulseBall",
+      "description": "Tap to launch your ball with just the right amount of force and aim for the hole in this physics-based mini golf game. Carefully use angles, bounce walls, and moving parts to navigate challenging levels. Each successful shot is a rewarding moment of precision and strategy. The game's clean design and fun mechanics make it a great casual experience.",
+      "url": "https://xp1.gamecenter.top/ImpulseBall",
+      "thumb": "https://xp1.gamecenter.top/ImpulseBall/ImpulseBall.jpg",
+      "id": 76
+    },
+    {
+      "title": "SheepSheep",
+      "description": "This adorable match-three game combines cute farm animal themes with puzzle-solving fun. Match identical sheep in a limited space to clear the Strategy and earn points. With each level introducing new challenges and adorable animations, the game is easy to pick up but tough to master. A relaxing and fun way to spend a few moments every day.",
+      "url": "https://xp1.gamecenter.top/SheepSheep",
+      "thumb": "https://xp1.gamecenter.top/SheepSheep/SheepSheep.jpg",
+      "id": 77
+    },
+    {
+      "title": "DirtBikess",
+      "description": "Race through urban towns and compete against international riders in this fast-paced dirt bike challenge. Master jumps, ramps, and rough terrain as you aim for the finish line. Upgrade your bike, improve your skills, and unlock new tracks. Whether you're doing tricks or dodging traffic, this racing game keeps the adrenaline high.",
+      "url": "https://xp1.gamecenter.top/DirtBikess",
+      "thumb": "https://xp1.gamecenter.top/DirtBikess/DirtBikess.jpg",
+      "id": 78
+    },
+    {
+      "title": "CityRuns3D2",
+      "description": "Dash through vibrant 3D cityscapes, dodging obstacles and collecting rewards in this exciting parkour adventure. Slide under barriers, jump over gaps, and weave between cars to escape the city's challenges. With smooth controls and stylish visuals, each run is a new opportunity to beat your high score. Can you become the ultimate urban runner?",
+      "url": "https://xp1.gamecenter.top/CityRuns3D2",
+      "thumb": "https://xp1.gamecenter.top/CityRuns3D2/CityRuns3D2.jpg",
+      "id": 79
+    },
+    {
+      "title": "TrainSnake",
+      "description": "Drive a colorful train through winding tracks, picking up passengers and delivering them to their destinations. As your train grows longer, avoid crashing into yourself while planning the best route. With simple controls and relaxing music, this game offers a casual yet thoughtful experience that blends puzzle solving with smooth action. All aStrategy for fun!",
+      "url": "https://xp1.gamecenter.top/TrainSnake",
+      "thumb": "https://xp1.gamecenter.top/TrainSnake/TrainSnake.jpg",
+      "id": 80
+    },
+    {
+      "title": "MagicPuzzle",
+      "description": "Slide, rotate, and place various-shaped blocks into a grid to complete magical patterns and clear the Strategy. With each level, new shapes and challenges appear, testing your spatial reasoning. The game combines classic block-puzzle mechanics with a charming magical theme, making it an enchanting experience for puzzle lovers of all ages.",
+      "url": "https://xp1.gamecenter.top/MagicPuzzle",
+      "thumb": "https://xp1.gamecenter.top/MagicPuzzle/MagicPuzzle.jpg",
+      "id": 81
+    },
+    {
+      "title": "PandemicSimulator",
+      "description": "Spread supplies—not viruses—across the globe in this strategic delivery simulation. Plan trade routes, manage resources, and unlock new methods to distribute aid efficiently. With each successful shipment, you'll expand your global impact and help more cities. This educational strategy game turns global logistics into an exciting and rewarding challenge.",
+      "url": "https://xp1.gamecenter.top/PandemicSimulator",
+      "thumb": "https://xp1.gamecenter.top/PandemicSimulator/PandemicSimulator.jpg",
+      "id": 82
+    },
+    {
+      "title": "CrazyShooter",
+      "description": "Step into the action as a cool, stylized hero armed with powerful weapons. Fight your way through colorful maps filled with enemies, loot, and chaos. Choose different guns, upgrade your character, and use clever tactics to survive waves of opponents. Fast-paced and full of flair, this top-down shooter keeps the excitement coming with every level.",
+      "url": "https://xp1.gamecenter.top/CrazyShooter",
+      "thumb": "https://xp1.gamecenter.top/CrazyShooter/CrazyShooter.jpg",
+      "id": 83
+    },
+    {
+      "title": "DiamondRush",
+      "description": "Dive into sparkling mines and match colorful gems in this fast-paced puzzle adventure. Swap and align jewels to trigger combos, unlock new levels, and uncover buried treasures. With a variety of game modes, special boosts, and glittering graphics, every match feels like striking gold. Simple to learn but rich in strategy.",
+      "url": "https://xp1.gamecenter.top/DiamondRush",
+      "thumb": "https://xp1.gamecenter.top/DiamondRush/DiamondRush.jpg",
+      "id": 84
+    },
+    {
+      "title": "blockadeblitz",
+      "description": "Help Ben in this arcade-style game by bouncing balls to break through colorful blocks and defeat quirky enemies above. Aim carefully, manage multiple balls, and unleash power-ups to clear each stage. The retro vibes and satisfying gameplay make it a fun mix of action and precision. Perfect for short sessions or extended play.",
+      "url": "https://xp1.gamecenter.top/blockadeblitz",
+      "thumb": "https://xp1.gamecenter.top/blockadeblitz/blockadeblitz.jpg",
+      "id": 85
+    }
+];

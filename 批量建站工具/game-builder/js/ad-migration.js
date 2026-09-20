@@ -1,0 +1,316 @@
+/*
+ * 旧站广告移植的本地检查器。
+ * 只读取广告配置和页面中的广告容器标识；不会返回或保存旧站正文、图片、标题等内容。
+ */
+const AdMigration = (function() {
+    'use strict';
+
+    const CONFIG_KEYS = [
+        'bannerPath1', 'bannerPath2', 'bannerPath3', 'bannerPath4',
+        'interstitialPath', 'anchorPath', 'analyticsID'
+    ];
+    const REQUIRED_BANNER_KEYS = ['bannerPath1', 'bannerPath2', 'bannerPath3'];
+    const CONTAINER_IDS = ['div-gpt-ad-banner1', 'div-gpt-ad-banner2', 'div-gpt-ad-banner3'];
+
+    function makeIssue(message, code) {
+        return { code: code || 'MIGRATION_INVALID', message: message };
+    }
+
+    function normalizePath(path) {
+        return String(path || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+    }
+
+    function decodeJavaScriptString(value) {
+        return String(value || '')
+            .replace(/\\([\\'"`])/g, '$1')
+            .replace(/\\n/g, '\n')
+            .replace(/\\r/g, '\r')
+            .replace(/\\t/g, '\t');
+    }
+
+    function extractAssignment(source, key) {
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp('(?:\\b(?:const|let|var)\\s+)?\\b' + escapedKey + "\\s*=\\s*(['\\\"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1", 'm');
+        const match = pattern.exec(String(source || ''));
+        return match ? { found: true, value: decodeJavaScriptString(match[2]) } : { found: false, value: '' };
+    }
+
+    function countContainer(html, id) {
+        const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const matches = String(html || '').match(new RegExp('\\bid\\s*=\\s*["\\\']' + escapedId + '["\\\']', 'gi'));
+        return matches ? matches.length : 0;
+    }
+
+    function findPageWithContainers(entries, predicate) {
+        return entries.filter(function(entry) { return predicate(entry.path); }).find(function(entry) {
+            return CONTAINER_IDS.every(function(id) { return countContainer(entry.text, id) >= 1; });
+        }) || null;
+    }
+
+    function missingContainers(entry) {
+        if (!entry) return CONTAINER_IDS.slice();
+        return CONTAINER_IDS.filter(function(id) { return countContainer(entry.text, id) < 1; });
+    }
+
+    function isDetailPath(path) {
+        return /(?:^|\/)(?:details?|articles?)(?:\/|$)/i.test(path) || /(?:^|\/)(?:detail|article)[^/]*\.html?$/i.test(path);
+    }
+
+    function inspectEntries(rawEntries) {
+        const entries = (rawEntries || []).map(function(entry) {
+            return { path: normalizePath(entry.path || entry.name), text: String(entry.text || entry.content || '') };
+        }).filter(function(entry) { return entry.path && !/\/$/.test(entry.path); });
+        const errors = [];
+        const warnings = [];
+        const adFile = entries.find(function(entry) { return /(?:^|\/)js\/ad\.js$/i.test(entry.path); });
+        const config = {};
+
+        if (!adFile) {
+            errors.push(makeIssue('旧网站源码中未找到 js/ad.js。请上传包含完整站点源码的压缩包。', 'AD_JS_NOT_FOUND'));
+        } else {
+            CONFIG_KEYS.forEach(function(key) {
+                const assignment = extractAssignment(adFile.text, key);
+                config[key] = assignment.value;
+                if (!assignment.found) warnings.push(makeIssue('旧站 js/ad.js 未声明 ' + key + '，将以空值写入新站配置。', 'OPTIONAL_CONFIG_MISSING'));
+            });
+            REQUIRED_BANNER_KEYS.forEach(function(key) {
+                if (!config[key]) errors.push(makeIssue('旧站 js/ad.js 中未识别到有效的 ' + key + '。', 'BANNER_PATH_MISSING'));
+            });
+        }
+
+        const homeCandidates = entries.filter(function(entry) { return /(?:^|\/)index\.html?$/i.test(entry.path); });
+        const homePage = findPageWithContainers(entries, function(path) { return /(?:^|\/)index\.html?$/i.test(path); });
+        if (!homePage) {
+            const missing = missingContainers(homeCandidates[0]);
+            errors.push(makeIssue(
+                homeCandidates.length
+                    ? '旧站首页未识别到完整广告容器：' + missing.join('、') + '。'
+                    : '旧站首页 index.html 无法识别。',
+                'HOME_STRUCTURE_INVALID'
+            ));
+        }
+
+        const detailCandidates = entries.filter(function(entry) { return /\.html?$/i.test(entry.path) && isDetailPath(entry.path); });
+        const detailPage = findPageWithContainers(entries, isDetailPath);
+        if (!detailPage) {
+            const missing = missingContainers(detailCandidates[0]);
+            errors.push(makeIssue(
+                detailCandidates.length
+                    ? '旧站详情页未识别到完整广告容器：' + missing.join('、') + '。'
+                    : '旧站详情页结构无法识别（需要 details/、articles/ 或 article/detail HTML）。',
+                'DETAIL_STRUCTURE_INVALID'
+            ));
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors: errors,
+            warnings: warnings,
+            config: CONFIG_KEYS.reduce(function(result, key) { result[key] = config[key] || ''; return result; }, {}),
+            detectedFiles: {
+                adJs: adFile ? adFile.path : '',
+                home: homePage ? homePage.path : '',
+                detail: detailPage ? detailPage.path : ''
+            }
+        };
+    }
+
+    function archiveFailure(message, code) {
+        return { valid: false, errors: [makeIssue(message, code)], warnings: [], config: {}, detectedFiles: {} };
+    }
+
+    // 广告平台导出的 TXT 只解析经验证的广告位路径和 GA 衡量 ID；绝不执行或原样复制上传文本中的脚本。
+    function inspectAdCodeText(text, fileName) {
+        const source = String(text || '');
+        const config = CONFIG_KEYS.reduce(function(result, key) { result[key] = ''; return result; }, {});
+        const errors = [];
+        const warnings = [];
+        const units = {};
+        const slotPattern = /googletag\.defineSlot\s*\(\s*['\"]([^'\"]+)['\"]/gi;
+        let match;
+        while ((match = slotPattern.exec(source)) !== null) {
+            const path = String(match[1] || '').trim();
+            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) continue;
+            const lowerPath = path.toLowerCase();
+            if (/-banner1$/.test(lowerPath)) config.bannerPath1 = path;
+            if (/-banner2$/.test(lowerPath)) config.bannerPath2 = path;
+            if (/-banner3$/.test(lowerPath)) config.bannerPath3 = path;
+            if (/-banner4$/.test(lowerPath)) config.bannerPath4 = path;
+            if (/-int$/.test(lowerPath)) config.interstitialPath = path;
+            if (/-anc$/.test(lowerPath)) config.anchorPath = path;
+        }
+        const analytics = source.match(/gtag\s*\(\s*['\"]config['\"]\s*,\s*['\"](G-[A-Z0-9]+)['\"]\s*\)/i);
+        config.analyticsID = analytics ? String(analytics[1] || '').trim() : '';
+
+        REQUIRED_BANNER_KEYS.forEach(function(key) {
+            if (!config[key]) errors.push(makeIssue('广告代码中未识别到有效的 ' + key + '。', 'AD_CODE_BANNER_MISSING'));
+        });
+        [config.bannerPath1, config.bannerPath2, config.bannerPath3, config.bannerPath4, config.interstitialPath, config.anchorPath]
+            .filter(Boolean)
+            .forEach(function(path) {
+                const unit = path.replace(/-(?:banner[1-4]|int|anc)$/i, '');
+                if (unit) units[unit] = true;
+            });
+        const unitNames = Object.keys(units);
+        if (unitNames.length > 1) {
+            errors.push(makeIssue('banner1、banner2、banner3 必须属于同一个子域名广告单元。', 'AD_CODE_DOMAIN_MISMATCH'));
+        }
+
+        const expectedHost = String(fileName || '').replace(/\.txt$/i, '').toLowerCase();
+        const detectedHost = unitNames.length ? unitNames[0].split('/').pop().toLowerCase() : '';
+        if (expectedHost && detectedHost && expectedHost !== detectedHost) {
+            warnings.push(makeIssue('文件名中的子域名与广告单元不同；将以广告单元 ' + detectedHost + ' 为准。', 'AD_CODE_FILENAME_MISMATCH'));
+        }
+        return {
+            valid: errors.length === 0,
+            errors: errors,
+            warnings: warnings,
+            config: config,
+            detectedFiles: { code: fileName || '' },
+            detectedHost: detectedHost
+        };
+    }
+
+    function archiveType(fileName) {
+        const name = String(fileName || '').toLowerCase();
+        if (/\.zip$/.test(name)) return 'zip';
+        if (/\.(?:tar\.gz|tgz)$/.test(name)) return 'tar-gz';
+        return '';
+    }
+
+    function tarText(bytes) {
+        return new TextDecoder('utf-8').decode(bytes).replace(/\0.*$/, '');
+    }
+
+    function tarOctal(bytes) {
+        const value = tarText(bytes).trim();
+        if (!value) return 0;
+        if (!/^[0-7]+$/.test(value)) throw new Error('TAR 文件大小字段无效');
+        return parseInt(value, 8);
+    }
+
+    function paxPath(bytes) {
+        const text = tarText(bytes);
+        const match = text.match(/(?:^|\n)\d+ path=([^\n]+)/);
+        return match ? match[1] : '';
+    }
+
+    function inspectTarBytes(buffer) {
+        const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        const entries = [];
+        let offset = 0;
+        let pendingPath = '';
+        while (offset + 512 <= bytes.length) {
+            const header = bytes.subarray(offset, offset + 512);
+            if (header.every(function(value) { return value === 0; })) break;
+            const size = tarOctal(header.subarray(124, 136));
+            const type = String.fromCharCode(header[156] || 0);
+            const name = tarText(header.subarray(0, 100));
+            const prefix = tarText(header.subarray(345, 500));
+            const bodyStart = offset + 512;
+            const bodyEnd = bodyStart + size;
+            if (bodyEnd > bytes.length) throw new Error('TAR 文件内容不完整');
+            const body = bytes.subarray(bodyStart, bodyEnd);
+            const path = pendingPath || (prefix ? prefix + '/' + name : name);
+            pendingPath = '';
+            if (type === 'x' || type === 'g') {
+                pendingPath = paxPath(body);
+            } else if (type === 'L') {
+                pendingPath = tarText(body).replace(/\0.*$/, '');
+            } else if ((type === '\0' || type === '0' || type === '7') && /\.(?:html?|js)$/i.test(path)) {
+                entries.push({ path: path, text: tarText(body) });
+            }
+            offset = bodyStart + Math.ceil(size / 512) * 512;
+        }
+        return inspectEntries(entries);
+    }
+
+    async function inspectTarGz(file) {
+        if (typeof DecompressionStream === 'undefined') {
+            return archiveFailure('当前浏览器不支持 TAR.GZ 解压。请使用最新版 Chrome 或 Edge，或将宝塔备份转存为 ZIP。', 'TAR_GZ_UNSUPPORTED');
+        }
+        try {
+            const compressed = file.stream ? file.stream() : new Blob([await file.arrayBuffer()]).stream();
+            const decompressed = compressed.pipeThrough(new DecompressionStream('gzip'));
+            return inspectTarBytes(await new Response(decompressed).arrayBuffer());
+        } catch (error) {
+            return archiveFailure('旧网站 TAR.GZ 无法读取：' + error.message, 'TAR_GZ_READ_FAILED');
+        }
+    }
+
+    async function inspectZip(file) {
+        if (!file) return archiveFailure('请选择旧网站源码压缩包。', 'ARCHIVE_REQUIRED');
+        if (archiveType(file.name) !== 'zip') return archiveFailure('旧网站源码必须是 ZIP 文件。', 'ZIP_TYPE_INVALID');
+        if (typeof JSZip === 'undefined') return { valid: false, errors: [makeIssue('ZIP 解析组件未加载，无法检查旧网站源码。', 'ZIP_ENGINE_UNAVAILABLE')], warnings: [], config: {}, detectedFiles: {} };
+        try {
+            const zip = await JSZip.loadAsync(file);
+            const readableFiles = Object.keys(zip.files).filter(function(path) {
+                return !zip.files[path].dir && /\.(?:html?|js)$/i.test(path);
+            });
+            const entries = await Promise.all(readableFiles.map(async function(path) {
+                return { path: path, text: await zip.files[path].async('text') };
+            }));
+            return inspectEntries(entries);
+        } catch (error) {
+            return { valid: false, errors: [makeIssue('旧网站 ZIP 无法读取：' + error.message, 'ZIP_READ_FAILED')], warnings: [], config: {}, detectedFiles: {} };
+        }
+    }
+
+    async function inspectArchive(file) {
+        if (!file) return archiveFailure('请选择旧网站源码压缩包（.zip、.tar.gz 或 .tgz）。', 'ARCHIVE_REQUIRED');
+        const type = archiveType(file.name);
+        if (type === 'zip') return inspectZip(file);
+        if (type === 'tar-gz') return inspectTarGz(file);
+        return archiveFailure('旧网站源码仅支持 .zip、.tar.gz 或 .tgz。', 'ARCHIVE_TYPE_INVALID');
+    }
+
+    function fixedPlacements() {
+        return {
+            adv1: { home: 'after-navbar', detail: 'after-navbar' },
+            adv2: { home: 'after-section-0', detail: 'detail-after-content' },
+            adv3: { home: 'after-section-1', detail: 'footer-top' }
+        };
+    }
+
+    function countMatch(html, pattern) {
+        const matches = String(html || '').match(pattern);
+        return matches ? matches.length : 0;
+    }
+
+    function validateGeneratedPage(html, pageType) {
+        const errors = [];
+        const expectedAdPath = pageType === 'home' ? 'js/ad.js' : '../js/ad.js';
+        const gptCount = countMatch(html, /<script\b[^>]*\bsrc=["']https:\/\/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js["'][^>]*>/gi);
+        const adCount = countMatch(html, new RegExp('<script\\b[^>]*\\bsrc=["\\\']' + expectedAdPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\?v=[a-z0-9-]+)?["\\\'][^>]*>', 'gi'));
+        if (gptCount !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'GPT_COUNT_INVALID'));
+        if (adCount !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' ad.js 数量为 ' + adCount + '，应为 1。', 'AD_JS_COUNT_INVALID'));
+        CONTAINER_IDS.forEach(function(id) {
+            const count = countContainer(html, id);
+            if (count !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' ' + id + ' 数量为 ' + count + '，应为 1。', 'CONTAINER_COUNT_INVALID'));
+        });
+        return errors;
+    }
+
+    function validateGeneratedPages(homeHtml, detailHtmlList) {
+        const errors = validateGeneratedPage(homeHtml, 'home');
+        (detailHtmlList || []).forEach(function(html, index) {
+            validateGeneratedPage(html, 'detail').forEach(function(error) {
+                errors.push(makeIssue('详情页 #' + (index + 1) + '：' + error.message, error.code));
+            });
+        });
+        return { valid: errors.length === 0, errors: errors };
+    }
+
+    return {
+        inspectEntries: inspectEntries,
+        inspectTarBytes: inspectTarBytes,
+        inspectZip: inspectZip,
+        inspectArchive: inspectArchive,
+        inspectAdCodeText: inspectAdCodeText,
+        fixedPlacements: fixedPlacements,
+        validateGeneratedPage: validateGeneratedPage,
+        validateGeneratedPages: validateGeneratedPages,
+        containerIds: CONTAINER_IDS.slice(),
+        configKeys: CONFIG_KEYS.slice()
+    };
+})();

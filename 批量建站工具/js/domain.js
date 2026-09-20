@@ -18,11 +18,25 @@
         return text.indexOf(normalizedKeyword) !== -1;
     }
 
-    function collectSample(rows) {
+    function collectSourceText(source) {
+        if (!source) return '';
+        if (typeof source === 'string') return normalize(source).slice(0, 1200);
+        if (typeof source !== 'object') return '';
+        return normalize([
+            source.fileName,
+            source.archiveName,
+            source.entryPath,
+            source.jsonName
+        ].filter(Boolean).join(' ')).slice(0, 1200);
+    }
+
+    function collectSample(rows, source) {
         var sampleRows = rows.slice(0, 30);
         var fields = {};
         var weightedText = '';
         var bodyText = '';
+        var categoryText = '';
+        var categoryValues = [];
 
         sampleRows.forEach(function(row) {
             if (!row || typeof row !== 'object' || Array.isArray(row)) return;
@@ -33,6 +47,10 @@
                 var text = normalize(value).slice(0, 1200);
                 if (/title|name|category|genre|tag|topic|标题|分类|类型|栏目/i.test(key)) {
                     weightedText += ' ' + text + ' ' + text;
+                    if (/category|genre|tag|topic|分类|类型|栏目/i.test(key)) {
+                        categoryText += ' ' + text;
+                        categoryValues.push(text);
+                    }
                 } else {
                     bodyText += ' ' + text;
                 }
@@ -42,12 +60,15 @@
         return {
             fields: Object.keys(fields),
             headlineText: weightedText.slice(0, 30000),
-            text: (weightedText + ' ' + bodyText).slice(0, 80000)
+            categoryText: categoryText.slice(0, 30000),
+            categoryValues: categoryValues.slice(0, 30),
+            text: (weightedText + ' ' + bodyText).slice(0, 80000),
+            sourceText: collectSourceText(source)
         };
     }
 
-    function detect(rows, catalog) {
-        var sample = collectSample(Array.isArray(rows) ? rows : []);
+    function detect(rows, catalog, source) {
+        var sample = collectSample(Array.isArray(rows) ? rows : [], source);
         var results = Object.keys(catalog || {}).map(function(id) {
             var profile = catalog[id];
             var score = 0;
@@ -67,8 +88,23 @@
             (profile.keywords || []).forEach(function(keyword) {
                 var keywordText = normalize(keyword).replace(/\s+/g, '');
                 var searchableText = keywordText.length <= 2 ? sample.headlineText : sample.text;
-                if (includesKeyword(searchableText, keyword)) {
-                    score += 2;
+                var canUseSource = keywordText.length > 2 || /[^a-z0-9 ]/i.test(normalize(keyword));
+                if (canUseSource && includesKeyword(sample.sourceText, keyword)) {
+                    score += 6;
+                    if (evidence.length < 5) evidence.push('来源关键词 “' + keyword + '”');
+                } else if (includesKeyword(sample.categoryText, keyword)) {
+                    var categoryMatches = sample.categoryValues.filter(function(value) {
+                        return includesKeyword(value, keyword);
+                    }).length;
+                    // Repeated editorial labels are stronger evidence than an
+                    // incidental word in a single article body.
+                    score += Math.min(12, 4 + Math.max(1, categoryMatches));
+                    if (evidence.length < 5) evidence.push('分类关键词 “' + keyword + '”');
+                } else if (includesKeyword(sample.headlineText, keyword)) {
+                    score += 3;
+                    if (evidence.length < 5) evidence.push('标题关键词 “' + keyword + '”');
+                } else if (includesKeyword(searchableText, keyword)) {
+                    score += 1;
                     if (evidence.length < 5) evidence.push('关键词 “' + keyword + '”');
                 }
             });

@@ -33,6 +33,20 @@ export default defineConfig({
 
       const docsSource = resolve('docs');
       if (existsSync(docsSource)) copyDirectoryContents(docsSource, resolve('dist/docs'));
+
+      // 游戏工作流会复用根目录的液态玻璃层；它的 HTML 在 dist 中保持相对路径，
+      // 因此发布包也需要保留这一份未打包的共享样式。
+      const liquidGlassCssSource = resolve('css/liquid-glass.css');
+      const liquidGlassCssTarget = resolve('dist/css/liquid-glass.css');
+      if (existsSync(liquidGlassCssSource)) {
+        mkdirSync(resolve(liquidGlassCssTarget, '..'), { recursive: true });
+        copyFileSync(liquidGlassCssSource, liquidGlassCssTarget);
+      }
+
+      // 游戏工作流既要能被普通静态服务器直接访问，也要随生产构建发布。
+      // 因此其源码放在项目根目录，而不是只由 Vite 映射的 public/ 目录。
+      const gameBuilderSource = resolve('game-builder');
+      if (existsSync(gameBuilderSource)) copyDirectoryContents(gameBuilderSource, resolve('dist/game-builder'));
     }
   }]
 });

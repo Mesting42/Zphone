@@ -92,6 +92,18 @@ const Generator = (function() {
         adv3: '<div id="adv3" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:var(--color-text,#111);font-size:13px;">advertisement</div><div id="div-gpt-ad-banner3" style="min-width:300px;min-height:250px;"></div></div>'
     };
 
+    const AD_RUNTIME_CACHE_VERSION = '20260919-ad-runtime-init-1';
+
+    function getAdRuntimeVersion(adPaths) {
+        const source = JSON.stringify(adPaths || {});
+        let hash = 2166136261;
+        for (let index = 0; index < source.length; index += 1) {
+            hash ^= source.charCodeAt(index);
+            hash = Math.imul(hash, 16777619);
+        }
+        return AD_RUNTIME_CACHE_VERSION + '-' + (hash >>> 0).toString(36);
+    }
+
     // ========== 生成 ad.js ==========
     function generateAdJs(adPaths, adPolicy) {
         var p = adPaths || {};
@@ -130,7 +142,12 @@ var bannerSlot1, bannerSlot2, bannerSlot3, bannerSlot4;
 var interstitialSlot, anchorSlot;
 
 var isIndex = (window.location.pathname === '/' || window.location.pathname === '/index.html');
-var isDetail = /\/(?:details?|articles?)\//i.test(window.location.pathname);
+// Use path segments instead of a slash-delimited regular expression so generated ad.js stays valid JavaScript.
+var detailPathSegments = window.location.pathname.toLowerCase().split('/');
+var isDetail = detailPathSegments.indexOf('detail') !== -1 ||
+    detailPathSegments.indexOf('details') !== -1 ||
+    detailPathSegments.indexOf('article') !== -1 ||
+    detailPathSegments.indexOf('articles') !== -1;
 const adPolicy = ${runtimePolicySource};
 
 function isAdPolicyEnabled(kind) {
@@ -229,9 +246,12 @@ googletag.cmd.push(function () {
 });
 
 /* -------------------------------
-   浏览器 load 后开始监控广告位进入视口
---------------------------------*/
-window.addEventListener('load', function () {
+   DOM 就绪后开始监控广告位进入视口
+ --------------------------------*/
+var bannerObserversInitialized = false;
+function initializeBannerObservers() {
+    if (bannerObserversInitialized) return;
+    bannerObserversInitialized = true;
 
     delayLoadBanner("bannerSlot1", bannerPath1, "div-gpt-ad-banner1");
     delayLoadBanner("bannerSlot2", bannerPath2, "div-gpt-ad-banner2");
@@ -241,7 +261,13 @@ window.addEventListener('load', function () {
         console.log("[Display] banner4 正常加载 display()");
         googletag.cmd.push(() => googletag.display("div-gpt-ad-banner4"));
     }
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeBannerObservers, { once: true });
+} else {
+    initializeBannerObservers();
+}
 
 if (analyticsID) {
     const gtagScript = document.createElement('script');
@@ -307,6 +333,9 @@ if (analyticsID) {
     --grid-gap: ${gridGap};
     --transition-speed: ${transitionSpeed};
     --navbar-height: ${navbarHeight};
+    --navbar-frame-gap: 0px;
+    --navbar-menu-offset: 0px;
+    --navbar-scroll-offset: 16px;
     --card-image-height: ${style.cardImageHeight || '180px'};
     --content-max-width: ${style.contentMaxWidth === 'full' ? '100%' : (style.contentMaxWidth || '1200px')};
 }
@@ -356,7 +385,6 @@ body {
     color: var(--color-text);
     line-height: 1.6;
     min-height: 100vh;
-    ${style.navbarStyle === 'bottom-fixed' ? 'padding-bottom: var(--navbar-height);' : ''}
 }
 
 a { color: var(--color-primary); text-decoration: none; transition: color var(--transition-speed); }
@@ -399,6 +427,7 @@ img { max-width: 100%; height: auto; }
     background: var(--navbar-bg);
     height: var(--navbar-height);
     width: 100%;
+    margin: 0;
     z-index: 1000;
     isolation: isolate;
     box-shadow: 0 6px 18px rgba(0,0,0,0.10);
@@ -407,6 +436,7 @@ img { max-width: 100%; height: auto; }
 }
 
 .navbar .container {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -512,10 +542,9 @@ img { max-width: 100%; height: auto; }
 .drawer-overlay.active { display: block; }
 
 .navbar.bottom-fixed {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    position: sticky;
+    top: 0;
+    bottom: auto;
     z-index: 1000;
     box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
 }
@@ -629,7 +658,7 @@ img { max-width: 100%; height: auto; }
 
 /* 分类区域 */
 .category-section {
-    scroll-margin-top: calc(var(--navbar-height) + 16px);
+    scroll-margin-top: calc(var(--navbar-height) + var(--navbar-scroll-offset));
     margin-bottom: 48px;
     ${style.categoryTitleAlign === 'center' ? 'text-align: center;' : ''}
 }
@@ -1446,17 +1475,17 @@ ${style.detailLayout === 'sidebar' ? `
     }
 
     .navbar .nav-links {
-        position: fixed;
-        top: calc(var(--navbar-height) + 8px);
-        left: 10px;
-        right: 10px;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
         background: var(--color-bg);
         flex-direction: column;
         padding: 20px;
         gap: 12px;
         display: none;
         border: 1px solid var(--color-border);
-        border-radius: 14px;
+        border-radius: 0 0 14px 14px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         z-index: 1001;
     }
@@ -1783,13 +1812,34 @@ ${style.detailLayout === 'sidebar' ? `
         return 'index.html#' + anchorId;
     }
 
+    // 导航只能链接到本次导出中确实会被分配到内容的分类。分类内容的分配规则
+    // 与 generateScriptJs 中 renderCategories 保持一致：按配置顺序消耗数据，
+    // 每个分类最多使用其配置数量的文章。
+    function getPopulatedNavigationCategories(categories, dataLength) {
+        var remaining = Math.max(0, Number(dataLength) || 0);
+        var result = [];
+
+        (categories || []).forEach(function(category, index) {
+            var requestedCount = Math.max(0, Math.floor(Number(category && category.count) || 0));
+            if (!category || !String(category.name || '').trim() || requestedCount < 1 || remaining < 1) return;
+
+            result.push({ category: category, index: index });
+            remaining -= Math.min(requestedCount, remaining);
+        });
+
+        return result;
+    }
+
     function generateNavbar(config, pageContext) {
         const theme = config.theme;
         const navLinks = ['home'];
         const homeHref = pageContext === 'detail' ? '../index.html' : 'index.html';
-        const categories = (config.structure.categories || []).filter(function(category) {
-            return category && String(category.name || '').trim() && Number(category.count) !== 0;
-        });
+        const populatedCategories = Array.isArray(config.structure.populatedNavigationCategories)
+            ? config.structure.populatedNavigationCategories
+            : getPopulatedNavigationCategories(config.structure.categories, Number.MAX_SAFE_INTEGER);
+        // 有四个真实内容分类时显示四个；不足四个时最多显示三个，避免导航链接到空区块。
+        const headerCategoryLimit = populatedCategories.length >= 4 ? 4 : Math.min(3, populatedCategories.length);
+        const categories = populatedCategories.slice(0, headerCategoryLimit);
         const logoIcon = config.style.logoIcon || '🌐';
         const navbarClass = config.style.navbarStyle === 'glass-sticky' ? 'glass-sticky' :
                            config.style.navbarStyle === 'dark-fixed' ? 'dark-fixed' :
@@ -1809,14 +1859,19 @@ ${style.detailLayout === 'sidebar' ? `
             `<a href="${homeHref}" class="logo" style="border: 2px solid var(--color-primary); padding: 4px 12px; border-radius: 6px;">${theme.logoText}</a>` :
             `<a href="${homeHref}" class="logo">${theme.logoText}</a>`;
 
-        let linksHtml = '';
-        if (navLinks.includes('home')) linksHtml += `<li><a href="${homeHref}">Home</a></li>`;
-        categories.forEach(function(category, index) {
-            const anchorId = categoryAnchorId(category, index);
-            linksHtml += `<li><a href="${categoryNavigationHref(anchorId, pageContext)}">${escapeNavigationText(category.name)}</a></li>`;
-        });
+        function buildLinks(categoryItems) {
+            let html = '';
+            if (navLinks.includes('home')) html += `<li><a href="${homeHref}">Home</a></li>`;
+            categoryItems.forEach(function(entry) {
+                const anchorId = categoryAnchorId(entry.category, entry.index);
+                html += `<li><a href="${categoryNavigationHref(anchorId, pageContext)}">${escapeNavigationText(entry.category.name)}</a></li>`;
+            });
+            return html;
+        }
 
-        const drawerLinksHtml = linksHtml; // reuse the same links for drawer
+        const linksHtml = buildLinks(categories);
+        // 移动端抽屉与横向导航使用相同的、已验证有内容的入口，避免两处显示不一致。
+        const drawerLinksHtml = linksHtml;
 
         const layoutClass = config.structure.navbarLayout === 'centered' ? 'navbar-centered' :
                             config.structure.navbarLayout === 'left' ? 'navbar-left' : '';
@@ -1956,8 +2011,9 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const navbar = generateNavbar(config, 'home');
         const footer = generateFooter(config);
         const adPlacements = config.adPlacements || {};
+        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths);
         const adScripts = hasMigratedAds(config)
-            ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="js/ad.js"><\/script>'
+            ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
             : '';
 
         // 获取首页静态位置广告（容器外部的位置）
@@ -2275,8 +2331,9 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const mapping = config.fieldMapping;
         const itemId = getItemId(item, index);
         const siteName = theme.siteTitle;
+        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths);
         const adScripts = hasMigratedAds(config)
-            ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="../js/ad.js"><\/script>'
+            ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="../js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
             : '';
 
         const navbar = generateNavbar(config, 'detail');
@@ -2830,6 +2887,7 @@ if __name__ == '__main__':
         const baseTheme = THEMES[appState.selectedTheme];
         const profile = typeof DOMAIN_CATALOG !== 'undefined' ? DOMAIN_CATALOG[appState.selectedTheme] : null;
         const selectedCategories = appState.config.categories || baseTheme.categories || [];
+        const populatedNavigationCategories = getPopulatedNavigationCategories(selectedCategories, (appState.data || []).length);
         const contactEmail = resolveContactEmail(appState.config.contactEmail);
         const theme = Object.assign({}, baseTheme, {
             siteTitle: appState.config.siteTitle || baseTheme.siteTitle,
@@ -2866,6 +2924,7 @@ if __name__ == '__main__':
                 heroTitle: appState.config.heroTitle || theme.hero.title,
                 heroSubtitle: appState.config.heroSubtitle || theme.hero.subtitle,
                 categories: selectedCategories,
+                populatedNavigationCategories: populatedNavigationCategories,
                 cardColumns: appState.config.cardColumns || 'auto',
                 randomSort: true,
                 cardFields: appState.config.cardFields || theme.cardFields,

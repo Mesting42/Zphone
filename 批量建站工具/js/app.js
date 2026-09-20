@@ -42,6 +42,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         adInjectionArchiveFiles: [],
         adInjectionCodeFiles: [],
         adInjectionCodes: [],
+        batchAdBuild: { sites: [], codes: [], activeSiteIndex: 0 },
         differentiated: {
             siteType: 'editorial', vertical: '', audience: '', scope: '', baseUrl: '',
             contactEmail: '', contactLayout: 'split', contactFields: ['name', 'email', 'subject', 'message'], footerStyle: 'simple', footerLinks: ['privacy', 'terms', 'contact', 'about'], siteTitle: '', brandMark: 'auto', logoIcon: '', typography: 'auto', designFamily: 'auto', domainId: 'auto', seed: '', cardAlignment: 'compact', homeIntro: 'compact', featuredCard: 'highlight', navCategoryLimit: 4, homeCategoryLayout: false, homeCategoryLimit: 4, categoryOverrides: [], summaryMode: 'standard', tone: 'auto', themePreset: 'auto', themePalette: {}, contentDensity: 'comfortable', cardRadius: 'auto', cardHover: 'lift', cardColumns: 'template', categoryCardColumns: 'inherit', cardViewMode: 'auto', cardBorder: 'auto', cardSpacing: 'auto', cardExcerptLines: 'auto', cardImageHeight: 'auto', cardHeight: 'template', coverFit: 'smart', contentMaxWidth: 'auto', metaBg: 'auto', detailImgStyle: 'auto', categoryTitleStyle: 'auto', categoryTitleAlign: 'auto', heroStyle: 'auto', detailLayout: 'auto', fontStyle: 'auto', logoStyle: 'mark-text', navLayout: 'split', navStyle: 'glass', navHeight: 'regular', gridGap: 'regular', buttonStyle: 'solid', buttonSize: 'auto', backLinkStyle: 'arrow', animationEnter: 'fade', transitionSpeed: 'normal', exportVariant: 'draft'
@@ -59,6 +60,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     var btnPrev = document.getElementById('btn-prev');
     var btnReupload = document.getElementById('btn-reupload');
     var btnNext = document.getElementById('btn-next');
+    var workflowActionMessage = document.getElementById('workflow-action-message');
     var previewFrame = document.getElementById('preview-frame');
     var noticeOverlay = document.getElementById('notice-overlay');
     var noticeDialog = document.getElementById('notice-dialog');
@@ -70,6 +72,25 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     var noticeCancel = document.getElementById('notice-cancel');
     var noticeLastFocus = null;
     var noticeResolve = null;
+
+    function updateNextButtonLabel(text) {
+        if (window.SiteFoundryJellyButton && typeof window.SiteFoundryJellyButton.setLabel === 'function') {
+            window.SiteFoundryJellyButton.setLabel(btnNext, text);
+            return;
+        }
+        btnNext.textContent = text;
+    }
+    function updateWorkflowActionContext(step) {
+        if (!workflowActionMessage) return;
+        var messages = {
+            1: '下一步：识别领域',
+            2: '下一步：字段匹配',
+            3: '下一步：配置网站',
+            4: '下一步：导出网站',
+            5: '当前步骤：导出网站'
+        };
+        workflowActionMessage.textContent = messages[step] || '流程操作';
+    }
     var uploadArea = document.getElementById('upload-area');
     var fileInput = document.getElementById('file-input');
     var dataOverview = document.getElementById('data-overview');
@@ -161,6 +182,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         var isDifferentiated = appState.siteBuildMode === 'differentiated';
         var isRestoration = appState.siteBuildMode === 'ad-restoration';
         var isInjection = appState.siteBuildMode === 'ad-injection';
+        var isBatchAdBuild = appState.siteBuildMode === 'batch-ad-build';
         var isStandaloneTool = isRestoration || isInjection;
         document.querySelectorAll('[data-build-mode]').forEach(function(button) {
             var selected = button.dataset.buildMode === appState.siteBuildMode;
@@ -175,12 +197,17 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         if (restorationSection) restorationSection.hidden = !isRestoration;
         var injectionSection = document.getElementById('ad-injection-setup');
         if (injectionSection) injectionSection.hidden = !isInjection;
-        if (uploadArea) uploadArea.hidden = isStandaloneTool;
-        if (dataOverview) dataOverview.hidden = isStandaloneTool;
+        var batchSection = document.getElementById('batch-ad-setup');
+        if (batchSection) batchSection.hidden = !isBatchAdBuild;
+        if (uploadArea) uploadArea.hidden = isStandaloneTool || isBatchAdBuild;
+        if (dataOverview) dataOverview.hidden = isStandaloneTool || isBatchAdBuild;
         var stepProgress = document.querySelector('.step-progress');
         if (stepProgress) stepProgress.hidden = isStandaloneTool;
         if (btnNext && appState.currentStep === 1) btnNext.style.display = isStandaloneTool ? 'none' : 'inline-block';
-        if (btnReupload) btnReupload.hidden = isStandaloneTool;
+        if (btnReupload) {
+            var hasUploadForMode = isBatchAdBuild ? (appState.batchAdBuild.sites || []).length > 0 : !!(appState.data && appState.data.length);
+            btnReupload.hidden = isStandaloneTool || appState.currentStep !== 1 || !hasUploadForMode;
+        }
         var standardConfigPanel = document.querySelector('#step-4 .config-panel');
         if (standardConfigPanel) standardConfigPanel.hidden = isDifferentiated;
         var differentiatedCustomizer = document.getElementById('differentiated-customizer');
@@ -190,10 +217,13 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         var adsSection = document.getElementById('tab-ads');
         if (adsTab) adsTab.hidden = isMigration;
         if (adsSection) adsSection.hidden = isMigration;
+        if (adsSection) adsSection.querySelectorAll(':scope > .config-group').forEach(function(group) { group.hidden = isBatchAdBuild; });
+        var batchCodeWorkspace = document.getElementById('batch-ad-code-workspace');
+        if (batchCodeWorkspace) batchCodeWorkspace.hidden = !isBatchAdBuild;
         var legacyExport = document.getElementById('legacy-export-options');
         var differentiatedExport = document.getElementById('differentiated-export-options');
         var defaultExportButton = document.getElementById('btn-export');
-        if (legacyExport) legacyExport.hidden = isDifferentiated;
+        if (legacyExport) legacyExport.hidden = isDifferentiated || isBatchAdBuild;
         if (differentiatedExport) differentiatedExport.hidden = !isDifferentiated;
         if (defaultExportButton) defaultExportButton.hidden = isDifferentiated;
         var uploadHint = document.getElementById('upload-hint');
@@ -203,6 +233,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         if (isMigration) renderMigrationResult();
         if (isRestoration) updateAdRestorationControls();
         if (isInjection) updateAdInjectionControls();
+        if (isBatchAdBuild) {
+            renderBatchDataList();
+            renderBatchAdCodeWorkspace();
+        }
         if (isDifferentiated) {
             renderDifferentiatedPackageStatus();
             populateDifferentiatedDesigns();
@@ -210,7 +244,13 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     }
 
     function selectBuildMode(mode) {
-        appState.siteBuildMode = mode === 'ad-migration' || mode === 'differentiated' || mode === 'ad-restoration' || mode === 'ad-injection' ? mode : 'normal';
+        // 游戏建站保留独立的经典运行时，避免与资讯工具的全局生成器和状态相互覆盖。
+        // 它位于同一发布包内，会随 Vite 构建一并输出。
+        if (mode === 'game-builder') {
+            window.location.assign('game-builder/index.html');
+            return;
+        }
+        appState.siteBuildMode = mode === 'ad-migration' || mode === 'differentiated' || mode === 'ad-restoration' || mode === 'ad-injection' || mode === 'batch-ad-build' ? mode : 'normal';
         appState.adPlacementMode = null;
         if (appState.config) {
             appState.config.adPlacements = {};
@@ -1001,6 +1041,25 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         state.categoryOverrides = overrides;
     }
 
+    // 随机组合只会读取 theme.iconPool；这里仅为人工逐个挑选补充全量 Emoji，
+    // 并始终把当前领域的图标放在前面，方便快速选择。
+    function getCategoryIconPickerChoices(domainPool, activeIcon) {
+        var choices = [];
+        var addIcon = function(icon) {
+            icon = getCompatibleCategoryEmoji(icon);
+            if (icon && choices.indexOf(icon) === -1) choices.push(icon);
+        };
+        (domainPool || []).forEach(addIcon);
+        (typeof ALL_CATEGORY_EMOJI_ICONS !== 'undefined' ? ALL_CATEGORY_EMOJI_ICONS : []).forEach(addIcon);
+        activeIcon = getCompatibleCategoryEmoji(activeIcon);
+        if (activeIcon && choices.indexOf(activeIcon) === -1) choices.unshift(activeIcon);
+        return choices.length ? choices : ['📌', '🌐', '💡', '📰', '⭐', '🏷️'];
+    }
+
+    function getCompatibleCategoryEmoji(icon) {
+        return typeof getWindowsSafeEmoji === 'function' ? getWindowsSafeEmoji(icon) : icon;
+    }
+
     function renderDifferentiatedCategories() {
         var target = document.getElementById('diff-auto-category-list');
         if (!target || typeof DifferentiatedBuilder === 'undefined') return;
@@ -1016,14 +1075,13 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         if (value) value.textContent = String(limit);
         var visible = config.categories.slice(0, limit);
         function iconChoices(category, index) {
-            var choices = pool.slice(0, 24);
-            var active = category.icon || choices[index % Math.max(1, choices.length)] || '📌';
-            if (choices.indexOf(active) === -1) choices.unshift(active);
+            var choices = getCategoryIconPickerChoices(pool, category.icon);
+            var active = getCompatibleCategoryEmoji(category.icon || choices[index % Math.max(1, choices.length)] || '📌');
             return { active: active, choices: choices.length ? choices : ['📌', '✦', '◆', '●', '■', '▲'] };
         }
         target.innerHTML = '<p class="diff-auto-category-title">已识别的导航分类</p>' + (visible.length ? '<p class="diff-auto-category-help">分类来自本次数据源；可在此修改导航显示名称与图标，链接和文章归属保持不变。</p>' + visible.map(function(category, index) {
             var icons = iconChoices(category, index);
-            return '<div class="category-config-item diff-category-config-item" role="listitem"><div class="cat-icon-picker"><button type="button" class="cat-icon-trigger" aria-label="选择第 ' + (index + 1) + ' 个分类图标" aria-expanded="false">' + escapeHtml(icons.active) + '</button><div class="cat-icon-menu" role="listbox" aria-label="分类图标选项">' + icons.choices.map(function(icon) { return '<button type="button" class="cat-icon-option' + (icons.active === icon ? ' selected' : '') + '" role="option" aria-selected="' + (icons.active === icon ? 'true' : 'false') + '" data-diff-category-icon="' + escapeHtml(icon) + '" data-diff-category-slug="' + escapeHtml(category.slug) + '">' + escapeHtml(icon) + '</button>'; }).join('') + '</div></div><input type="text" class="cat-name-input" value="' + escapeHtml(category.name) + '" maxlength="64" aria-label="第 ' + (index + 1) + ' 个分类名称" data-diff-category-name data-diff-category-slug="' + escapeHtml(category.slug) + '"><output class="diff-category-record-count" aria-label="' + category.count + ' 篇文章">' + category.count + ' 篇</output></div>';
+            return '<div class="category-config-item diff-category-config-item" role="listitem"><div class="cat-icon-picker"><button type="button" class="cat-icon-trigger" title="当前领域图标优先，也可选择全部 Emoji" aria-label="选择第 ' + (index + 1) + ' 个分类图标（当前领域图标优先，可选择全部 Emoji）" aria-expanded="false">' + escapeHtml(icons.active) + '</button><div class="cat-icon-menu" role="listbox" aria-label="分类图标选项：当前领域优先，包含全部 Emoji">' + icons.choices.map(function(icon) { return '<button type="button" class="cat-icon-option' + (icons.active === icon ? ' selected' : '') + '" role="option" aria-selected="' + (icons.active === icon ? 'true' : 'false') + '" data-diff-category-icon="' + escapeHtml(icon) + '" data-diff-category-slug="' + escapeHtml(category.slug) + '">' + escapeHtml(icon) + '</button>'; }).join('') + '</div></div><input type="text" class="cat-name-input" value="' + escapeHtml(category.name) + '" maxlength="64" aria-label="第 ' + (index + 1) + ' 个分类名称" data-diff-category-name data-diff-category-slug="' + escapeHtml(category.slug) + '"><output class="diff-category-record-count" aria-label="' + category.count + ' 篇文章">' + category.count + ' 篇</output></div>';
         }).join('') : '<p class="diff-auto-category-empty">上传数据后将在此显示自动识别的分类。</p>');
         target.querySelectorAll('[data-diff-category-name]').forEach(function(input) {
             input.addEventListener('input', function() {
@@ -1037,11 +1095,12 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             trigger.addEventListener('click', function(event) {
                 event.stopPropagation();
                 var picker = trigger.closest('.cat-icon-picker');
-                target.querySelectorAll('.cat-icon-picker.open').forEach(function(openPicker) {
-                    if (openPicker !== picker) { openPicker.classList.remove('open'); openPicker.querySelector('.cat-icon-trigger').setAttribute('aria-expanded', 'false'); }
-                });
-                var isOpen = picker.classList.toggle('open');
-                trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                var willOpen = !picker.classList.contains('open');
+                closeStyledSelects();
+                closeCategoryIconPickers(picker);
+                setCategoryPickerOpenState(picker, willOpen);
+                if (willOpen) moveCategoryPickerMenuToPortal(picker);
+                trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
             });
         });
         target.querySelectorAll('[data-diff-category-icon]').forEach(function(button) {
@@ -1049,6 +1108,8 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 event.stopPropagation();
                 var category = config.categories.find(function(item) { return item.slug === button.dataset.diffCategorySlug; });
                 if (!category) return;
+                var picker = getCategoryPickerForMenu(button.closest('.cat-icon-menu'));
+                setCategoryPickerOpenState(picker, false);
                 saveDifferentiatedCategoryOverride(state, category, { icon: button.dataset.diffCategoryIcon });
                 renderDifferentiatedCategories();
                 renderDifferentiatedHomeCategories();
@@ -1057,10 +1118,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         });
         if (!appState._diffCategoryPickerBound) {
             document.addEventListener('click', function() {
-                document.querySelectorAll('#diff-auto-category-list .cat-icon-picker.open').forEach(function(picker) {
-                    picker.classList.remove('open');
-                    picker.querySelector('.cat-icon-trigger').setAttribute('aria-expanded', 'false');
-                });
+                closeCategoryIconPickers();
             });
             appState._diffCategoryPickerBound = true;
         }
@@ -1320,6 +1378,11 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     }
 
     function openFilePicker() {
+        if (isBatchAdBuild()) {
+            var batchInput = document.getElementById('batch-data-input');
+            if (batchInput) { batchInput.value = ''; batchInput.click(); }
+            return;
+        }
         if (!fileInput || fileInput.disabled) return;
         fileInput.value = '';
         fileInput.click();
@@ -1355,10 +1418,393 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         });
     }
 
+    // ========== 批量新建站 + 广告代码 ==========
+    function isBatchAdBuild() {
+        return appState.siteBuildMode === 'batch-ad-build';
+    }
+
+    function batchRequiredFields(theme) {
+        return theme && theme.fields ? theme.fields.filter(function(field) { return field.required; }) : [];
+    }
+
+    function cloneBatchConfig(value) {
+        return JSON.parse(JSON.stringify(value || {}));
+    }
+
+    function getActiveBatchSite() {
+        var batch = appState.batchAdBuild || { sites: [] };
+        var sites = batch.sites || [];
+        if (!sites.length) return null;
+        var index = Number(batch.activeSiteIndex);
+        if (!Number.isInteger(index) || index < 0 || index >= sites.length) index = 0;
+        batch.activeSiteIndex = index;
+        return sites[index];
+    }
+
+    // 批量流程仍复用单站预览与配置面板；切换时必须把当前站的图片、字段与配置完整带入，
+    // 否则归档包内的相对图片路径会被当成在线 URL，从而在 iframe 中显示为破图。
+    function syncBatchActiveSiteToApp() {
+        if (!isBatchAdBuild()) return null;
+        var site = getActiveBatchSite();
+        if (!site) return null;
+        if (!site.config) site.config = cloneBatchConfig(appState.config);
+        // 领域识别是站点级状态：批量数据源可以同时来自医疗、科技、金融等不同领域。
+        // 切换当前站点时，预览、字段和模板库都必须恢复这一站自己的领域上下文。
+        appState.selectedTheme = site.themeId || null;
+        appState.domainDetection = site.domainDetection || null;
+        appState.domainSelectionSource = site.domainSelectionSource || null;
+        appState.data = site.data;
+        appState.jsonFields = site.jsonFields || [];
+        appState.fieldMapping = site.fieldMapping || {};
+        appState.isLocalImages = !!site.isLocalImages;
+        appState.localImages = site.localImages || {};
+        appState.config = site.config;
+        appState.adCodeMigration = (appState.batchAdBuild.codes || []).find(function(code) {
+            return code.id === site.codeId && code.valid;
+        }) || null;
+        return site;
+    }
+
+    function getBatchTemplateOwner(templateId, exceptSite) {
+        if (!isBatchAdBuild() || !templateId) return null;
+        return (appState.batchAdBuild.sites || []).find(function(site) {
+            return site !== exceptSite && site.config && site.config.templateId === templateId;
+        }) || null;
+    }
+
+    function getBatchTemplateIssue(site) {
+        if (!site || !THEMES[site.themeId]) return '尚未确认领域';
+        if (!site || !site.config || !site.config.templateId) return '尚未分配独立模板';
+        var owner = getBatchTemplateOwner(site.config.templateId, site);
+        return owner ? '与“' + (owner.fileName || '另一个站点') + '”重复使用模板' : '';
+    }
+
+    function renderBatchPreviewSiteTabs() {
+        var target = document.getElementById('batch-preview-site-tabs');
+        var switcher = document.getElementById('preview-site-switcher');
+        if (!target) return;
+        var sites = isBatchAdBuild() && appState.batchAdBuild ? appState.batchAdBuild.sites || [] : [];
+        if (sites.length < 2) {
+            if (switcher) switcher.hidden = true;
+            target.innerHTML = '';
+            return;
+        }
+        var activeSite = getActiveBatchSite();
+        if (switcher) switcher.hidden = false;
+        target.innerHTML = sites.map(function(site, index) {
+            var selected = site === activeSite;
+            var label = '站点 ' + (index + 1) + '：' + (site.fileName || '未命名数据源');
+            return '<button type="button" class="batch-preview-site-tab" role="tab" id="batch-preview-site-tab-' + index + '" aria-selected="' + (selected ? 'true' : 'false') + '" aria-controls="preview-frame" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '" tabindex="' + (selected ? '0' : '-1') + '" data-batch-preview-site-index="' + index + '">' + String(index + 1).padStart(2, '0') + '</button>';
+        }).join('');
+        target.querySelectorAll('[data-batch-preview-site-index]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                switchBatchPreviewSite(Number(button.dataset.batchPreviewSiteIndex), true);
+            });
+        });
+        target.onkeydown = function(event) {
+            var buttons = Array.from(target.querySelectorAll('[data-batch-preview-site-index]'));
+            if (!buttons.length || ['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(event.key) === -1) return;
+            event.preventDefault();
+            var current = Math.max(0, buttons.indexOf(document.activeElement));
+            var next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+            switchBatchPreviewSite(next, true);
+        };
+    }
+
+    function renderBatchDomainSiteTabs() {
+        var target = document.getElementById('batch-domain-site-tabs');
+        var switcher = document.getElementById('batch-domain-site-switcher');
+        if (!target) return;
+        var sites = isBatchAdBuild() && appState.batchAdBuild ? appState.batchAdBuild.sites || [] : [];
+        if (sites.length < 2) {
+            if (switcher) switcher.hidden = true;
+            target.innerHTML = '';
+            return;
+        }
+        var activeSite = getActiveBatchSite();
+        if (switcher) switcher.hidden = false;
+        target.innerHTML = sites.map(function(site, index) {
+            var selected = site === activeSite;
+            var profile = DOMAIN_CATALOG[site.themeId];
+            var label = '站点 ' + (index + 1) + '：' + (site.fileName || '未命名数据源') + (profile ? '，' + profile.label : '，等待确认领域');
+            return '<button type="button" class="batch-domain-site-tab" role="tab" id="batch-domain-site-tab-' + index + '" aria-selected="' + (selected ? 'true' : 'false') + '" aria-controls="domain-detection" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '" tabindex="' + (selected ? '0' : '-1') + '" data-batch-domain-site-index="' + index + '">站点 ' + String(index + 1).padStart(2, '0') + '</button>';
+        }).join('');
+        target.querySelectorAll('[data-batch-domain-site-index]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                switchBatchDomainSite(Number(button.dataset.batchDomainSiteIndex), true);
+            });
+        });
+        target.onkeydown = function(event) {
+            var buttons = Array.from(target.querySelectorAll('[data-batch-domain-site-index]'));
+            if (!buttons.length || ['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(event.key) === -1) return;
+            event.preventDefault();
+            var current = Math.max(0, buttons.indexOf(document.activeElement));
+            var next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+            switchBatchDomainSite(next, true);
+        };
+    }
+
+    function switchBatchDomainSite(index, shouldFocus) {
+        if (!isBatchAdBuild()) return;
+        var sites = appState.batchAdBuild.sites || [];
+        if (!Number.isInteger(index) || index < 0 || index >= sites.length) return;
+        appState.batchAdBuild.activeSiteIndex = index;
+        syncBatchActiveSiteToApp();
+        updateThemeCardSelection(appState.selectedTheme);
+        renderBatchDomainSiteTabs();
+        renderDomainDetection();
+        renderBatchDataList();
+        if (shouldFocus) {
+            var activeButton = document.getElementById('batch-domain-site-tab-' + index);
+            if (activeButton) activeButton.focus();
+        }
+    }
+
+    function switchBatchPreviewSite(index, shouldFocus) {
+        if (!isBatchAdBuild()) return;
+        var sites = appState.batchAdBuild.sites || [];
+        if (!Number.isInteger(index) || index < 0 || index >= sites.length) return;
+        appState.batchAdBuild.activeSiteIndex = index;
+        appState.adPlacementMode = null;
+        syncBatchActiveSiteToApp();
+        renderBatchPreviewSiteTabs();
+        renderBatchDataList();
+        if (appState.currentStep === 4) {
+            initTemplateGrid();
+            applyConfigToUI();
+            syncDirectAdPlacementUI();
+            updateAdPlacementUI();
+            updatePreview();
+        }
+        if (shouldFocus) {
+            var activeButton = document.getElementById('batch-preview-site-tab-' + index);
+            if (activeButton) activeButton.focus();
+        }
+    }
+
+    function configureBatchSiteTheme(site, themeId, source) {
+        var theme = THEMES[themeId];
+        if (!site || !theme || typeof BatchAdBuilder === 'undefined') return false;
+        site.themeId = themeId;
+        site.domainSelectionSource = source || 'manual';
+        site.jsonFields = site.jsonFields || BatchAdBuilder.collectFields(site.data);
+        site.fieldMapping = BatchAdBuilder.autoMapFields(theme, site.jsonFields);
+        site.config = createThemeConfig(themeId);
+        // 只有领域相同的站点才需要错开蓝图；不同领域各自从专属模板库开始。
+        var template = getBlueprintsForTheme(themeId).find(function(candidate) {
+            return !getBatchTemplateOwner(candidate.id, site);
+        });
+        if (template) applyTemplateToConfig(site.config, template);
+        else site.config.templateId = '';
+        return true;
+    }
+
+    function selectBatchSiteTheme(themeId, source) {
+        var site = getActiveBatchSite();
+        if (!configureBatchSiteTheme(site, themeId, source)) return;
+        syncBatchActiveSiteToApp();
+        updateThemeCardSelection(themeId);
+        renderBatchDomainSiteTabs();
+        renderDomainDetection();
+        renderBatchDataList();
+        if (appState.currentStep === 3) renderBatchFieldMapping();
+        if (appState.currentStep === 4) {
+            initTemplateGrid();
+            applyConfigToUI();
+            updatePreview();
+        }
+    }
+
+    function refreshBatchMappings() {
+        if (!isBatchAdBuild() || typeof BatchAdBuilder === 'undefined') return;
+        appState.batchAdBuild.sites.forEach(function(site) {
+            if (site.themeId) configureBatchSiteTheme(site, site.themeId, site.domainSelectionSource);
+        });
+        appState.batchAdBuild.activeSiteIndex = 0;
+        syncBatchActiveSiteToApp();
+        renderBatchDataList();
+        renderBatchPreviewSiteTabs();
+    }
+
+    function batchSiteIssues(site) {
+        var theme = site && THEMES[site.themeId];
+        return batchRequiredFields(theme).filter(function(field) {
+            return !site.fieldMapping || !site.fieldMapping[field.id];
+        });
+    }
+
+    function renderBatchDataList() {
+        var target = document.getElementById('batch-data-list');
+        var status = document.getElementById('batch-data-status');
+        if (!target || !status) return;
+        var sites = appState.batchAdBuild && appState.batchAdBuild.sites || [];
+        if (!sites.length) {
+            target.hidden = true;
+            status.textContent = '尚未选择数据源';
+            status.classList.remove('is-ready');
+            return;
+        }
+        var allThemesReady = sites.every(function(site) { return !!THEMES[site.themeId]; });
+        target.hidden = false;
+        var activeSite = getActiveBatchSite();
+        target.innerHTML = '<div class="batch-ad-list-head"><strong>已读取 ' + sites.length + ' 个站点数据源</strong><span>' + (allThemesReady ? '领域、字段与模板将逐站检查' : '下一步逐站确认领域') + '</span></div>' + sites.map(function(site, index) {
+            var themeReady = !!THEMES[site.themeId];
+            var profile = DOMAIN_CATALOG[site.themeId];
+            var missing = themeReady ? batchSiteIssues(site) : [];
+            var templateIssue = themeReady ? getBatchTemplateIssue(site) : '';
+            var state = !themeReady ? '待确认领域' : (missing.length ? (profile.label + ' · 缺少：' + missing.map(function(field) { return field.labelZh; }).join('、')) : (profile.label + ' · ' + (templateIssue || '字段与模板已就绪')));
+            return '<article class="batch-ad-data-item ' + (!themeReady ? '' : (missing.length || templateIssue ? 'is-invalid' : 'is-valid')) + (site === activeSite ? ' is-active-preview' : '') + '"><span class="batch-ad-item-index">' + (index + 1) + '</span><div><strong>' + escapeHtml(site.fileName) + '</strong><span>' + site.data.length + ' 条 · ' + site.jsonFields.length + ' 个字段' + (site === activeSite ? ' · 当前站点' : '') + '</span></div><em>' + escapeHtml(state) + '</em></article>';
+        }).join('');
+        status.textContent = '已读取 ' + sites.length + ' 份数据源';
+        status.classList.add('is-ready');
+    }
+
+    async function importBatchDataFiles(files) {
+        if (typeof BatchAdBuilder === 'undefined') {
+            showNotice('批量建站组件未加载。请刷新页面后重试。', '无法读取数据源');
+            return;
+        }
+        var list = Array.from(files || []);
+        if (list.length < 2) {
+            showNotice('批量建站至少需要选择两份 JSON、ZIP、RAR 或 7Z 数据源。', '数据源数量不足');
+            return;
+        }
+        try {
+            var loaded = await Promise.all(list.map(function(file, index) { return readBatchDataSource(file, index); }));
+            appState.batchAdBuild = { sites: loaded, codes: [], activeSiteIndex: 0 };
+            appState.adCodeMigration = null;
+            // 每个数据源独立分析，严禁把第一份数据的医疗/科技等结果套用给同批其他站点。
+            loaded.forEach(function(site) {
+                site.domainDetection = DomainEngine.detect(site.data, DOMAIN_CATALOG, { fileName: site.fileName });
+                if (site.domainDetection.suggestedId) configureBatchSiteTheme(site, site.domainDetection.suggestedId, 'auto');
+            });
+            syncBatchActiveSiteToApp();
+            updateThemeCardSelection(appState.selectedTheme);
+            renderBatchDomainSiteTabs();
+            renderDomainDetection();
+            renderBatchDataList();
+            renderBatchPreviewSiteTabs();
+        } catch (error) {
+            showNotice(error.message, '无法读取批量数据源');
+        }
+    }
+
+    async function readBatchDataSource(file, index) {
+        var ext = String(file && file.name || '').split('.').pop().toLowerCase();
+        var data;
+        var localImages = {};
+        if (ext === 'json') {
+            data = BatchAdBuilder.normalizeData(parseUploadedJson(await file.text()));
+        } else if (ext === 'zip') {
+            if (!window.JSZip) throw new Error('ZIP 解析组件未加载，请刷新页面后重试。');
+            var zip = await window.JSZip.loadAsync(await file.arrayBuffer());
+            var jsonPath = Object.keys(zip.files).find(function(path) { return !zip.files[path].dir && /\.json$/i.test(path); });
+            if (!jsonPath) throw new Error(file.name + ' 中没有找到 JSON 数据文件。');
+            data = BatchAdBuilder.normalizeData(parseUploadedJson(await zip.files[jsonPath].async('text')));
+            var imagePaths = Object.keys(zip.files).filter(function(path) { return !zip.files[path].dir && /\.(?:jpg|jpeg|png|gif|webp|svg)$/i.test(path); });
+            await Promise.all(imagePaths.map(async function(path) { localImages[path] = await zip.files[path].async('blob'); }));
+        } else if (ext === 'rar' || ext === '7z') {
+            var Archive = await ensureArchiveRuntime();
+            var archive = await Archive.open(file);
+            var entries;
+            try {
+                await archive.extractFiles();
+                entries = await archive.getFilesArray();
+            } finally {
+                archive.close();
+            }
+            var jsonEntry = entries.find(function(entry) { return entry.file && /\.json$/i.test(String(entry.path || '') + String(entry.file.name || '')); });
+            if (!jsonEntry) throw new Error(file.name + ' 中没有找到 JSON 数据文件。');
+            data = BatchAdBuilder.normalizeData(parseUploadedJson(await jsonEntry.file.text()));
+            entries.filter(function(entry) { return entry.file && /\.(?:jpg|jpeg|png|gif|webp|svg)$/i.test(String(entry.path || '') + String(entry.file.name || '')); }).forEach(function(entry) {
+                localImages[(String(entry.path || '') + String(entry.file.name || '')).replace(/\\/g, '/')] = entry.file;
+            });
+        } else {
+            throw new Error(file.name + ' 不支持；批量建站只接受 .json 或包含 JSON+图片的 .zip、.rar、.7z。');
+        }
+        if (!data.length) throw new Error(file.name + ' 不是包含对象列表的有效数据源。');
+        return {
+            id: 'batch-site-' + index + '-' + Date.now(), fileName: file.name, data: data,
+            jsonFields: BatchAdBuilder.collectFields(data), fieldMapping: {}, codeId: '',
+            isLocalImages: Object.keys(localImages).length > 0, localImages: localImages,
+            themeId: '', domainDetection: null, domainSelectionSource: null, config: null
+        };
+    }
+
+    function renderBatchAdCodeWorkspace() {
+        var target = document.getElementById('batch-ad-code-list');
+        var summary = document.getElementById('batch-ad-code-summary');
+        if (!target || !summary || !isBatchAdBuild()) return;
+        var batch = appState.batchAdBuild || { sites: [], codes: [] };
+        if (!batch.sites.length) {
+            target.innerHTML = '<p class="batch-ad-empty">请先完成第一步的数据源导入。</p>';
+            summary.textContent = '等待数据源';
+            return;
+        }
+        var report = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(batch.sites, batch.codes) : { valid: false, errors: [] };
+        var validCodes = batch.codes.filter(function(code) { return code.valid; }).length;
+        summary.textContent = batch.codes.length ? (validCodes + '/' + batch.codes.length + ' 份代码可用') : '尚未上传';
+        summary.className = report.valid ? 'is-valid' : '';
+        var options = '<option value="">-- 请选择独占代码 --</option>' + batch.codes.map(function(code) {
+            var label = (code.valid ? '✓ ' : '✕ ') + code.fileName + (code.detectedHost ? ' · ' + code.detectedHost : '');
+            return '<option value="' + escapeHtml(code.id) + '">' + escapeHtml(label) + '</option>';
+        }).join('');
+        target.innerHTML = batch.sites.map(function(site, index) {
+            var assigned = batch.codes.find(function(code) { return code.id === site.codeId; });
+            var problem = !THEMES[site.themeId] ? '领域待确认' : (batchSiteIssues(site).length ? '字段未完成' : (assigned && assigned.valid ? '等待导出复检' : '需要有效广告代码'));
+            var selectedOptions = options.replace('value="' + escapeHtml(site.codeId) + '"', 'value="' + escapeHtml(site.codeId) + '" selected');
+            return '<article class="batch-ad-code-item ' + (assigned && assigned.valid ? 'is-ready' : 'is-invalid') + '"><span class="batch-ad-item-index">' + (index + 1) + '</span><div><strong>' + escapeHtml(site.fileName) + '</strong><span>' + escapeHtml(problem) + '</span></div><label><span>广告 TXT</span><select data-batch-ad-site="' + escapeHtml(site.id) + '">' + selectedOptions + '</select></label></article>';
+        }).join('') + (report.errors.length ? '<div class="batch-ad-validation invalid"><strong>尚不能导出</strong><ul>' + report.errors.map(function(error) { return '<li>' + escapeHtml(error.message) + '</li>'; }).join('') + '</ul></div>' : '<div class="batch-ad-validation"><strong>一对一分配校验通过</strong><span>导出时还会检查每个生成站的首页、详情页与广告运行时。</span></div>');
+        target.querySelectorAll('[data-batch-ad-site]').forEach(function(select) {
+            select.addEventListener('change', function() {
+                var site = batch.sites.find(function(candidate) { return candidate.id === select.dataset.batchAdSite; });
+                if (site) site.codeId = select.value;
+                if (site === getActiveBatchSite()) syncBatchActiveSiteToApp();
+                renderBatchAdCodeWorkspace();
+            });
+        });
+    }
+
+    async function importBatchAdCodes(files) {
+        var list = Array.from(files || []);
+        if (!list.length) return;
+        try {
+            var codes = await Promise.all(list.map(async function(file, index) {
+                var result = AdMigration.inspectAdCodeText(await file.text(), file.name);
+                return Object.assign({ id: 'batch-code-' + index + '-' + Date.now(), fileName: file.name }, result);
+            }));
+            var sites = appState.batchAdBuild.sites || [];
+            appState.batchAdBuild.codes = codes;
+            sites.forEach(function(site, index) { site.codeId = codes[index] ? codes[index].id : ''; });
+            syncBatchActiveSiteToApp();
+            renderBatchAdCodeWorkspace();
+        } catch (error) {
+            showNotice(error.message, '无法读取广告代码');
+        }
+    }
+
+    function initBatchAdControls() {
+        var dataButton = document.getElementById('batch-data-button');
+        var dataInput = document.getElementById('batch-data-input');
+        var codeButton = document.getElementById('batch-ad-code-button');
+        var codeInput = document.getElementById('batch-ad-code-input');
+        if (dataButton && dataInput && !dataButton.dataset.ready) {
+            dataButton.dataset.ready = 'true';
+            dataButton.addEventListener('click', function() { dataInput.value = ''; dataInput.click(); });
+            dataInput.addEventListener('change', function() { importBatchDataFiles(dataInput.files); });
+        }
+        if (codeButton && codeInput && !codeButton.dataset.ready) {
+            codeButton.dataset.ready = 'true';
+            codeButton.addEventListener('click', function() { codeInput.value = ''; codeInput.click(); });
+            codeInput.addEventListener('change', function() { importBatchAdCodes(codeInput.files); });
+        }
+    }
+
     // 第一屏的关键交互优先绑定，后续配置区即使出现异常也不会拖垮上传和建站方式切换。
     initBuildModeControls();
     initUploadControls();
     initDifferentiatedControls();
+    initBatchAdControls();
 
     function escapeHtml(value) {
         return String(value == null ? '' : value)
@@ -1400,8 +1846,9 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         // 更新按钮
         btnPrev.style.display = step > 1 ? 'inline-block' : 'none';
         if (btnReupload) btnReupload.hidden = !(step === 1 && appState.data && appState.data.length);
-        btnNext.textContent = step === 5 ? '完成' : '下一步 →';
+        updateNextButtonLabel(step === 5 ? '完成' : '下一步 →');
         btnNext.style.display = step === 5 ? 'none' : 'inline-block';
+        updateWorkflowActionContext(step);
 
         // 步骤5：生成导出摘要
         if (step === 5) {
@@ -1421,6 +1868,13 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                     showNotice('批量广告策略是第一步内的独立工具。选择站点总目录，设置全局方案和需要的单站覆盖后，直接生成新的站点总目录。', '无需进入后续建站步骤');
                     return false;
                 }
+                if (isBatchAdBuild()) {
+                    if (!appState.batchAdBuild.sites || appState.batchAdBuild.sites.length < 2) {
+                        showNotice('请先选择至少两份 JSON、ZIP、RAR 或 7Z 数据源。', '还不能继续');
+                        return false;
+                    }
+                    return true;
+                }
                 if (!appState.data || appState.data.length === 0) {
                     showNotice('请先上传数据文件。', '还不能继续');
                     return false;
@@ -1435,12 +1889,33 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 }
                 return true;
             case 2:
+                if (isBatchAdBuild()) {
+                    var unconfirmedSite = (appState.batchAdBuild.sites || []).find(function(site) { return !THEMES[site.themeId]; });
+                    if (unconfirmedSite) {
+                        showNotice('“' + unconfirmedSite.fileName + '”尚未确认领域。请使用上方站点切换器逐站检查并选择领域。', '仍有站点待确认');
+                        return false;
+                    }
+                    return true;
+                }
                 if (!appState.selectedTheme) {
                     showNotice('暂时无法可靠识别领域，请手动选择一个最接近的领域。', '请选择网站领域');
                     return false;
                 }
                 return true;
             case 3:
+                if (isBatchAdBuild()) {
+                    var invalidSite = (appState.batchAdBuild.sites || []).find(function(site) { return batchSiteIssues(site).length > 0; });
+                    if (invalidSite) {
+                        showNotice('“' + invalidSite.fileName + '”仍缺少所选领域的必填字段。请在本步骤完成每个站点的字段映射。', '字段尚未完成');
+                        return false;
+                    }
+                    var templateIssueSite = (appState.batchAdBuild.sites || []).find(function(site) { return getBatchTemplateIssue(site); });
+                    if (templateIssueSite) {
+                        showNotice('“' + templateIssueSite.fileName + '”' + getBatchTemplateIssue(templateIssueSite) + '。同一领域的批量站点必须使用不同模板。', '模板需要区分');
+                        return false;
+                    }
+                    return true;
+                }
                 var theme = THEMES[appState.selectedTheme];
                 var requiredFields = theme.fields.filter(function(f) { return f.required; });
                 for (var i = 0; i < requiredFields.length; i++) {
@@ -1451,6 +1926,13 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 }
                 return true;
             case 4:
+                if (isBatchAdBuild()) {
+                    var batchReport = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(appState.batchAdBuild.sites, appState.batchAdBuild.codes) : { valid: false, errors: [{ message: '批量建站组件未加载。' }] };
+                    if (!batchReport.valid) {
+                        showNotice(batchReport.errors[0] ? batchReport.errors[0].message : '请完成每站一份广告代码的独占分配。', '广告代码尚未完成');
+                        return false;
+                    }
+                }
                 return true;
             default:
                 return true;
@@ -1576,6 +2058,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     function renderDomainDetection() {
         var container = document.getElementById('domain-detection');
         if (!container) return;
+        if (isBatchAdBuild()) renderBatchDomainSiteTabs();
         var detection = appState.domainDetection;
         if (!detection) {
             container.innerHTML = '<div class="detection-card waiting"><span class="detection-mark">···</span><div><strong>等待分析</strong><p>上传数据后，这里会显示领域、置信度和判断依据。</p></div></div>';
@@ -1606,14 +2089,26 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             (top ? '<ol class="score-list">' + top + '</ol>' : '') + '</div>';
     }
 
+    function updateThemeCardSelection(themeId) {
+        if (!themeCards) return;
+        themeCards.forEach(function(card) {
+            var selected = card.dataset.theme === themeId;
+            card.classList.toggle('selected', selected);
+            card.setAttribute('aria-checked', selected ? 'true' : 'false');
+        });
+    }
+
     function selectTheme(themeId, source) {
         if (!THEMES[themeId]) return;
+        if (isBatchAdBuild()) {
+            selectBatchSiteTheme(themeId, source);
+            return;
+        }
         appState.selectedTheme = themeId;
         appState.domainSelectionSource = source || 'manual';
         appState.randomTemplateHistory = [];
         appState.config = createThemeConfig(themeId);
         applyTemplatePreset(appState.config.templateId, false);
-        applyRandomBrand(false);
         applyRandomIconSet(false);
         if (appState.jsonFields.length) autoMapFields();
         if (appState.siteBuildMode === 'differentiated') {
@@ -1623,11 +2118,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             populateDifferentiatedDesigns();
         }
 
-        themeCards.forEach(function(card) {
-            var selected = card.dataset.theme === themeId;
-            card.classList.toggle('selected', selected);
-            card.setAttribute('aria-checked', selected ? 'true' : 'false');
-        });
+        updateThemeCardSelection(themeId);
         renderDomainDetection();
     }
 
@@ -1663,6 +2154,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     }
 
     // ========== Step 1: 数据上传 ==========
+    function parseUploadedJson(text) {
+        return JSON.parse(String(text == null ? '' : text).replace(/^\uFEFF/, ''));
+    }
+
     function handleFile(file) {
         var ext = file.name.split('.').pop().toLowerCase();
 
@@ -1671,14 +2166,14 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             var reader = new FileReader();
             reader.onload = function(e) {
                 try {
-                    var data = JSON.parse(e.target.result);
+                    var data = parseUploadedJson(e.target.result);
                     if (appState.siteBuildMode === 'differentiated') {
                         var imported = DifferentiatedBuilder.importJsonData(data, appState.differentiated.siteType);
                         applyDifferentiatedImport(imported, file.name);
-                        processData(imported.data, false, {});
+                        processData(imported.data, false, {}, false, { fileName: file.name });
                         return;
                     }
-                    processData(data, false, {});
+                    processData(data, false, {}, false, { fileName: file.name });
                 } catch (err) {
                     showNotice('JSON 文件解析失败：' + err.message, '无法读取文件');
                 }
@@ -1706,6 +2201,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         reader.onload = function(e) {
             window.JSZip.loadAsync(e.target.result).then(function(zip) {
                 var jsonFile = null;
+                var jsonFilePath = '';
                 var images = {};
                 var archiveFiles = zip && zip.files && typeof zip.files === 'object' ? zip.files : null;
 
@@ -1720,6 +2216,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                         var entryExt = relativePath.split('.').pop().toLowerCase();
                         if (entryExt === 'json' && !jsonFile) {
                             jsonFile = zipEntry;
+                            jsonFilePath = relativePath;
                         } else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].indexOf(entryExt) !== -1) {
                             images[relativePath] = zipEntry;
                         }
@@ -1734,7 +2231,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 // 读取JSON
                 jsonFile.async('string').then(function(jsonStr) {
                     try {
-                        var data = JSON.parse(jsonStr);
+                        var data = parseUploadedJson(jsonStr);
                         var hasLocalImages = Object.keys(images).length > 0;
 
                         // 如果有本地图片，需要读取图片为blob
@@ -1749,10 +2246,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                                 );
                             });
                             Promise.all(imagePromises).then(function() {
-                                processData(data, true, imageMap);
+                                processData(data, true, imageMap, false, { fileName: file.name, entryPath: jsonFilePath });
                             });
                         } else {
-                            processData(data, false, {});
+                            processData(data, false, {}, false, { fileName: file.name, entryPath: jsonFilePath });
                         }
                     } catch (err) {
                         showNotice('JSON 文件解析失败：' + err.message, '无法读取数据');
@@ -1783,7 +2280,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         try {
             var imported = await DifferentiatedBuilder.importZip(file, appState.differentiated.siteType, { JSZip: window.JSZip });
             applyDifferentiatedImport(imported, file.name);
-            processData(imported.data, Object.keys(imported.localImages || {}).length > 0, imported.localImages || {}, true);
+            processData(imported.data, Object.keys(imported.localImages || {}).length > 0, imported.localImages || {}, true, { fileName: file.name });
         } catch (error) {
             renderDifferentiatedPackageStatus('读取失败：' + error.message, 'invalid');
             showNotice('差异化数据包读取失败：' + error.message, '无法读取压缩包');
@@ -1833,7 +2330,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             return jsonEntry.file.text().then(function(jsonStr) {
                 var data;
                 try {
-                    data = JSON.parse(jsonStr);
+                    data = parseUploadedJson(jsonStr);
                 } catch (err) {
                     showNotice('JSON 文件解析失败：' + err.message, '无法读取数据');
                     return;
@@ -1853,7 +2350,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                     if (!entry.file || !/\.(?:jpg|jpeg|png|gif|webp|svg)$/i.test(entry.path + entry.file.name)) return;
                     imageMap[(entry.path + entry.file.name).replace(/\\/g, '/')] = entry.file;
                 });
-                processData(data, Object.keys(imageMap).length > 0, imageMap);
+                processData(data, Object.keys(imageMap).length > 0, imageMap, false, { fileName: file.name, entryPath: (jsonEntry.path || '') + jsonEntry.file.name });
             });
         }).catch(function(err) {
             var details = err && err.message ? '：' + err.message : '';
@@ -1865,7 +2362,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         });
     }
 
-    function processData(data, isLocalImages, localImages, skipLocalImageWarning) {
+    function processData(data, isLocalImages, localImages, skipLocalImageWarning, source) {
         // 兼容对象包裹格式
         if (!Array.isArray(data)) {
             var keys = Object.keys(data);
@@ -1900,8 +2397,8 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             return { name: key, type: fields[key] };
         });
 
-        // 综合字段名与前 30 条内容样本识别领域；全部在浏览器本地完成。
-        appState.domainDetection = DomainEngine.detect(data, DOMAIN_CATALOG);
+        // 综合上传文件名、包内 JSON 路径、字段名与前 30 条内容样本识别领域；全部在浏览器本地完成。
+        appState.domainDetection = DomainEngine.detect(data, DOMAIN_CATALOG, source);
         if (appState.domainDetection.suggestedId) {
             selectTheme(appState.domainDetection.suggestedId, 'auto');
         } else {
@@ -1931,7 +2428,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         // 如果是本地图片且没有上传ZIP中的图片，提示
         if (hasLocalImgs && !hasOnlineImages && !isLocalImages && !skipLocalImageWarning) {
             showConfirm('检测到图片可能为本地路径。如需在导出网站中包含这些图片，请将 JSON 和图片一起打包为 ZIP、RAR 或 7z 后重新上传。', '未找到本地图片', '仍然导入', function(shouldContinue) {
-                if (shouldContinue) processData(data, isLocalImages, localImages, true);
+                if (shouldContinue) processData(data, isLocalImages, localImages, true, source);
             });
             return;
         }
@@ -2000,6 +2497,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     }
 
     function renderFieldMapping() {
+        if (isBatchAdBuild()) {
+            renderBatchFieldMapping();
+            return;
+        }
         var theme = THEMES[appState.selectedTheme];
         if (!theme) return;
 
@@ -2128,7 +2629,25 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     function applyTemplatePreset(templateId, shouldRender) {
         var template = getTemplateById(templateId);
         if (!template) return;
+        var activeSite = getActiveBatchSite();
+        var owner = isBatchAdBuild() ? getBatchTemplateOwner(template.id, activeSite) : null;
+        if (owner) {
+            showNotice('“' + template.name + '”已分配给“' + owner.fileName + '”。同一领域的批量站点不能重复使用同一模板。', '请选择另一个模板');
+            return false;
+        }
         var c = appState.config;
+        applyTemplateToConfig(c, template);
+
+        if (shouldRender !== false) {
+            if (isBatchAdBuild()) initTemplateGrid();
+            applyConfigToUI();
+            updatePreview();
+        }
+        return true;
+    }
+
+    function applyTemplateToConfig(c, template) {
+        if (!c || !template) return;
         c.templateId = template.id;
 
         Object.keys(template.structure || {}).forEach(function(key) {
@@ -2139,10 +2658,12 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         Object.keys(template.style || {}).forEach(function(key) {
             c[key] = template.style[key];
         });
-
-        if (shouldRender !== false) {
-            applyConfigToUI();
-            updatePreview();
+        // 品牌是模板可见身份的一部分。选择蓝图时必须同步标题，避免不同
+        // 模板只改布局却仍保留上一个模板的导航栏名称。
+        if (template.brand) {
+            c.brandId = template.brand.id;
+            c.siteTitle = template.brand.siteTitle;
+            c.logoText = template.brand.logoText;
         }
     }
 
@@ -2324,18 +2845,22 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
         var html = '';
         var profile = DOMAIN_CATALOG[appState.selectedTheme];
+        var activeSite = getActiveBatchSite();
         getBlueprintsForTheme(appState.selectedTheme).forEach(function(template, index) {
             var selected = appState.config.templateId === template.id ? ' selected' : '';
-            html += '<div class="template-card' + selected + '" data-template-id="' + template.id + '" tabindex="0" role="button" aria-label="应用' + template.name + '模板">';
+            var owner = isBatchAdBuild() ? getBatchTemplateOwner(template.id, activeSite) : null;
+            var unavailable = !!owner;
+            html += '<div class="template-card' + selected + (unavailable ? ' is-unavailable' : '') + '" data-template-id="' + template.id + '"' + (unavailable ? ' data-template-unavailable="true" tabindex="-1" aria-disabled="true" aria-label="' + escapeHtml(template.name + '模板已用于' + owner.fileName) + '"' : ' tabindex="0" role="button" aria-label="应用' + template.name + '模板"') + '>';
             html += '<div class="template-icon">' + template.icon + '</div>';
             html += '<div><div class="template-name">' + template.name + (index === 0 ? '<span class="recommended-badge">首选</span>' : '') + '</div>' +
-                '<div class="template-description">' + template.description + '</div><div class="template-domain">' + profile.label + ' 独占 · 不跨领域复用</div></div>';
+                '<div class="template-domain">' + (unavailable ? '已用于站点 ' + ((appState.batchAdBuild.sites || []).indexOf(owner) + 1) : profile.label + '专属') + '</div></div>';
             html += '</div>';
         });
         grid.innerHTML = html;
 
         grid.querySelectorAll('.template-card').forEach(function(card) {
             var choose = function() {
+                if (this.dataset.templateUnavailable === 'true') return;
                 applyTemplatePreset(this.dataset.templateId);
             };
             card.addEventListener('click', choose);
@@ -2455,10 +2980,121 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         });
     }
 
+    function getCategoryPickerMenu(picker) {
+        return picker && (picker._floatingCategoryMenu || picker.querySelector('.cat-icon-menu'));
+    }
+
+    function renderBatchFieldMapping() {
+        var container = document.getElementById('mapping-container');
+        if (!container) return;
+        var sites = appState.batchAdBuild.sites || [];
+        container.innerHTML = '<div class="batch-field-mapping"><div class="batch-field-mapping-head"><div><span class="section-kicker">每站独立映射</span><h4>逐站确认必填字段</h4></div><span>模板、样式与字段映射均逐站独立</span></div>' + sites.map(function(site, siteIndex) {
+            var theme = THEMES[site.themeId];
+            var profile = DOMAIN_CATALOG[site.themeId];
+            if (!theme) {
+                return '<section class="batch-field-site is-invalid"><header><div><strong>' + escapeHtml(site.fileName) + '</strong><span>' + site.data.length + ' 条数据</span></div><em>尚未确认领域</em></header></section>';
+            }
+            var rows = theme.fields.map(function(field) {
+                var options = '<option value="">-- 不匹配 --</option>' + site.jsonFields.map(function(jsonField) {
+                    var selected = site.fieldMapping[field.id] === jsonField.name ? ' selected' : '';
+                    return '<option value="' + escapeHtml(jsonField.name) + '"' + selected + '>' + escapeHtml(jsonField.name) + ' (' + escapeHtml(jsonField.type) + ')</option>';
+                }).join('');
+                return '<label class="batch-field-row ' + (field.required ? 'is-required' : '') + '"><span><strong>' + escapeHtml(field.labelZh) + '</strong><small>' + escapeHtml(field.label) + (field.required ? ' · 必填' : '') + '</small></span><select data-batch-site-index="' + siteIndex + '" data-batch-theme-field="' + escapeHtml(field.id) + '">' + options + '</select></label>';
+            }).join('');
+            var missing = batchSiteIssues(site);
+            return '<section class="batch-field-site ' + (missing.length ? 'is-invalid' : 'is-valid') + '"><header><div><strong>' + escapeHtml(site.fileName) + '</strong><span>' + (profile ? profile.label + ' · ' : '') + site.data.length + ' 条数据</span></div><em>' + (missing.length ? '还缺 ' + missing.length + ' 项必填字段' : '必填字段已完成') + '</em></header><div class="batch-field-rows">' + rows + '</div></section>';
+        }).join('') + '</div>';
+        container.querySelectorAll('[data-batch-site-index]').forEach(function(select) {
+            select.addEventListener('change', function() {
+                var site = sites[Number(select.dataset.batchSiteIndex)];
+                if (!site) return;
+                if (select.value) site.fieldMapping[select.dataset.batchThemeField] = select.value;
+                else delete site.fieldMapping[select.dataset.batchThemeField];
+                if (site === getActiveBatchSite()) appState.fieldMapping = site.fieldMapping;
+                renderBatchFieldMapping();
+                renderBatchDataList();
+                if (site === getActiveBatchSite() && appState.currentStep === 4) updatePreview();
+            });
+        });
+    }
+
+    function getCategoryPickerForMenu(menu) {
+        return menu && (menu._categoryPickerOwner || menu.closest('.cat-icon-picker'));
+    }
+
+    function positionCategoryPickerMenu(picker) {
+        var menu = getCategoryPickerMenu(picker);
+        var trigger = picker && picker.querySelector('.cat-icon-trigger');
+        if (!menu || !trigger || menu._categoryPickerOwner !== picker) return;
+        var triggerRect = trigger.getBoundingClientRect();
+        var margin = 8;
+        var menuWidth = menu.offsetWidth || 220;
+        var menuHeight = menu.offsetHeight || 0;
+        var left = Math.max(margin, Math.min(triggerRect.left - 4, window.innerWidth - menuWidth - margin));
+        var top = triggerRect.bottom + 7;
+        if (menuHeight && top + menuHeight > window.innerHeight - margin && triggerRect.top - menuHeight - 7 >= margin) {
+            top = triggerRect.top - menuHeight - 7;
+        }
+        menu.style.left = Math.round(left) + 'px';
+        menu.style.top = Math.round(top) + 'px';
+    }
+
+    function moveCategoryPickerMenuToPortal(picker) {
+        var menu = getCategoryPickerMenu(picker);
+        if (!menu || menu._categoryPickerOwner === picker) {
+            positionCategoryPickerMenu(picker);
+            return;
+        }
+        menu._categoryPickerOwner = picker;
+        picker._floatingCategoryMenu = menu;
+        menu.classList.add('is-portal-open');
+        document.body.appendChild(menu);
+        positionCategoryPickerMenu(picker);
+    }
+
+    function restoreCategoryPickerMenu(picker) {
+        var menu = getCategoryPickerMenu(picker);
+        if (!menu || menu._categoryPickerOwner !== picker) return;
+        menu.classList.remove('is-portal-open');
+        menu.style.removeProperty('left');
+        menu.style.removeProperty('top');
+        picker.appendChild(menu);
+        delete menu._categoryPickerOwner;
+        delete picker._floatingCategoryMenu;
+    }
+
+    function setCategoryPickerOpenState(picker, isOpen) {
+        if (!picker) return;
+        if (!isOpen) restoreCategoryPickerMenu(picker);
+        picker.classList.toggle('open', isOpen);
+        var row = picker.closest('.category-config-item');
+        if (row) row.classList.toggle('picker-open-row', isOpen);
+        var configGroup = picker.closest('.config-group');
+        if (configGroup) configGroup.classList.toggle('picker-open-group', isOpen);
+    }
+
+    function repositionOpenCategoryPickerMenus() {
+        document.querySelectorAll('.cat-icon-picker.open').forEach(positionCategoryPickerMenu);
+    }
+
     function closeStyledSelects() {
+        closeCategoryIconPickers();
         document.querySelectorAll('.select-shell.open').forEach(function(shell) {
             shell.classList.remove('open');
+            var configItem = shell.closest('.config-item');
+            if (configItem) configItem.classList.remove('select-open');
+            var configGroup = shell.closest('.config-group');
+            if (configGroup) configGroup.classList.remove('select-open-group');
             var trigger = shell.querySelector('.select-trigger');
+            if (trigger) trigger.setAttribute('aria-expanded', 'false');
+        });
+    }
+
+    function closeCategoryIconPickers(exceptPicker) {
+        document.querySelectorAll('.cat-icon-picker.open').forEach(function(picker) {
+            if (picker === exceptPicker) return;
+            setCategoryPickerOpenState(picker, false);
+            var trigger = picker.querySelector('.cat-icon-trigger');
             if (trigger) trigger.setAttribute('aria-expanded', 'false');
         });
     }
@@ -2490,6 +3126,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 var willOpen = !shell.classList.contains('open');
                 closeStyledSelects();
                 shell.classList.toggle('open', willOpen);
+                var configItem = shell.closest('.config-item');
+                if (configItem) configItem.classList.toggle('select-open', willOpen);
+                var configGroup = shell.closest('.config-group');
+                if (configGroup) configGroup.classList.toggle('select-open-group', willOpen);
                 trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
             });
             select.addEventListener('change', syncStyledSelects);
@@ -2542,6 +3182,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     function updateCategoryConfig(count) {
         var theme = THEMES[appState.selectedTheme];
         var container = document.getElementById('categories-config');
+        closeCategoryIconPickers();
         var currentCats = appState.config.categories || theme.categories;
 
         // 调整分类数量
@@ -2555,13 +3196,13 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
         var html = '';
         appState.config.categories.forEach(function(cat, i) {
+            cat.icon = getCompatibleCategoryEmoji(cat.icon || '📌');
             var iconPool = theme.iconPool || [cat.icon || '📌'];
-            var pickerIcons = iconPool.slice();
-            if (cat.icon && pickerIcons.indexOf(cat.icon) === -1) pickerIcons.unshift(cat.icon);
+            var pickerIcons = getCategoryIconPickerChoices(iconPool, cat.icon);
             html += '<div class="category-config-item">';
             html += '<div class="cat-icon-picker" data-cat-idx="' + i + '">';
-            html += '<button type="button" class="cat-icon-trigger" title="选择第' + (i + 1) + '个分类图标" aria-label="选择第' + (i + 1) + '个分类图标" aria-expanded="false" data-cat-idx="' + i + '">' + (cat.icon || '📌') + '</button>';
-            html += '<div class="cat-icon-menu" role="listbox" aria-label="分类图标选项">';
+            html += '<button type="button" class="cat-icon-trigger" title="当前领域图标优先，也可选择全部 Emoji" aria-label="选择第' + (i + 1) + '个分类图标（当前领域图标优先，可选择全部 Emoji）" aria-expanded="false" data-cat-idx="' + i + '">' + (cat.icon || '📌') + '</button>';
+            html += '<div class="cat-icon-menu" role="listbox" aria-label="分类图标选项：当前领域优先，包含全部 Emoji">';
             pickerIcons.forEach(function(icon) {
                 var safeIcon = String(icon).replace(/"/g, '&quot;');
                 html += '<button type="button" class="cat-icon-option' + (cat.icon === icon ? ' selected' : '') + '" role="option" aria-label="使用图标 ' + safeIcon + '" aria-selected="' + (cat.icon === icon ? 'true' : 'false') + '" data-icon="' + safeIcon + '" data-cat-idx="' + i + '">' + icon + '</button>';
@@ -2592,32 +3233,31 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             trigger.addEventListener('click', function(event) {
                 event.stopPropagation();
                 var picker = this.closest('.cat-icon-picker');
-                document.querySelectorAll('.cat-icon-picker.open').forEach(function(openPicker) {
-                    if (openPicker !== picker) {
-                        openPicker.classList.remove('open');
-                        var openTrigger = openPicker.querySelector('.cat-icon-trigger');
-                        if (openTrigger) openTrigger.setAttribute('aria-expanded', 'false');
-                    }
-                });
-                var isOpen = picker.classList.toggle('open');
-                this.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                var willOpen = !picker.classList.contains('open');
+                closeStyledSelects();
+                closeCategoryIconPickers(picker);
+                setCategoryPickerOpenState(picker, willOpen);
+                if (willOpen) moveCategoryPickerMenuToPortal(picker);
+                this.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
             });
         });
         container.querySelectorAll('.cat-icon-option').forEach(function(option) {
             option.addEventListener('click', function(event) {
                 event.stopPropagation();
                 var idx = parseInt(this.dataset.catIdx);
-                var picker = this.closest('.cat-icon-picker');
+                var menu = this.closest('.cat-icon-menu');
+                var picker = getCategoryPickerForMenu(menu);
                 var icon = this.dataset.icon;
+                if (!picker) return;
                 appState.config.categories[idx].icon = icon;
                 appState.config.iconSetId = 'custom';
                 picker.querySelector('.cat-icon-trigger').textContent = icon;
-                picker.querySelectorAll('.cat-icon-option').forEach(function(item) {
+                menu.querySelectorAll('.cat-icon-option').forEach(function(item) {
                     var selected = item === option;
                     item.classList.toggle('selected', selected);
                     item.setAttribute('aria-selected', selected ? 'true' : 'false');
                 });
-                picker.classList.remove('open');
+                setCategoryPickerOpenState(picker, false);
                 picker.querySelector('.cat-icon-trigger').setAttribute('aria-expanded', 'false');
                 var iconSetSelect = document.getElementById('icon-set-select');
                 if (iconSetSelect) iconSetSelect.value = 'custom';
@@ -2626,12 +3266,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         });
         if (!appState._iconPickerDocumentBound) {
             document.addEventListener('click', function() {
-                document.querySelectorAll('.cat-icon-picker.open').forEach(function(picker) {
-                    picker.classList.remove('open');
-                    var trigger = picker.querySelector('.cat-icon-trigger');
-                    if (trigger) trigger.setAttribute('aria-expanded', 'false');
-                });
+                closeCategoryIconPickers();
             });
+            document.addEventListener('scroll', repositionOpenCategoryPickerMenus, true);
+            window.addEventListener('resize', repositionOpenCategoryPickerMenus);
             appState._iconPickerDocumentBound = true;
         }
     }
@@ -3367,6 +4005,24 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
     // ========== Step 5: 导出 ==========
     function generateExportSummary() {
+        if (isBatchAdBuild()) {
+            var batchTarget = document.getElementById('export-summary');
+            var batch = appState.batchAdBuild || { sites: [], codes: [] };
+            var batchReport = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(batch.sites, batch.codes) : { valid: false, errors: [{ message: '批量建站组件未加载。' }] };
+            var ready = batch.sites.filter(function(site) {
+                return !batchSiteIssues(site).length && batch.codes.some(function(code) { return code.id === site.codeId && code.valid; });
+            }).length;
+            batchTarget.innerHTML = '<h4>批量广告建站导出前检查</h4><div class="summary-grid">' +
+                makeSummaryItem('站点数量', batch.sites.length + ' 个') +
+                makeSummaryItem('有效广告代码', batch.codes.filter(function(code) { return code.valid; }).length + '/' + batch.codes.length + ' 份') +
+                makeSummaryItem('字段与代码就绪', ready + '/' + batch.sites.length + ' 站') +
+                makeSummaryItem('模板与样式', '逐站独立配置') +
+                makeSummaryItem('导出格式', '一个批量 ZIP，站点独立文件夹') +
+                '</div><section class="migration-validation ' + (batchReport.valid ? '' : 'invalid') + '"><h5>' + (batchReport.valid ? '一对一广告代码校验通过' : '导出已阻止') + '</h5>' +
+                (batchReport.valid ? '<p>导出期间会逐站重新生成，然后验证首页、全部详情页、GPT 脚本、三个广告容器以及 js/ad.js 中的对应广告路径。</p>' : '<ul>' + batchReport.errors.map(function(error) { return '<li>' + escapeHtml(error.message) + '</li>'; }).join('') + '</ul>') + '</section>';
+            document.getElementById('btn-export').disabled = !batchReport.valid;
+            return;
+        }
         if (appState.siteBuildMode === 'differentiated' && typeof DifferentiatedBuilder !== 'undefined') {
             var target = document.getElementById('export-summary');
             target.innerHTML = '<h4>差异化精品建站审计</h4><p>正在检查内容、来源、图片、功能、链接、法律信息与设计指纹…</p>';
@@ -3445,6 +4101,34 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
     // 导出按钮
     document.getElementById('btn-export').addEventListener('click', function() {
+        if (isBatchAdBuild()) {
+            var report = BatchAdBuilder.validateAssignments(appState.batchAdBuild.sites, appState.batchAdBuild.codes);
+            if (!report.valid) {
+                showNotice(report.errors[0] ? report.errors[0].message : '请完成广告代码分配。', '暂时不能导出');
+                generateExportSummary();
+                return;
+            }
+            var batchButton = this;
+            var batchProgress = document.getElementById('export-progress');
+            var batchFill = document.getElementById('progress-fill');
+            var batchText = document.getElementById('progress-text');
+            batchButton.disabled = true;
+            batchProgress.style.display = 'block';
+            BatchAdBuilder.exportBatch(appState, function(percent, text) {
+                batchFill.style.width = percent + '%';
+                batchText.textContent = text;
+            }, window.JSZip).then(function(result) {
+                saveAs(result.blob, 'batch-ad-websites.zip');
+                batchText.textContent = '✅ ' + result.reports.length + ' 个站点已完成运行时广告检查并开始下载';
+            }).catch(function(error) {
+                batchText.textContent = '❌ 批量导出失败：' + error.message;
+                showNotice(error.message, '批量导出未完成');
+            }).finally(function() {
+                batchButton.disabled = false;
+                generateExportSummary();
+            });
+            return;
+        }
         if (appState.siteBuildMode === 'ad-migration' && !(appState.legacyAdMigration && appState.legacyAdMigration.valid)) {
             showNotice('广告移植校验尚未通过，不能导出不完整站点。请先处理校验结果中的问题。', '暂时不能导出');
             return;
@@ -3553,7 +4237,6 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         var domainTemplates = getBlueprintsForTheme(appState.selectedTheme);
         var templateId = randomPickWithoutRecent(domainTemplates.map(function(t) { return t.id; }), appState.randomTemplateHistory, 3);
         applyTemplatePreset(templateId, false);
-        applyRandomBrand(false);
         applyRandomIconSet(false);
 
         // 再做少量可控扰动，保留模板的设计意图，避免随机结果沦为“颜色抽奖”。

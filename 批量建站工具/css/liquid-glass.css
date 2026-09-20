@@ -1,0 +1,534 @@
+/*
+ * Shared liquid-glass material for the batch builder and game builder.
+ * Large regions use denser frost; cards use a lighter, pointer-aware highlight.
+ */
+:root {
+    --liquid-ink: #17324d;
+    --liquid-muted: #627995;
+    --liquid-edge: rgba(255, 255, 255, 0.84);
+    --liquid-line: rgba(105, 151, 202, 0.27);
+    --liquid-shadow: 0 20px 46px rgba(53, 82, 122, 0.15), 0 3px 10px rgba(46, 75, 113, 0.08);
+}
+
+/* Page scrollbar: a quiet glass rail shared by both tools, leaving nested scrollers independent. */
+html {
+    scrollbar-gutter: stable;
+}
+
+html,
+body {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(46, 133, 224, 0.78) rgba(218, 235, 250, 0.58);
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+    margin: 8px 0;
+    background: rgba(218, 235, 250, 0.58);
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+    min-height: 56px;
+    border: 3px solid rgba(218, 235, 250, 0.58);
+    border-radius: 999px;
+    background: linear-gradient(180deg, #7bc9ff 0%, #348ee8 50%, #226ac7 100%);
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.74), 0 2px 7px rgba(37, 105, 181, 0.2);
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #92d6ff 0%, #4099ee 50%, #1c61ba 100%);
+}
+
+html::-webkit-scrollbar-button,
+body::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+html::-webkit-scrollbar-corner,
+body::-webkit-scrollbar-corner {
+    background: rgba(218, 235, 250, 0.58);
+}
+
+body {
+    background:
+        radial-gradient(52rem 36rem at -10% -12%, rgba(132, 192, 255, 0.5), transparent 62%),
+        radial-gradient(46rem 34rem at 104% 18%, rgba(189, 167, 255, 0.36), transparent 62%),
+        radial-gradient(48rem 32rem at 48% 108%, rgba(139, 231, 214, 0.26), transparent 66%),
+        #edf3fa;
+    color: var(--liquid-ink);
+}
+
+body::before,
+body::after {
+    content: '';
+    position: fixed;
+    z-index: -1;
+    border-radius: 50%;
+    filter: blur(18px);
+    pointer-events: none;
+}
+body::before {
+    top: 17vh;
+    left: -12vw;
+    width: 30vw;
+    height: 30vw;
+    background: rgba(116, 176, 255, 0.2);
+}
+body::after {
+    right: -10vw;
+    bottom: 6vh;
+    width: 28vw;
+    height: 28vw;
+    background: rgba(180, 147, 255, 0.18);
+}
+
+.tool-header {
+    background: linear-gradient(120deg, rgba(14, 28, 55, 0.93), rgba(18, 54, 94, 0.84)) !important;
+    border-bottom-color: rgba(220, 240, 255, 0.27) !important;
+    box-shadow: 0 10px 28px rgba(15, 41, 76, 0.16);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+.header-mark {
+    background: linear-gradient(145deg, rgba(95, 170, 255, 0.31), rgba(38, 98, 166, 0.42)) !important;
+    border-color: rgba(211, 238, 255, 0.42) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.26), 0 9px 22px rgba(3, 18, 43, 0.27) !important;
+}
+
+/* The workflow itself is the page's only top-level command surface. */
+.liquid-command-progress {
+    --step-rail-offset: 18px;
+    width: min(calc(100% - 48px), 1120px);
+    min-height: 78px;
+    margin-top: clamp(24px, 4vh, 44px);
+    padding: 8px 18px;
+    border-radius: 24px;
+}
+.liquid-command-progress .step-item {
+    flex: 1 1 0;
+    min-width: 92px;
+    min-height: 58px;
+    border-radius: 16px;
+    transition: background 180ms ease, transform 200ms cubic-bezier(.2, .8, .2, 1), box-shadow 180ms ease;
+}
+.liquid-command-progress .step-item.active {
+    background: linear-gradient(135deg, rgba(75, 158, 255, 0.2), rgba(215, 241, 255, 0.14));
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.48), 0 6px 17px rgba(36, 116, 214, 0.11);
+}
+.liquid-command-progress .step-item.completed:hover {
+    background: rgba(103, 210, 157, 0.13);
+    transform: translateY(-1px);
+}
+.liquid-command-progress .step-circle {
+    width: 32px;
+    height: 32px;
+    border-color: rgba(116, 158, 201, 0.38);
+    background: rgba(255, 255, 255, 0.38);
+}
+.liquid-command-progress .step-item.active .step-circle {
+    background: linear-gradient(145deg, #4aa7ff, #1874db);
+    box-shadow: 0 7px 15px rgba(26, 115, 232, 0.28), inset 0 1px rgba(255, 255, 255, 0.56);
+}
+.liquid-command-progress .step-item.completed .step-circle {
+    border-color: #308ae9;
+    background: #308ae9;
+}
+.liquid-command-progress > .step-item {
+    position: relative;
+    z-index: 1;
+}
+/* A segment appears only after its preceding step is complete; future steps do not get a preview rail. */
+.liquid-command-progress > .step-line {
+    position: absolute;
+    top: 26px;
+    z-index: 0;
+    min-width: 0;
+    max-width: none;
+    margin: 0;
+    height: 2px;
+    border-radius: 999px;
+    opacity: 0;
+    background: transparent;
+    transition: opacity 160ms ease, background 160ms ease;
+}
+.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(1) { left: calc(10% + var(--step-rail-offset)); width: 20%; }
+.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(2) { left: calc(30% + var(--step-rail-offset)); width: 20%; }
+.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(3) { left: calc(50% + var(--step-rail-offset)); width: 20%; }
+.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(4) { left: calc(70% + var(--step-rail-offset)); width: 20%; }
+.game-command-progress > .step-line { left: calc(25% + 9px); width: calc(50% - 18px); }
+.liquid-command-progress .step-item.completed + .step-line {
+    opacity: 1;
+    background: linear-gradient(90deg, #2e8de9, #74b8ff);
+}
+
+/* The game workflow uses the same floating control desk, with its return path kept nearby. */
+.game-workbench-command {
+    position: relative;
+    width: min(calc(100% - 48px), 1600px);
+    min-height: 78px;
+    margin: clamp(24px, 4vh, 44px) auto 0;
+}
+.game-workbench-command .game-command-progress {
+    width: min(100%, 600px);
+    margin: 0 auto;
+}
+.game-workbench-command .tool-return-link {
+    --jelly-color: #2377d8;
+    position: absolute;
+    z-index: 2;
+    top: 50%;
+    right: 0;
+    min-height: 38px;
+    padding: 8px 14px;
+    border: 1px solid rgba(101, 153, 210, 0.35) !important;
+    border-radius: 999px !important;
+    background: rgba(255, 255, 255, 0.5) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.82), 0 8px 20px rgba(50, 80, 120, 0.12) !important;
+    color: #285b91 !important;
+    transform: translateY(-50%) !important;
+}
+.game-workbench-command .tool-return-link.jelly-explore-button .jelly-explore-label { color: #285b91; }
+.game-workbench-command .tool-return-link.jelly-explore-button .jelly-explore-body {
+    opacity: 0;
+    transition: opacity 150ms ease, transform 220ms cubic-bezier(.34, 1.56, .64, 1);
+}
+.game-workbench-command .tool-return-link.jelly-explore-button .jelly-explore-shadow { opacity: 0.14; }
+.game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #fff !important;
+    transform: translateY(-50%) scale(1.02) !important;
+}
+.game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active .jelly-explore-label { color: #fff; }
+.game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active .jelly-explore-body { opacity: 1; }
+.game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active .jelly-explore-shadow { opacity: 0.52; }
+
+.liquid-glass-surface {
+    --liquid-x: 22%;
+    --liquid-y: 2%;
+    position: relative;
+    isolation: isolate;
+    border-color: var(--liquid-line) !important;
+    background:
+        radial-gradient(110% 105% at var(--liquid-x) var(--liquid-y), rgba(255, 255, 255, 0.66) 0%, rgba(255, 255, 255, 0.18) 31%, transparent 66%),
+        linear-gradient(140deg, rgba(255, 255, 255, 0.46), rgba(223, 241, 255, 0.22)) !important;
+    box-shadow: inset 0 1px 0 var(--liquid-edge), inset 0 -1px rgba(105, 160, 221, 0.12), var(--liquid-shadow) !important;
+    backdrop-filter: blur(22px) saturate(155%);
+    -webkit-backdrop-filter: blur(22px) saturate(155%);
+    transition: transform 240ms cubic-bezier(.2, .8, .2, 1), border-color 220ms ease, box-shadow 220ms ease, background 220ms ease;
+}
+.liquid-glass-surface::before {
+    content: '';
+    position: absolute;
+    z-index: 0;
+    inset: 1px;
+    border-radius: inherit;
+    background:
+        linear-gradient(116deg, transparent 16%, rgba(255, 255, 255, 0.05) 32%, rgba(255, 255, 255, 0.5) 43%, rgba(205, 237, 255, 0.12) 52%, transparent 67%),
+        radial-gradient(48% 78% at var(--liquid-x) var(--liquid-y), rgba(129, 198, 255, 0.18), transparent 72%);
+    opacity: 0.82;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+}
+.liquid-glass-surface > * { position: relative; z-index: 1; }
+.liquid-glass-surface > .build-mode-selected-mark {
+    position: absolute;
+    z-index: 2;
+    width: 22px;
+    height: 22px;
+    aspect-ratio: 1;
+}
+.liquid-glass-surface:hover::before { opacity: 1; }
+
+/* Floating navigation and the outer work area are the two thickest glass layers. */
+.step-progress.liquid-glass-surface {
+    border-color: rgba(255, 255, 255, 0.76) !important;
+    background:
+        radial-gradient(110% 130% at var(--liquid-x) var(--liquid-y), rgba(255, 255, 255, 0.78), transparent 58%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.61), rgba(214, 233, 255, 0.38)) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.9), 0 18px 38px rgba(37, 70, 112, 0.18), 0 2px 7px rgba(37, 70, 112, 0.08) !important;
+}
+.step-panel.liquid-glass-surface {
+    border-color: rgba(255, 255, 255, 0.68) !important;
+    background:
+        radial-gradient(85% 110% at var(--liquid-x) var(--liquid-y), rgba(255, 255, 255, 0.58), transparent 62%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.48), rgba(224, 242, 255, 0.27)) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.92), 0 24px 52px rgba(51, 81, 118, 0.14), 0 3px 12px rgba(51, 81, 118, 0.08) !important;
+}
+
+/* Inset regions deliberately use less frost than the outer work area. */
+.build-mode-selector.liquid-glass-surface,
+.data-overview.liquid-glass-surface,
+.config-panel.liquid-glass-surface,
+.preview-panel.liquid-glass-surface,
+.ad-injection-setup.liquid-glass-surface,
+.legacy-site-upload.liquid-glass-surface {
+    --liquid-line: rgba(105, 151, 202, 0.24);
+    background:
+        radial-gradient(100% 100% at var(--liquid-x) var(--liquid-y), rgba(255, 255, 255, 0.55), transparent 65%),
+        rgba(232, 246, 255, 0.24) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.76), 0 12px 28px rgba(59, 87, 121, 0.09) !important;
+}
+
+/* Small cards retain their individual semantic accent through the glass edge. */
+.build-mode-card { --liquid-line: rgba(80, 146, 218, 0.34); }
+.build-mode-card-games { --liquid-line: rgba(86, 147, 233, 0.36); }
+.build-mode-card-injection { --liquid-line: rgba(214, 147, 55, 0.36); }
+.build-mode-card-restoration { --liquid-line: rgba(128, 97, 190, 0.34); }
+.build-mode-card-premium { --liquid-line: rgba(63, 157, 126, 0.34); }
+
+.build-mode-card.liquid-glass-surface,
+.theme-card.liquid-glass-surface,
+.detection-card.liquid-glass-surface,
+.template-card.liquid-glass-surface,
+.style-card.liquid-glass-surface,
+.injection-file-card.liquid-glass-surface,
+.restoration-file-card.liquid-glass-surface,
+.ad-policy-page-card.liquid-glass-surface,
+.diff-blueprint-card.liquid-glass-surface,
+.config-group.liquid-glass-surface {
+    background:
+        radial-gradient(125% 120% at var(--liquid-x) var(--liquid-y), rgba(255, 255, 255, 0.66) 0%, rgba(255, 255, 255, 0.2) 31%, transparent 66%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.42), rgba(226, 243, 255, 0.19)) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.88), 0 10px 22px rgba(50, 82, 119, 0.1) !important;
+}
+
+.build-mode-card.liquid-glass-surface:hover,
+.theme-card.liquid-glass-surface:hover,
+.detection-card.liquid-glass-surface:hover,
+.template-card.liquid-glass-surface:hover,
+.style-card.liquid-glass-surface:hover,
+.injection-file-card.liquid-glass-surface:hover,
+.restoration-file-card.liquid-glass-surface:hover,
+.ad-policy-page-card.liquid-glass-surface:hover,
+.diff-blueprint-card.liquid-glass-surface:hover {
+    border-color: rgba(64, 138, 220, 0.66) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.96), 0 17px 30px rgba(49, 100, 160, 0.17) !important;
+    transform: translateY(-3px);
+}
+.liquid-glass-interactive.is-liquid-pressed { transform: translateY(-1px) scale(0.985); }
+.build-mode-card.is-selected.liquid-glass-surface {
+    border-color: rgba(36, 124, 219, 0.82) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.96), 0 0 0 3px rgba(66, 153, 238, 0.15), 0 14px 28px rgba(43, 117, 192, 0.17) !important;
+}
+
+.upload-area.liquid-glass-surface {
+    border-color: rgba(71, 144, 235, 0.62) !important;
+    background:
+        radial-gradient(70% 130% at var(--liquid-x) var(--liquid-y), rgba(255, 255, 255, 0.74), transparent 62%),
+        rgba(229, 242, 255, 0.48) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.86), 0 12px 25px rgba(50, 111, 182, 0.1) !important;
+}
+.upload-area.liquid-glass-surface:hover,
+.upload-area.liquid-glass-surface:focus-within,
+.upload-area.liquid-glass-surface.dragover {
+    border-color: rgba(35, 119, 216, 0.92) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.9), 0 18px 34px rgba(39, 117, 199, 0.17) !important;
+}
+
+.step-nav.liquid-glass-surface {
+    border-color: rgba(255, 255, 255, 0.75) !important;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.58), rgba(218, 239, 255, 0.33)) !important;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.88), 0 14px 30px rgba(49, 80, 119, 0.12) !important;
+}
+
+/* A compact action dock keeps one to three workflow controls purposeful. */
+.step-nav.workflow-action-dock {
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 64px;
+    margin: 18px auto 0;
+    padding: 8px 10px 8px 16px;
+    border-radius: 20px;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+.workflow-action-context {
+    display: grid;
+    align-content: center;
+    min-width: 148px;
+    padding-right: 12px;
+    border-right: 1px solid rgba(109, 158, 207, 0.2);
+    color: var(--liquid-ink);
+}
+.workflow-action-kicker {
+    color: #6e87a5;
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+}
+.workflow-action-message {
+    margin-top: 3px;
+    color: #305f91;
+    font-size: 12px;
+    font-weight: 700;
+}
+.workflow-action-buttons {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.workflow-action-buttons .btn-prev { margin-right: 0; }
+
+/* The primary action stays ordinary until hover, then uses the original Jelly Explore gooey interaction. */
+.btn-next {
+    /* Baseline geometry must not depend on the decoration script or hover state. */
+    border-radius: 28px !important;
+}
+.btn-next.jelly-explore-button.jelly-hover-only {
+    position: relative;
+    min-width: 116px;
+    min-height: 42px;
+    border: 1px solid transparent !important;
+    border-radius: 28px !important;
+    background: linear-gradient(135deg, #2379e5, #1767cf) !important;
+    box-shadow: 0 7px 16px rgba(26, 115, 232, 0.23) !important;
+    color: #fff !important;
+  transform: none !important;
+  transition:
+    border-radius 220ms cubic-bezier(.16, 1, .3, 1),
+    transform 220ms cubic-bezier(.34, 1.56, .64, 1),
+    background 160ms ease,
+    box-shadow 180ms ease !important;
+}
+.btn-next.jelly-explore-button.jelly-hover-only .jelly-explore-body {
+    inset: 38px;
+    border-radius: 999px !important;
+    opacity: 0;
+    background: #2379e5 !important;
+    transition: opacity 150ms ease, transform 220ms cubic-bezier(.34,1.56,.64,1);
+}
+.btn-next.jelly-explore-button.jelly-hover-only .jelly-explore-blob {
+    width: 58px;
+    height: 58px;
+    border-radius: 50% !important;
+    background: #2379e5;
+}
+.btn-next.jelly-explore-button.jelly-hover-only .jelly-explore-label {
+    transform: translate(var(--jelly-label-x, 0px), var(--jelly-label-y, 0px));
+    transition: transform 220ms cubic-bezier(.34,1.56,.64,1);
+}
+.btn-next.jelly-explore-button.jelly-hover-only.is-jelly-active {
+    border-radius: 999px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: translateY(-1px) scale(1.02) !important;
+}
+.btn-next.jelly-explore-button.jelly-hover-only:not(.is-jelly-active) .jelly-explore-goo {
+    /* Avoid an SVG-filter bounding-box flash while the liquid layer fades out. */
+    filter: none;
+}
+.btn-next.jelly-explore-button.jelly-hover-only.is-jelly-active .jelly-explore-body { opacity: 1; }
+.btn-next.jelly-explore-button.jelly-hover-only.is-jelly-pressed { transform: translateY(0) scale(0.94) !important; }
+
+/* Secondary workflow controls keep their original hierarchy until the same Jelly hover takes over. */
+.btn-prev.jelly-explore-button.jelly-workflow-secondary,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary {
+    --jelly-color: #2379e5;
+    position: relative;
+    min-height: 42px;
+    border: 1px solid #dce5ef !important;
+    border-radius: 14px !important;
+    background: rgba(255, 255, 255, 0.86) !important;
+    color: #56667a !important;
+    box-shadow: none !important;
+    transform: none !important;
+    transition:
+        border-radius 220ms cubic-bezier(.16, 1, .3, 1),
+        transform 220ms cubic-bezier(.34, 1.56, .64, 1),
+        background 160ms ease,
+        border-color 160ms ease,
+        box-shadow 180ms ease !important;
+}
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary {
+    border-color: #bcd5ee !important;
+    background: #f4f9ff !important;
+    color: #246bb1 !important;
+}
+.btn-prev.jelly-explore-button.jelly-workflow-secondary .jelly-explore-body,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary .jelly-explore-body {
+    inset: 38px;
+    border-radius: 999px !important;
+    opacity: 0;
+    background: #2379e5 !important;
+    transition: opacity 150ms ease, transform 220ms cubic-bezier(.34,1.56,.64,1);
+}
+.btn-prev.jelly-explore-button.jelly-workflow-secondary .jelly-explore-blob,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary .jelly-explore-blob {
+    width: 58px;
+    height: 58px;
+    border-radius: 50% !important;
+    background: #2379e5;
+}
+.btn-prev.jelly-explore-button.jelly-workflow-secondary .jelly-explore-label,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary .jelly-explore-label {
+    transform: translate(var(--jelly-label-x, 0px), var(--jelly-label-y, 0px));
+    transition: transform 220ms cubic-bezier(.34,1.56,.64,1);
+}
+.btn-prev.jelly-explore-button.jelly-workflow-secondary.is-jelly-active,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary.is-jelly-active {
+    border-color: transparent !important;
+    border-radius: 999px !important;
+    background: transparent !important;
+    color: #fff !important;
+    box-shadow: none !important;
+    transform: translateY(-1px) scale(1.02) !important;
+}
+.btn-prev.jelly-explore-button.jelly-workflow-secondary:not(.is-jelly-active) .jelly-explore-goo,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary:not(.is-jelly-active) .jelly-explore-goo {
+    filter: none;
+}
+.btn-prev.jelly-explore-button.jelly-workflow-secondary.is-jelly-active .jelly-explore-body,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary.is-jelly-active .jelly-explore-body { opacity: 1; }
+.btn-prev.jelly-explore-button.jelly-workflow-secondary.is-jelly-pressed,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary.is-jelly-pressed { transform: translateY(0) scale(0.94) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+    .liquid-glass-surface { transition: border-color 120ms ease, background 120ms ease !important; }
+    .liquid-glass-surface:hover,
+    .liquid-glass-interactive.is-liquid-pressed { transform: none !important; }
+    .btn-next.jelly-explore-button.jelly-hover-only.is-jelly-active { transform: none !important; }
+    .btn-next.jelly-explore-button.jelly-hover-only .jelly-explore-blob { opacity: 0 !important; }
+    .btn-prev.jelly-explore-button.jelly-workflow-secondary.is-jelly-active,
+    .btn-reupload.jelly-explore-button.jelly-workflow-secondary.is-jelly-active { transform: none !important; }
+    .btn-prev.jelly-explore-button.jelly-workflow-secondary .jelly-explore-blob,
+    .btn-reupload.jelly-explore-button.jelly-workflow-secondary .jelly-explore-blob { opacity: 0 !important; }
+}
+
+@media (max-width: 640px) {
+    .liquid-command-progress { --step-rail-offset: 8px; width: calc(100% - 24px); margin-top: 18px; padding-inline: 8px; }
+    .liquid-command-progress .step-item { min-width: 0; }
+    .game-command-progress > .step-line { left: calc(25% + 4px); width: calc(50% - 8px); }
+    .game-workbench-command { width: calc(100% - 24px); min-height: 126px; margin-top: 18px; }
+    .game-workbench-command .game-command-progress { width: 100%; }
+    .game-workbench-command .tool-return-link { top: auto; right: 50%; bottom: 0; transform: translateX(50%) !important; }
+    .game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active { transform: translateX(50%) scale(1.02) !important; }
+    .step-nav.workflow-action-dock { width: 100%; margin-top: 14px; padding: 10px; flex-direction: column; align-items: stretch; }
+    .workflow-action-context { min-width: 0; padding: 0 2px 8px; border-right: 0; border-bottom: 1px solid rgba(109, 158, 207, 0.2); }
+    .workflow-action-buttons { width: 100%; }
+    .workflow-action-buttons > button { flex: 1 1 auto; min-width: 0; }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .liquid-glass-surface {
+        background: #f8fbff !important;
+        border-color: #a8c2df !important;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+}

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20260920-batch-ad-build-1">
+    <link rel="stylesheet" href="css/tool.css?v=20260921-finished-site-preview-placement-1">
   <link rel="stylesheet" href="css/liquid-glass.css?v=20260918-liquid-glass-17">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
@@ -108,6 +108,10 @@
                     <button type="button" class="batch-ad-pick-button" id="batch-data-button">选择多个数据源</button>
                     <input type="file" id="batch-data-input" accept=".json,.zip,.rar,.7z,application/json,application/zip,application/vnd.rar,application/x-rar-compressed" multiple hidden>
                     <span class="batch-ad-file-status" id="batch-data-status">尚未选择数据源</span>
+                    <div class="batch-ad-import-progress" id="batch-data-progress" role="status" aria-live="polite" hidden>
+                        <div aria-hidden="true"><span id="batch-data-progress-fill"></span></div>
+                        <p id="batch-data-progress-text">等待选择数据源</p>
+                    </div>
                 </div>
                 <section class="batch-ad-site-list" id="batch-data-list" hidden aria-live="polite"></section>
             </section>
@@ -123,45 +127,21 @@
 
             <section class="ad-injection-setup" id="ad-injection-setup" hidden aria-labelledby="ad-injection-title">
                 <div class="ad-injection-heading">
-                    <div><span class="section-kicker">保留审核站原内容</span><h3 id="ad-injection-title">成品站快速加入广告</h3></div>
+                    <div><span class="section-kicker">第一步 · 保留审核站原内容</span><h3 id="ad-injection-title">上传已过审网站压缩包</h3></div>
                     <span class="injection-local-badge">静态站 + React 自动识别</span>
                 </div>
-                <p class="ad-injection-intro">选择已经完成的无广告站点，再选择广告商提供的 TXT。工具按域名自动配对：静态多页面站直接写入广告位；React/Vite 站加入监听渲染与路由切换的广告运行时。源站不会被覆盖。</p>
+                <p class="ad-injection-intro">上传已经通过审核的无广告网站压缩包。工具会在浏览器本地识别静态 HTML 或 React 站；下一步会进入原站实时预览与广告配置。源压缩包和其内容都不会被覆盖。</p>
                 <div class="ad-injection-file-grid">
                     <article class="injection-file-card">
                         <span class="injection-step" aria-hidden="true">1</span>
-                        <div><h4>读取成品站目录</h4><p>可选择单站目录，也可选择包含多个站点文件夹的总目录。</p></div>
-                        <button type="button" class="injection-pick-button" id="injection-directory-button">读取站点目录</button>
-                        <input type="file" id="injection-directory-input" webkitdirectory directory multiple hidden>
-                        <span class="injection-file-status" id="injection-directory-status">尚未选择</span>
-                    </article>
-                    <article class="injection-file-card">
-                        <span class="injection-step injection-step-muted" aria-hidden="true">或</span>
-                        <div><h4>选择成品站压缩包</h4><p>可多选 <code>.zip</code>、<code>.rar</code>、<code>.tar.gz</code> 或 <code>.tgz</code>。</p></div>
-                        <button type="button" class="injection-pick-button" id="injection-sites-button">选择站点包</button>
-                        <input type="file" id="injection-sites-input" accept=".zip,.rar,.tar.gz,.tgz,application/zip,application/vnd.rar,application/x-rar-compressed,application/gzip" multiple hidden>
+                        <div><h4>上传已过审网站压缩包</h4><p>可多选 <code>.zip</code>、<code>.rar</code>、<code>.7z</code>、<code>.tar.gz</code> 或 <code>.tgz</code>；每个压缩包会作为一个独立站点处理。</p></div>
+                        <button type="button" class="injection-pick-button" id="injection-sites-button">选择网站压缩包</button>
+                        <input type="file" id="injection-sites-input" accept=".zip,.rar,.7z,.tar.gz,.tgz,application/zip,application/vnd.rar,application/x-rar-compressed,application/x-7z-compressed,application/gzip" multiple hidden>
                         <span class="injection-file-status" id="injection-sites-status">尚未选择</span>
-                    </article>
-                    <article class="injection-file-card">
-                        <span class="injection-step" aria-hidden="true">2</span>
-                        <div><h4>选择广告代码 TXT</h4><p>一站一份时按广告单元域名自动配对；单站单代码可直接使用。</p></div>
-                        <button type="button" class="injection-pick-button" id="injection-code-button">选择广告代码</button>
-                        <input type="file" id="injection-code-input" accept=".txt,text/plain" multiple hidden>
-                        <span class="injection-file-status" id="injection-code-status">尚未选择</span>
                     </article>
                 </div>
                 <div class="injection-progress" id="injection-scan-progress" hidden><div><span id="injection-scan-progress-fill"></span></div><p id="injection-scan-progress-text">正在识别…</p></div>
-                <section class="injection-mapping" id="injection-mapping" hidden aria-live="polite">
-                    <div class="injection-mapping-head"><div><span class="section-kicker">自动识别结果</span><h4 id="injection-mapping-title">已识别 0 个站点</h4></div><span>每个站点必须匹配一份有效广告代码</span></div>
-                    <div class="injection-mapping-list" id="injection-mapping-list"></div>
-                </section>
-                <div class="injection-rule-note"><strong>React 处理规则</strong><span>已构建 React 站和常见 Vite / CRA 工程会加入运行时广告挂载器；Next.js 等没有通用 HTML 入口的源码工程会要求先构建或静态导出，避免无效注入。</span></div>
-                <div class="injection-actions">
-                    <button type="button" class="injection-run-button" id="injection-run" disabled>加入完整广告并生成新目录</button>
-                    <div class="injection-progress" id="injection-progress" hidden><div><span id="injection-progress-fill"></span></div><p id="injection-progress-text">准备中…</p></div>
-                </div>
-                <p class="injection-action-help">默认加入普通建站的完整广告：banner1/2/3、广告代码中存在的插屏与锚点；所有输出写入新目录，原送审站保持不变。</p>
-                <div class="injection-result" id="injection-result" hidden aria-live="polite"></div>
+                <p class="injection-action-help">识别完成后点击“进入配置网站”，在原站实时预览旁上传广告代码并手动设置广告位。</p>
             </section>
 
             <section class="ad-restoration-setup" id="ad-restoration-setup" hidden aria-labelledby="ad-restoration-title">
@@ -242,6 +222,16 @@
                 <p class="upload-text">拖拽文件到此处，或点击选择文件</p>
                 <p class="upload-hint" id="upload-hint">支持 .json 文件 或压缩包（.zip/.rar/.7z，含JSON+图片）</p>
                 <input class="upload-file-input" type="file" id="file-input" accept=".json,.zip,.rar,.7z" aria-label="选择资讯数据文件" aria-describedby="upload-hint">
+                <div class="export-progress upload-import-progress" id="upload-import-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
+                    <div class="export-progress-heading">
+                        <span>解析进度</span>
+                        <output class="export-progress-value" id="upload-import-progress-value">0%</output>
+                    </div>
+                    <div class="progress-bar" aria-hidden="true">
+                        <div class="progress-fill" id="upload-import-progress-fill"></div>
+                    </div>
+                    <p class="progress-text" id="upload-import-progress-text">准备读取数据源...</p>
+                </div>
             </div>
 
             <!-- 上传成功后显示数据概览 -->
@@ -327,6 +317,51 @@
         <div class="step-panel" id="step-4">
             <div class="config-layout">
                 <!-- 左侧：配置面板 -->
+                <aside class="config-panel ad-injection-config-panel" id="ad-injection-config-panel" hidden aria-labelledby="ad-injection-config-title">
+                    <p class="section-kicker">第二步 · 仅修改广告</p>
+                    <h2 class="panel-title" id="ad-injection-config-title">配置网站</h2>
+                    <p class="panel-desc">右侧显示上传的原站。为保留已过审站的内容与视觉，结构和样式仅供核查；广告代码和广告位在此步骤配置。</p>
+                    <div class="config-tabs injection-config-tabs" role="tablist" aria-label="成品站广告配置">
+                        <button type="button" class="injection-config-tab active" data-injection-tab="structure" role="tab" aria-selected="true">结构配置</button>
+                        <button type="button" class="injection-config-tab" data-injection-tab="style" role="tab" aria-selected="false">样式配置</button>
+                        <button type="button" class="injection-config-tab" data-injection-tab="ads" role="tab" aria-selected="false">广告配置</button>
+                    </div>
+                    <section class="injection-config-section active" data-injection-section="structure">
+                        <div class="config-group">
+                            <h4 class="group-title">原站结构核查</h4>
+                            <p class="group-hint">原站页面、路由和内容不会被重排或替换；导出时只增加广告运行时代码与广告容器。</p>
+                            <div class="injection-source-summary" id="injection-structure-summary" aria-live="polite">请先上传已过审网站压缩包。</div>
+                            <label class="config-item"><span>实时预览站点</span><select id="injection-preview-site" disabled><option>等待上传站点</option></select></label>
+                        </div>
+                    </section>
+                    <section class="injection-config-section" data-injection-section="style" hidden>
+                        <div class="config-group">
+                            <h4 class="group-title">原站样式核查</h4>
+                            <p class="group-hint">为了避免影响已审核页面的设计和内容价值，本工作流不替换主题、字体、配色或卡片布局。广告容器使用站点现有 CSS 变量，并在导出前单独注入。</p>
+                            <div class="injection-source-summary" id="injection-style-summary" aria-live="polite">等待读取原站样式资源。</div>
+                        </div>
+                    </section>
+                    <section class="injection-config-section" data-injection-section="ads" hidden>
+                        <div class="config-group">
+                            <h4 class="group-title">上传广告代码</h4>
+                            <p class="group-hint">选择广告商提供的 TXT。一站一份时系统按广告单元域名自动配对；单站单代码会直接使用。</p>
+                            <div class="injection-config-actions"><button type="button" class="injection-pick-button" id="injection-code-button">选择广告代码 TXT</button><button type="button" class="injection-pick-button" id="injection-paste-button">粘贴广告代码</button><input type="file" id="injection-code-input" accept=".txt,text/plain" multiple hidden><span class="injection-file-status" id="injection-code-status">尚未选择</span></div>
+                            <div class="injection-paste-panel" id="injection-paste-panel" hidden><label for="injection-code-paste">Google Ad Manager / GA 代码（仅在本机解析，不会执行）</label><textarea id="injection-code-paste" rows="7" spellcheck="false" placeholder="粘贴 googletag.defineSlot、defineOutOfPageSlot 或 gtag 代码"></textarea><button type="button" class="injection-pick-button" id="injection-parse-paste">解析粘贴的代码</button></div>
+                            <div class="injection-fields" id="injection-fields" aria-live="polite"></div>
+                            <label class="injection-partial-confirm"><input type="checkbox" id="injection-allow-partial"> 我已确认：缺失广告位不处理，仅导出已填写的广告位</label>
+                        </div>
+                        <section class="injection-mapping" id="injection-mapping" hidden aria-live="polite">
+                            <div class="injection-mapping-head"><div><span class="section-kicker">自动识别结果</span><h4 id="injection-mapping-title">已识别 0 个站点</h4></div><span>每个站点必须匹配一份有效广告代码</span></div>
+                            <div class="injection-mapping-list" id="injection-mapping-list"></div>
+                        </section>
+                        <div class="config-group injection-policy-group">
+                            <h4 class="group-title">手动放置广告位</h4>
+                            <p class="group-hint">操作方式与普通建站一致：选择广告后，既可点击带名称的常用广告位，也可点击任意内容区块之间的“自定义位置”。切换“首页/详情页”可分别放置；静态站会直接写入页面，React 源码会插入可复用组件。</p>
+                            <div class="injection-policy-grid" id="injection-policy-grid"></div>
+                        </div>
+                        <div class="injection-rule-note"><strong>React 处理规则</strong><span>React 源码会导出加入广告后的完整工程，浏览器不会执行依赖安装或生产构建。请在项目环境自行执行 npm install 和 npm run build，再部署新生成的 dist、build 或框架输出目录。若上传的是纯静态站，则加入广告后可直接部署。</span></div>
+                    </section>
+                </aside>
                 <div class="config-panel">
                     <h2 class="panel-title">配置网站</h2>
 
@@ -335,7 +370,7 @@
                         <button class="config-tab active" data-tab="structure">结构配置</button>
                         <button class="config-tab" data-tab="style">样式配置</button>
                         <button class="config-tab" data-tab="ads" hidden>广告代码</button>
-                        <button id="random-assemble-btn" title="随机应用一套最近未使用的页面模板，并微调细节" style="margin-left:auto;padding:6px 16px;border-radius:6px;border:1px solid #ff9800;background:transparent;color:#ff9800;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:all 0.2s;">🎲 随机换模板</button>
+                        <button id="random-assemble-btn" title="随机应用一套领域专属模板与配色主题，并微调细节" style="margin-left:auto;padding:6px 16px;border-radius:6px;border:1px solid #ff9800;background:transparent;color:#ff9800;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:all 0.2s;">🎲 随机换模板</button>
                     </div>
 
                     <!-- 结构配置 -->
@@ -1048,7 +1083,7 @@
                             </div>
                             <div class="preview-sizes">
                             <button class="size-btn active" data-size="desktop" title="桌面">🖥️</button>
-                            <button class="size-btn" data-size="tablet" title="平板">📱</button>
+                            <button class="size-btn" data-size="tablet" title="平板" aria-label="平板预览">📟</button>
                             <button class="size-btn" data-size="mobile" title="手机">📲</button>
                             <button type="button" class="preview-fullscreen-btn" id="preview-fullscreen-btn" aria-label="进入全屏预览" aria-pressed="false" title="全屏预览">
                                 <svg class="fullscreen-expand-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
@@ -1075,6 +1110,20 @@
                 <!-- 由JS动态生成配置摘要 -->
             </div>
 
+            <section class="ad-injection-export-options" id="ad-injection-export-options" hidden aria-labelledby="ad-injection-export-title">
+                <div class="ad-injection-heading">
+                    <div><span class="section-kicker">第三步 · 导出新副本</span><h3 id="ad-injection-export-title">加入广告并导出网站</h3></div>
+                    <span class="injection-local-badge">源压缩包保持不变</span>
+                </div>
+                <p class="ad-injection-intro">系统会重新校验每个站点与广告 TXT 的域名配对、广告路径、DOM ID 和位置策略。纯静态站加入广告后可直接导出部署；React 源码站则导出加入广告后的完整工程，由你在项目环境完成安装依赖与生产构建。选择输出目录时生成新目录；取消目录选择则下载 ZIP。</p>
+                <div class="injection-actions">
+                    <button type="button" class="injection-run-button" id="injection-run" disabled>加入广告并导出新副本</button>
+                    <div class="injection-progress" id="injection-progress" hidden><div><span id="injection-progress-fill"></span></div><p id="injection-progress-text">准备中…</p></div>
+                </div>
+                <p class="injection-action-help">默认包含 banner1/2/3，以及广告代码中存在的插屏与锚点。缺失字段、重复广告、位置不一致或源码无法安全定位广告插入点时，整个导出会被阻止并在报告中列出原因。</p>
+                <div class="injection-result" id="injection-result" hidden aria-live="polite"></div>
+            </section>
+
             <div class="export-options" id="legacy-export-options">
                 <h4>导出方式</h4>
                 <div class="radio-group">
@@ -1100,10 +1149,21 @@
             </section>
 
             <div class="export-actions">
-                <button class="btn-export" id="btn-export" disabled>
-                    📦 导出网站ZIP
+                <button type="button" class="btn-export btn-next" id="btn-export" disabled>
+                    <span class="export-button-icon" aria-hidden="true">
+                        <svg data-lucide-icon="package" viewBox="0 0 24 24" focusable="false">
+                            <path d="m7.5 4.27 9 5.15"/>
+                            <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+                            <path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>
+                        </svg>
+                    </span>
+                    <span>导出网站 ZIP</span>
                 </button>
-                <div class="export-progress" id="export-progress" style="display:none;">
+                <div class="export-progress" id="export-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
+                    <div class="export-progress-heading">
+                        <span>导出进度</span>
+                        <output class="export-progress-value" id="progress-value">0%</output>
+                    </div>
                     <div class="progress-bar">
                         <div class="progress-fill" id="progress-fill"></div>
                     </div>
@@ -1152,13 +1212,13 @@
 
     <!-- JS脚本（顺序加载） -->
     <script src="js/data.js?v=20260920-emoji-portal-2"></script>
-    <script src="js/domain.js?v=20260920-domain-accuracy-gate-1"></script>
-    <script src="js/ad-migration.js?v=20260920-banner4-optional-1"></script>
-    <script type="module" src="js/rar-import.js?v=20260912-vite-module-fix-4"></script>
-    <script src="js/generator.js?v=20260920-navbar-fullwidth-sticky-1"></script>
-    <script src="js/ad-restoration.js?v=20260920-banner4-optional-1"></script>
+    <script src="js/domain.js?v=20260921-tag-array-recognition-1"></script>
+    <script src="js/ad-migration.js?v=20260921-finished-site-parser-2"></script>
+    <script type="module" src="js/rar-import.js?v=20260921-rar5-fallback-1"></script>
+    <script src="js/generator.js?v=20260921-category-count-grid-4"></script>
+    <script src="js/ad-restoration.js?v=20260922-generic-preview-5"></script>
     <script src="js/batch-ad-builder.js?v=20260920-batch-ad-build-1"></script>
-    <script type="module" src="js/app.js?v=20260920-batch-ad-build-2"></script>
+    <script type="module" src="js/app.js?v=20260922-generic-finished-preview-10"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
     <script src="js/liquid-glass.js?v=20260918-liquid-glass-1"></script>
 </body>

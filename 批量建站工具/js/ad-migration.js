@@ -126,22 +126,30 @@ const AdMigration = (function() {
         const errors = [];
         const warnings = [];
         const units = {};
-        const slotRegex = /googletag\.defineSlot\s*\(\s*['"]([^'"]+)['"]/gi;
+        // GAM 导出的代码在 defineSlot、defineOutOfPageSlot、注释和展示片段中
+        // 都可能出现广告单元。先收集所有合法路径，再按单元名称分类，绝不依赖出现顺序。
+        const slotRegex = /googletag\.(?:defineSlot|defineOutOfPageSlot)\s*\(\s*['"]\s*(\/[^'"\s]+)\s*['"]/gi;
+        const pathRegex = /(?:^|[^A-Za-z0-9_./-])(\/\d{4,}(?:\/[A-Za-z0-9_.-]+)+)(?=$|[^A-Za-z0-9_./-])/g;
+        const paths = [];
         let match;
 
         while ((match = slotRegex.exec(source)) !== null) {
-            const path = match[1].trim();
-            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) continue;
-            const lower = path.toLowerCase();
-            if (/-banner1$/.test(lower)) config.bannerPath1 = path;
-            else if (/-banner2$/.test(lower)) config.bannerPath2 = path;
-            else if (/-banner3$/.test(lower)) config.bannerPath3 = path;
-            else if (/-banner4$/.test(lower)) config.bannerPath4 = path;
-            else if (/-int$/.test(lower)) config.interstitialPath = path;
-            else if (/-anc$/.test(lower)) config.anchorPath = path;
+            paths.push(match[1].trim());
         }
+        while ((match = pathRegex.exec(source)) !== null) paths.push(match[1].trim());
 
-        const gaMatch = source.match(/gtag\(\s*['"]config['"]\s*,\s*['"](G-[A-Z0-9]+)['"]\s*\)/i);
+        paths.forEach(function(path) {
+            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) return;
+            const lower = path.toLowerCase();
+            if (/(?:-|_|\/)(?:banner\s*1|banner1)$/.test(lower)) config.bannerPath1 = path;
+            else if (/(?:-|_|\/)(?:banner\s*2|banner2)$/.test(lower)) config.bannerPath2 = path;
+            else if (/(?:-|_|\/)(?:banner\s*3|banner3)$/.test(lower)) config.bannerPath3 = path;
+            else if (/(?:-|_|\/)(?:banner\s*4|banner4)$/.test(lower)) config.bannerPath4 = path;
+            else if (/(?:-|_|\/)(?:int|interstitial)$/.test(lower)) config.interstitialPath = path;
+            else if (/(?:-|_|\/)(?:anc|anchor)$/.test(lower)) config.anchorPath = path;
+        });
+
+        const gaMatch = source.match(/(?:gtag\(\s*['"]config['"]\s*,\s*['"]|[?&]id=)(G-[A-Z0-9]+)(?:['"]\s*\)|\b)/i);
         if (gaMatch) config.analyticsID = gaMatch[1].toUpperCase();
 
         ['bannerPath1', 'bannerPath2', 'bannerPath3'].forEach(function(key) {

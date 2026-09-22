@@ -1,3 +1,4 @@
+// 内置广告脚本模板：源自项目资源，不在运行时读取桌面目录或任何绝对路径。
 window.AD_JS_SOURCE = [
 'const bannerPath1 = "";',
 'const bannerPath2 = "";',

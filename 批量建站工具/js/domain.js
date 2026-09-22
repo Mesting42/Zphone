@@ -43,6 +43,14 @@
             Object.keys(row).forEach(function(key) {
                 fields[normalize(key).trim()] = true;
                 var value = row[key];
+                // Editorial JSON frequently stores tags as a string array.
+                // Keep those labels in the sample: they are usually stronger
+                // domain evidence than incidental words in an article body.
+                if (Array.isArray(value)) {
+                    value = value.filter(function(item) {
+                        return item != null && typeof item !== 'object';
+                    }).join(' ');
+                }
                 if (value == null || typeof value === 'object') return;
                 var text = normalize(value).slice(0, 1200);
                 if (/title|name|category|genre|tag|topic|标题|分类|类型|栏目/i.test(key)) {

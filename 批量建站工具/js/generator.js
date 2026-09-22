@@ -87,9 +87,9 @@ const Generator = (function() {
 
     // ========== 广告代码模板 ==========
     const AD_TEMPLATES = {
-        adv1: '<div id="adv1" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:var(--color-text,#111);font-size:13px;">advertisement</div><div id="div-gpt-ad-banner1" style="min-width:300px;min-height:250px;"></div></div>',
-        adv2: '<div id="adv2" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:var(--color-text,#111);font-size:13px;">advertisement</div><div id="div-gpt-ad-banner2" style="min-width:300px;min-height:250px;"></div></div>',
-        adv3: '<div id="adv3" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:var(--color-text,#111);font-size:13px;">advertisement</div><div id="div-gpt-ad-banner3" style="min-width:300px;min-height:250px;"></div></div>'
+        adv1: '<div id="adv1" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:black;font-size:13px;">advertisement1</div><div id="div-gpt-ad-banner1" style="min-width:300px;min-height:250px;"></div></div>',
+        adv2: '<div id="adv2" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:black;font-size:13px;">advertisement2</div><div id="div-gpt-ad-banner2" style="min-width:300px;min-height:250px;"></div></div>',
+        adv3: '<div id="adv3" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:black;font-size:13px;">advertisement3</div><div id="div-gpt-ad-banner3" style="min-width:300px;min-height:250px;"></div></div>'
     };
 
     const AD_RUNTIME_CACHE_VERSION = '20260919-ad-runtime-init-1';
@@ -158,6 +158,21 @@ function isAdPolicyEnabled(kind) {
 }
 
 window.googletag = window.googletag || { cmd: [] };
+
+// A user-selected gap may belong to a narrow column. Only custom placement
+// wrappers use this class, so standard ad locations keep their native layout.
+function centerCustomAdPlacements() {
+    document.querySelectorAll('.sitefoundry-ad-custom-placement').forEach(function (node) {
+        node.style.setProperty('--sitefoundry-ad-center-offset', '0px');
+        var rect = node.getBoundingClientRect();
+        var offset = window.innerWidth / 2 - (rect.left + rect.width / 2);
+        node.style.setProperty('--sitefoundry-ad-center-offset', Math.round(offset * 100) / 100 + 'px');
+    });
+}
+
+function queueCustomAdPlacementCenter() {
+    window.requestAnimationFrame(centerCustomAdPlacements);
+}
 
 /* -------------------------------
    专业延迟加载广告模块
@@ -261,6 +276,7 @@ function initializeBannerObservers() {
         console.log("[Display] banner4 正常加载 display()");
         googletag.cmd.push(() => googletag.display("div-gpt-ad-banner4"));
     }
+    queueCustomAdPlacementCenter();
 }
 
 if (document.readyState === 'loading') {
@@ -268,6 +284,8 @@ if (document.readyState === 'loading') {
 } else {
     initializeBannerObservers();
 }
+
+window.addEventListener('resize', queueCustomAdPlacementCenter);
 
 if (analyticsID) {
     const gtagScript = document.createElement('script');
@@ -304,6 +322,12 @@ if (analyticsID) {
         const cardRadius = radiusMap[style.cardRadius] || '8px';
         const cardSpacing = spacingMap[style.cardSpacing] || '20px';
         const gridGap = gapMap[style.gridGap] || '20px';
+        const fixedColumnCount = Number(config.structure.cardColumns);
+        // 列表视图永远是一列横向卡片；不能混入固定列数的 Flex 布局。
+        const usesFixedDesktopColumns = style.cardViewMode !== 'list' && Number.isInteger(fixedColumnCount) && fixedColumnCount >= 2 && fixedColumnCount <= 4;
+        const fixedCardWidth = usesFixedDesktopColumns
+            ? `calc((100% - ${Number.parseFloat(gridGap) * (fixedColumnCount - 1)}px) / ${fixedColumnCount})`
+            : null;
         const excerptLines = ['2', '3', '4'].includes(String(style.cardExcerptLines)) ? String(style.cardExcerptLines) : '3';
         const fontPreset = FONT_PRESETS.find(function(font) { return font.id === style.fontStyle; }) || FONT_PRESETS[0];
         const fontFamily = fontPreset.family;
@@ -313,7 +337,15 @@ if (analyticsID) {
             : '';
         _googleFontLink = googleFontLink;
         const transitionSpeed = style.transitionSpeed || '0.3s';
-        const navbarHeight = style.navbarHeight || '60px';
+        const requestedNavbarHeight = style.navbarHeight || '60px';
+        const requestedNavbarPixels = /^\d+(?:\.\d+)?px$/i.test(requestedNavbarHeight)
+            ? Number.parseFloat(requestedNavbarHeight)
+            : null;
+        // A boxed wordmark needs a visibly breathable header even when a compact
+        // template requests a 50px or 60px navigation height.
+        const navbarHeight = style.logoStyle === 'boxed' && requestedNavbarPixels !== null && requestedNavbarPixels < 72
+            ? '72px'
+            : requestedNavbarHeight;
 
         return `/* 网站样式 - 由批量建站工具生成 */
 :root {
@@ -433,6 +465,11 @@ img { max-width: 100%; height: auto; }
     box-shadow: 0 6px 18px rgba(0,0,0,0.10);
     backdrop-filter: blur(14px) saturate(1.15);
     -webkit-backdrop-filter: blur(14px) saturate(1.15);
+}
+
+.navbar.has-boxed-logo,
+.navbar.has-boxed-logo .container {
+    min-height: 72px;
 }
 
 .navbar .container {
@@ -556,6 +593,15 @@ img { max-width: 100%; height: auto; }
     font-size: 22px;
     font-weight: 700;
     color: var(--color-primary);
+}
+
+.navbar .logo.logo-boxed {
+    min-height: 42px;
+    padding: 6px 12px;
+    border: 2px solid var(--color-primary);
+    border-radius: 6px;
+    line-height: 1.2;
+    white-space: nowrap;
 }
 
 /* 保持渐变 Logo 的色阶独立于正文色：某些深色主题中主色与正文色接近，
@@ -688,7 +734,8 @@ ${style.categoryTitleStyle === 'gradient' ? `.category-title::after { content: '
     align-items: stretch;
 }
 
-/* 桌面端按实际文章数补齐版面：3、4、6 篇优先采用完整的均衡网格。 */
+${config.structure.cardColumns === 'auto' ? `
+/* 仅在自动列数时，按实际文章数补齐均衡网格；固定列数必须完全遵从用户选择。 */
 @media (min-width: 769px) {
     .items-grid.item-count-1 {
         display: grid !important;
@@ -727,8 +774,10 @@ ${style.categoryTitleStyle === 'gradient' ? `.category-title::after { content: '
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     }
 }
+` : ''}
 
-/* 首页模板蓝图：让模板改变内容编排，而不只是换配色。
+${config.structure.cardColumns === 'auto' ? `
+/* 自动列数时才使用模板蓝图：让模板改变内容编排，而不只是换配色。
    3、4、6 条内容采用完整网格；5 条内容保留首卡强调，形成 1 + 2 + 2 的平衡节奏。 */
 .main-content.layout-featured .category-section:first-child .items-grid:not(.item-count-3):not(.item-count-4):not(.item-count-6) .item-card:first-child:nth-last-child(n + 4) {
     grid-column: span 2;
@@ -750,6 +799,7 @@ ${style.categoryTitleStyle === 'gradient' ? `.category-title::after { content: '
 .main-content.layout-split .category-section:nth-child(even) .items-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+` : ''}
 .main-content.layout-compact .category-section {
     margin-bottom: 28px;
 }
@@ -769,6 +819,24 @@ ${style.categoryTitleStyle === 'gradient' ? `.category-title::after { content: '
         column-count: 1;
     }
 }
+
+${usesFixedDesktopColumns ? `
+/* 固定列数时，完整行保持指定列数；未满的一行作为卡片组居中。 */
+@media (min-width: 769px) {
+    .items-grid {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: stretch;
+    }
+    .items-grid .item-card {
+        flex: 0 0 ${fixedCardWidth};
+        max-width: ${fixedCardWidth};
+        height: auto;
+        align-self: stretch;
+    }
+}
+` : ''}
 
 /* 卡片样式 */
 .item-card {
@@ -957,7 +1025,11 @@ ${style.cardViewMode === 'list' ? `
 }
 .items-grid.item-count-1,
 .items-grid.item-count-2,
-.items-grid.item-count-6 {
+.items-grid.item-count-3,
+.items-grid.item-count-4,
+.items-grid.item-count-5,
+.items-grid.item-count-6,
+.items-grid.item-count-7 {
     grid-template-columns: minmax(0, 1fr) !important;
 }
 .items-grid .item-card {
@@ -991,6 +1063,84 @@ ${style.cardViewMode === 'list' ? `
         width: 100%;
         min-width: 100%;
         height: var(--card-image-height);
+    }
+}
+` : ''}
+
+${style.cardViewMode !== 'list' ? `
+/* 分类数量布局不变量：2→2；3→3；4→2+2；5→1+2+2；6→3+3；7→1+2+2+2。
+   此规则位于模板和固定列数规则之后，保证分类数量优先决定卡片编排。 */
+@media (min-width: 769px) {
+    .items-grid.item-count-2 {
+        display: grid !important;
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-auto-rows: 1fr;
+        align-items: stretch !important;
+        column-count: initial !important;
+    }
+    .items-grid.item-count-3 {
+        display: grid !important;
+        width: 100%;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        grid-auto-rows: 1fr;
+        align-items: stretch !important;
+        column-count: initial !important;
+    }
+    .items-grid.item-count-4 {
+        display: grid !important;
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-auto-rows: 1fr;
+        align-items: stretch !important;
+        column-count: initial !important;
+    }
+    .items-grid.item-count-5 {
+        display: grid !important;
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-auto-rows: 1fr;
+        align-items: stretch !important;
+        column-count: initial !important;
+    }
+    .items-grid.item-count-6 {
+        display: grid !important;
+        width: 100%;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        grid-auto-rows: 1fr;
+        align-items: stretch !important;
+        column-count: initial !important;
+    }
+    .items-grid.item-count-7 {
+        display: grid !important;
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-auto-rows: 1fr;
+        align-items: stretch !important;
+        column-count: initial !important;
+    }
+    .items-grid.item-count-5 > .item-card:first-child {
+        grid-column: 1 / -1;
+    }
+    .items-grid.item-count-7 > .item-card:first-child {
+        grid-column: 1 / -1;
+    }
+    .items-grid.item-count-2 > .item-card,
+    .items-grid.item-count-3 > .item-card,
+    .items-grid.item-count-4 > .item-card,
+    .items-grid.item-count-5 > .item-card,
+    .items-grid.item-count-6 > .item-card,
+    .items-grid.item-count-7 > .item-card {
+        display: flex !important;
+        flex: none !important;
+        flex-direction: column;
+        width: auto !important;
+        min-width: 0;
+        max-width: none !important;
+        height: auto !important;
+        margin-bottom: 0 !important;
+        align-self: stretch !important;
+        break-inside: auto;
     }
 }
 ` : ''}
@@ -1849,14 +1999,15 @@ ${style.detailLayout === 'sidebar' ? `
 
         const isSideDrawer = config.style.navbarStyle === 'side-drawer';
         const navigationId = isSideDrawer ? 'site-navigation-drawer' : 'site-navigation';
+        const isBoxedLogo = config.style.logoStyle === 'boxed';
         const logoHtml = config.style.logoStyle === 'icon' ?
             `<a href="${homeHref}" class="logo" aria-label="${theme.logoText}"><span class="logo-mark" aria-hidden="true">${logoIcon}</span></a>` :
             config.style.logoStyle === 'text-icon' ?
             `<a href="${homeHref}" class="logo"><span class="logo-mark" aria-hidden="true">${logoIcon}</span><span>${theme.logoText}</span></a>` :
             config.style.logoStyle === 'gradient-text' ?
             `<a href="${homeHref}" class="logo logo-gradient-text">${theme.logoText}</a>` :
-            config.style.logoStyle === 'boxed' ?
-            `<a href="${homeHref}" class="logo" style="border: 2px solid var(--color-primary); padding: 4px 12px; border-radius: 6px;">${theme.logoText}</a>` :
+            isBoxedLogo ?
+            `<a href="${homeHref}" class="logo logo-boxed">${theme.logoText}</a>` :
             `<a href="${homeHref}" class="logo">${theme.logoText}</a>`;
 
         function buildLinks(categoryItems) {
@@ -1880,7 +2031,8 @@ ${style.detailLayout === 'sidebar' ? `
             ${linksHtml}
         </ul>`;
 
-        return `<nav class="navbar ${navbarClass} ${layoutClass}">
+        const navbarClasses = ['navbar', navbarClass, layoutClass, isBoxedLogo ? 'has-boxed-logo' : ''].filter(Boolean).join(' ');
+        return `<nav class="${navbarClasses}">
     <div class="container">
         ${logoHtml}
         ${primaryLinksHtml}
@@ -2221,12 +2373,14 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 available = shuffleArray(available);
             }
             var count = Math.min(cat.count, available.length);
-            grid.classList.remove('item-count-1', 'item-count-2', 'item-count-3', 'item-count-4', 'item-count-6');
+            grid.classList.remove('item-count-1', 'item-count-2', 'item-count-3', 'item-count-4', 'item-count-5', 'item-count-6', 'item-count-7');
             if (count === 1) grid.classList.add('item-count-1');
             if (count === 2) grid.classList.add('item-count-2');
             if (count === 3) grid.classList.add('item-count-3');
             if (count === 4) grid.classList.add('item-count-4');
+            if (count === 5) grid.classList.add('item-count-5');
             if (count === 6) grid.classList.add('item-count-6');
+            if (count === 7) grid.classList.add('item-count-7');
             for (var i = 0; i < count; i++) {
                 var card = createCard(available[i], i);
                 grid.appendChild(card);
@@ -3116,7 +3270,9 @@ if __name__ == '__main__':
                     (previewItemCount === 2 ? ' item-count-2' :
                     (previewItemCount === 3 ? ' item-count-3' :
                     (previewItemCount === 4 ? ' item-count-4' :
-                    (previewItemCount === 6 ? ' item-count-6' : ''))));
+                    (previewItemCount === 5 ? ' item-count-5' :
+                    (previewItemCount === 6 ? ' item-count-6' :
+                    (previewItemCount === 7 ? ' item-count-7' : ''))))));
                 bodyContent += `<section id="${categoryAnchorId(cat, ci)}" class="category-section">
                     <h2 class="category-title">${cat.icon} ${cat.name}</h2>`;
                 if (isPlacingAds) bodyContent += genMarker('cat-' + ci + '-after-title', pageType);

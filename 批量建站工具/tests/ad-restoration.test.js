@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import JSZip from 'jszip';
+import { injectReactSource } from '../js/react-source-ad-injector.js';
 
 const context = { TextEncoder, TextDecoder, Blob, Response, DecompressionStream, JSZip };
 const source = (name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8');
@@ -176,6 +177,45 @@ describe('batch ad restoration', () => {
     expect(Array.from(files['website/images/cover.jpg'].bytes)).toEqual([1, 2, 3]);
   });
 
+  it('places the default second detail banner inside the content midpoint', () => {
+    const page = `<!doctype html><html><head></head><body><nav></nav>
+      <div class="detail-page"><h1>Title</h1><div class="detail-content">
+        <p data-part="one">One</p><p data-part="two">Two</p>
+        <p data-part="three">Three</p><p data-part="four">Four</p>
+      </div><div class="related-section"></div></div><footer></footer></body></html>`;
+    const result = context.__restoration.restoreHtml(page, 'detail', 'js/ad.js');
+
+    expect(result.valid).toBe(true);
+    const banner2 = result.html.indexOf('div-gpt-ad-banner2');
+    expect(banner2).toBeGreaterThan(result.html.indexOf('data-part="two"'));
+    expect(banner2).toBeLessThan(result.html.indexOf('data-part="three"'));
+    expect(banner2).toBeLessThan(result.html.indexOf('class="related-section"'));
+  });
+
+  it('preserves and exports an arbitrary structural content-gap placement', () => {
+    const page = '<!doctype html><html><head></head><body><main>' +
+      '<section data-part="one">One</section><section data-part="two">Two</section>' +
+      '<section data-part="three">Three</section></main><footer></footer></body></html>';
+    const policy = context.__restoration.createPolicy();
+    policy.slots.detail = [
+      { position: 'after-navbar', unit: 'off' },
+      { position: 'custom-after-1', unit: 'banner2' },
+      { position: 'footer-top', unit: 'off' }
+    ];
+    const normalized = context.__restoration.normalizePolicy(policy);
+    const result = context.__restoration.restoreHtml(page, 'detail', 'js/ad.js', normalized);
+
+    expect(normalized.slots.detail[1].position).toBe('custom-after-1');
+    expect(result.valid).toBe(true);
+    const banner2 = result.html.indexOf('div-gpt-ad-banner2');
+    expect(banner2).toBeGreaterThan(result.html.indexOf('data-part="two"'));
+    expect(banner2).toBeLessThan(result.html.indexOf('data-part="three"'));
+    expect(result.html).toContain('sitefoundry-ad-custom-placement');
+    expect(result.html).toContain('--sitefoundry-ad-center-offset');
+    expect(context.__restoration.generateSpaAdRuntime({}, normalized)).toContain('function centerCustom()');
+    expect(context.__generator.generateAdJs({})).toContain('function centerCustomAdPlacements()');
+  });
+
   it('is idempotent and does not stack scripts or containers on a second pass', () => {
     const first = context.__restoration.restoreHtml(homeHtml, 'home', 'js/ad.js');
     const second = context.__restoration.restoreHtml(first.html, 'home', 'js/ad.js');
@@ -232,6 +272,7 @@ describe('batch ad restoration', () => {
     const cleanDetail = detailHtml.replaceAll(wrongAd, '');
     let opened = 0;
     let closed = 0;
+    let dependencyExtracted = false;
     context.ArchiveRuntimeReady = Promise.resolve({
       open: async () => {
         opened += 1;
@@ -239,7 +280,8 @@ describe('batch ad restoration', () => {
           extractFiles: async () => {},
           getFilesArray: async () => [
             { path: 'rar-site/', file: { name: 'index.html', arrayBuffer: async () => new TextEncoder().encode(cleanHome).buffer } },
-            { path: 'rar-site/details/', file: { name: 'article1.html', arrayBuffer: async () => new TextEncoder().encode(cleanDetail).buffer } }
+            { path: 'rar-site/details/', file: { name: 'article1.html', arrayBuffer: async () => new TextEncoder().encode(cleanDetail).buffer } },
+            { path: 'rar-site/node_modules/react/', file: { name: 'index.js', arrayBuffer: async () => { dependencyExtracted = true; return new ArrayBuffer(0); } } }
           ],
           close: async () => { closed += 1; }
         };
@@ -249,13 +291,101 @@ describe('batch ad restoration', () => {
     Object.defineProperty(rar, 'name', { value: 'rar-site.rar' });
 
     const policyScan = await context.__restoration.readSiteArchiveFiles([rar]);
-    const injectionScan = await context.__restoration.readInjectableArchiveFiles([rar]);
+    const stages = [];
+    const injectionScan = await context.__restoration.readInjectableArchiveFiles([rar], (_, stage) => stages.push(stage));
 
     expect(policyScan.sites).toHaveLength(1);
     expect(injectionScan.sites).toHaveLength(1);
     expect(injectionScan.sites[0].project).toMatchObject({ valid: true, kind: 'static-html' });
     expect(opened).toBe(2);
     expect(closed).toBe(2);
+    expect(dependencyExtracted).toBe(false);
+    expect(stages.some((stage) => stage.includes('自动跳过 node_modules'))).toBe(true);
+  });
+
+  it('lazily starts the local archive runtime when an ad-injection RAR is the first archive opened', async () => {
+    const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
+    const cleanDetail = detailHtml.replaceAll(wrongAd, '');
+    let loads = 0;
+    context.ArchiveRuntimeReady = null;
+    context.loadArchiveRuntime = () => {
+      loads += 1;
+      return Promise.resolve({ open: async () => ({
+        extractFiles: async () => {},
+        getFilesArray: async () => [
+          { path: 'first-rar/', file: { name: 'index.html', arrayBuffer: async () => new TextEncoder().encode(cleanHome).buffer } },
+          { path: 'first-rar/details/', file: { name: 'article.html', arrayBuffer: async () => new TextEncoder().encode(cleanDetail).buffer } }
+        ],
+        close: async () => {}
+      }) });
+    };
+    const rar = new Blob(['mock-rar']);
+    Object.defineProperty(rar, 'name', { value: 'first-rar.rar' });
+    const scan = await context.__restoration.readInjectableArchiveFiles([rar]);
+    expect(loads).toBe(1);
+    expect(scan.sites).toHaveLength(1);
+  });
+
+  it('uses the direct RAR file list to skip dependency trees before extracting source files', async () => {
+    const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
+    let dependencyExtracted = false;
+    context.ArchiveRuntimeReady = Promise.resolve({
+      open: async () => ({
+        client: {
+          listFiles: async () => [
+            { type: 'FILE', path: 'direct-rar/index.html' },
+            { type: 'FILE', path: 'direct-rar/node_modules/react/index.js' }
+          ]
+        },
+        extractSingleFile: async (path) => ({
+          arrayBuffer: async () => {
+            if (path.includes('node_modules')) dependencyExtracted = true;
+            return new TextEncoder().encode(cleanHome).buffer;
+          }
+        }),
+        close: async () => {}
+      })
+    });
+    const rar = new Blob(['mock-rar']);
+    Object.defineProperty(rar, 'name', { value: 'direct-rar.rar' });
+
+    const scan = await context.__restoration.readInjectableArchiveFiles([rar]);
+    expect(scan.sites).toHaveLength(1);
+    expect(scan.sites[0].entries).toHaveLength(1);
+    expect(dependencyExtracted).toBe(false);
+  });
+
+  it('falls back to the RAR5 parser when libarchive throws an empty error', async () => {
+    const packageJson = JSON.stringify({ dependencies: { react: '^19', 'react-dom': '^19', '@tanstack/react-start': '^1' } });
+    const sources = {
+      'approved/package.json': new TextEncoder().encode(packageJson),
+      'approved/src/routes/__root.tsx': new TextEncoder().encode('export const Route = {};'),
+      'approved/src/routes/index.tsx': new TextEncoder().encode('export default function Home(){return <main>Approved</main>;}')
+    };
+    context.ArchiveRuntimeReady = Promise.resolve({
+      open: async () => ({
+        client: { listFiles: async () => { throw undefined; } },
+        extractSingleFile: async () => null,
+        close: async () => {}
+      })
+    });
+    context.loadRarFallbackRuntime = async () => ({
+      wasmBinary: new ArrayBuffer(0),
+      createExtractorFromData: async () => ({
+        getFileList: () => ({ fileHeaders: Object.keys(sources).map((name) => ({ name, flags: { directory: false } })) }),
+        extract: ({ files }) => ({ files: files.map((name) => ({ fileHeader: { name }, extraction: sources[name] })) })
+      })
+    });
+    const rar = new Blob(['mock-rar5']);
+    Object.defineProperty(rar, 'name', { value: 'approved.rar' });
+    const stages = [];
+
+    const scan = await context.__restoration.readInjectableArchiveFiles([rar], (_, stage) => stages.push(stage));
+
+    expect(scan.sites).toHaveLength(1);
+    expect(scan.sites[0].project).toMatchObject({ valid: true, kind: 'react-source', framework: 'React + TanStack Start 源码工程' });
+    expect(stages.some((stage) => stage.includes('RAR5 / solid RAR'))).toBe(true);
+    context.loadRarFallbackRuntime = undefined;
   });
 
   it('restores multiple sites independently from each archive source', async () => {
@@ -508,14 +638,14 @@ describe('batch ad restoration', () => {
     expect(files['js/ad.js']).toContain('zp0903a.example.pro-ANC');
   });
 
-  it('injects a route-aware runtime into a built React site', () => {
+  it('treats a built React bundle as a static artifact without attempting TSX edits', () => {
     const reactIndex = '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div><script type="module" src="/assets/index-AbC123.js"></script></body></html>';
     const config = context.__restoration.readExistingConfig(oldAdJs);
     const project = context.__restoration.classifyInjectableSiteEntries([
       { path: 'index.html', text: reactIndex },
       { path: 'assets/index-AbC123.js', text: 'document.getElementById("root")' }
     ], 'zp0903a.example.pro');
-    expect(project).toMatchObject({ valid: true, kind: 'react-build', runtimePath: 'js/ad-spa-runtime.js' });
+    expect(project).toMatchObject({ valid: true, kind: 'static-html', runtimePath: 'js/ad.js' });
 
     const output = context.__restoration.injectAdsIntoSiteEntries([
       { path: 'index.html', text: reactIndex },
@@ -524,10 +654,36 @@ describe('batch ad restoration', () => {
     expect(output.valid).toBe(true);
     const files = Object.fromEntries(output.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
     expect(files['index.html']).toContain('data-sitefoundry-ad-runtime="loader"');
-    expect(files['js/ad-spa-runtime.js']).toContain('MutationObserver');
-    expect(files['js/ad-spa-runtime.js']).toContain("'pushState','replaceState'");
-    expect(files['js/ad-spa-runtime.js']).toContain('zp0903a.example.pro-banner3');
-    expect(files['ad-injection.json']).toContain('React 构建产物');
+    expect(files['js/ad.js']).toContain('MutationObserver');
+    expect(files['js/ad.js']).toContain("'pushState','replaceState'");
+    expect(files['js/ad.js']).toContain('zp0903a.example.pro-banner3');
+    expect(files['ad-injection.json']).toContain('React 已构建静态产物');
+  });
+
+  it('uses the manually selected placement policy for static and React finished sites', () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const policy = context.__restoration.createPolicy();
+    policy.slots.home = [
+      { position: 'after-section-2', unit: 'banner1' },
+      { position: 'off', unit: 'off' },
+      { position: 'footer-top', unit: 'banner3' }
+    ];
+    policy.slots.detail = [
+      { position: 'detail-before-content', unit: 'banner1' },
+      { position: 'off', unit: 'off' },
+      { position: 'detail-after-related', unit: 'banner3' }
+    ];
+    const reactIndex = '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div><script type="module" src="/assets/index-AbC123.js"></script></body></html>';
+    const output = context.__restoration.injectAdsIntoSiteEntries([
+      { path: 'index.html', text: reactIndex },
+      { path: 'assets/index-AbC123.js', text: 'document.getElementById("root")' }
+    ], config, 'zp0903a.example.pro', policy);
+
+    expect(output.valid).toBe(true);
+    const files = Object.fromEntries(output.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(files['js/ad.js']).toContain('after-section-2');
+    expect(files['js/ad.js']).toContain('detail-after-related');
+    expect(files['ad-injection.json']).toContain('"policy"');
   });
 
   it('supports Vite React source projects and blocks unbuilt Next.js projects', () => {
@@ -537,7 +693,7 @@ describe('batch ad restoration', () => {
       { path: 'index.html', text: '<html><head></head><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>' },
       { path: 'src/main.jsx', text: 'import React from "react";' }
     ], 'react-source');
-    expect(vite).toMatchObject({ valid: true, kind: 'react-vite-source', runtimePath: 'public/js/ad-spa-runtime.js', runtimeSrc: '/js/ad-spa-runtime.js' });
+    expect(vite).toMatchObject({ valid: true, kind: 'react-source', runtimePath: 'public/js/ad.js', runtimeSrc: '/js/ad.js' });
 
     const nextPackage = JSON.stringify({ dependencies: { react: '^19.0.0', next: '^15.0.0' } });
     const next = context.__restoration.classifyInjectableSiteEntries([
@@ -546,6 +702,124 @@ describe('batch ad restoration', () => {
     ], 'next-source');
     expect(next.valid).toBe(false);
     expect(next.errors.map((item) => item.code)).toContain('AD_INJECTION_NEXT_BUILD_REQUIRED');
+  });
+
+  it('recognizes a TanStack Start source archive without a root index.html', () => {
+    const project = context.__restoration.classifyInjectableSiteEntries([
+      { path: 'package.json', text: JSON.stringify({ dependencies: { react: '^19', 'react-dom': '^19', '@tanstack/react-start': '^1', '@tanstack/react-router': '^1' } }) },
+      { path: 'src/routes/__root.tsx', text: 'export const Route = {};' },
+      { path: 'src/routes/index.tsx', text: 'export default function Home(){return <SiteLayout/>;}' },
+      { path: 'src/components/site-layout.tsx', text: 'export function SiteLayout(){return <main>content</main>;}' },
+      { path: 'dist/client/index.html', text: '<!doctype html><html><body><main>Approved build</main></body></html>' },
+      { path: 'node_modules/react/index.js', text: 'must be ignored on export' }
+    ], 'tanstack-source.rar');
+    expect(project).toMatchObject({ valid: true, kind: 'react-source', framework: 'React + TanStack Start 源码工程', previewEntryPath: 'dist/client/index.html' });
+  });
+
+  it('recognizes common framework export folders without special-casing one site', () => {
+    const project = context.__restoration.classifyInjectableSiteEntries([
+      { path: 'package.json', text: JSON.stringify({ dependencies: { react: '^19', 'react-dom': '^19', '@tanstack/react-start': '^1' } }) },
+      { path: 'src/routes/index.jsx', text: 'export default function Page(){return <main>source</main>}' },
+      { path: '.output/public/index.html', text: '<!doctype html><html><body><div id="root"></div><script type="module" src="/_build/app-a1.js"></script></body></html>' },
+      { path: '.output/public/_build/app-a1.js', text: 'document.getElementById("root").textContent="ready";' }
+    ], 'tanstack-start-source.zip');
+
+    expect(project).toMatchObject({ valid: true, kind: 'react-source', previewEntryPath: '.output/public/index.html' });
+  });
+
+  it('exports the complete modified React source archive without running a browser build', async () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const entries = [
+      { path: 'package.json', text: JSON.stringify({ scripts: { build: 'vite build' }, dependencies: { react: '^19' }, devDependencies: { vite: '^7' } }) },
+      { path: 'index.html', text: '<html><head></head><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>' },
+      { path: 'src/App.jsx', text: 'export default () => <main>new source</main>;' },
+      { path: 'dist/index.html', text: '<html><head></head><body>stale build</body></html>' }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    // Classic scripts declared with top-level `const` are available as global
+    // lexical bindings, but are not properties on `window`.
+    globalThis.window = {};
+    const batch = await context.__restoration.applyAdCodeBatch(
+      [{ id: 'source', name: 'zp0903a.example.pro', entries, project }],
+      [code],
+      undefined,
+      context.__restoration.createPolicy(),
+      injectReactSource
+    );
+    const files = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(Object.keys(files)).toEqual(expect.arrayContaining([
+      'package.json', 'index.html', 'src/App.jsx', 'dist/index.html',
+      'src/components/advertisement.jsx', 'public/js/ad.js', 'ad-injection.json'
+    ]));
+    expect(files['src/App.jsx']).toContain('<Advertisement id="banner1"');
+    expect(files['dist/index.html']).toContain('stale build');
+    expect(files['public/js/ad.js']).toContain('new IntersectionObserver');
+    expect(files['public/js/ad.js']).toContain('function delayLoadBanner');
+    expect(files['public/js/ad.js']).toContain('googletag.destroySlots(previousSlots)');
+    expect(files['public/js/ad.js']).toContain('window.refreshClarivoBanners');
+    expect(files['public/js/ad.js']).toContain('[LazyLoad] 初始化监控:');
+    expect(files['public/js/ad.js']).toContain('进入视口，定义广告位...');
+    expect(files['public/js/ad.js']).toContain('第一次 display()，请求广告...');
+    expect(files['public/js/ad.js']).toContain('display() 完成');
+    expect(files['public/js/ad.js']).toContain('[LazyLoad] 已销毁上一页 Banner 广告位');
+    expect(files['public/js/ad.js']).toContain('[Init] Interstitial 已定义');
+    expect(files['public/js/ad.js']).toContain('[Init] Anchor 已定义');
+    expect(files['public/js/ad.js']).toContain('Analytics ID is empty. Skipping Google Analytics initialization.');
+    expect(files['public/js/ad.js']).not.toContain('data-sitefoundry-runtime-ad');
+    expect(files['public/js/ad.js']).not.toContain('new MutationObserver');
+    expect(batch.results[0]).toMatchObject({ valid: true, exportScope: '已注入广告的完整 React 源码（需要在项目环境构建）' });
+  });
+
+  it('exports only a real React deployment directory and verifies its runtime before packaging', async () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const entries = [
+      { path: 'package.json', text: JSON.stringify({ scripts: { build: 'vite build' }, dependencies: { react: '^19' }, devDependencies: { vite: '^7' } }) },
+      { path: 'dist/index.html', text: '<!doctype html><html><head></head><body><div id="root"></div><script type="module" src="/assets/app.js"></script></body></html>' },
+      { path: 'dist/assets/app.js', text: 'document.getElementById("root")' },
+      { path: 'src/should-not-export.jsx', text: 'source leak sentinel' },
+      { path: 'node_modules/react/index.js', text: 'dependency leak sentinel' }
+    ];
+    // This fixture intentionally includes a source-like stray file. The
+    // classifier only accepts the archive when it has no actual React source
+    // entry; the resulting ZIP must still contain only dist/ deployment bytes.
+    entries.pop();
+    entries.pop();
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    expect(project).toMatchObject({ kind: 'static-html', deploymentRoot: 'dist/', entryPath: 'dist/index.html' });
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    const batch = await context.__restoration.applyAdCodeBatch([{ id: 'built', name: 'zp0903a.example.pro', entries, project }], [code]);
+    const files = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(Object.keys(files)).toEqual(expect.arrayContaining(['index.html', 'assets/app.js', 'js/ad.js', 'ad-injection.json']));
+    expect(Object.keys(files).some((path) => /^(?:src|node_modules)(?:\/|$)|package\.json/.test(path))).toBe(false);
+    expect(files['index.html'].match(/securepubads\.g\.doubleclick\.net/g)).toHaveLength(1);
+    expect(batch.results[0]).toMatchObject({ valid: true, exportScope: '仅部署产物（构建输出目录）' });
+  });
+
+  it('keeps all static-site source files, but blocks a tampered ad path or duplicate deployment DOM id', () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const entries = [
+      { path: 'index.html', text: homeHtml }, { path: 'details/article1.html', text: detailHtml },
+      { path: 'images/cover.jpg', bytes: new Uint8Array([1, 2, 3]) }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    const injected = context.__restoration.injectAdsIntoSiteEntries(entries, config, 'zp0903a.example.pro', context.__restoration.createPolicy());
+    expect(injected.valid).toBe(true);
+    expect(injected.entries.some((entry) => entry.path === 'images/cover.jpg')).toBe(true);
+    const policy = context.__restoration.createPolicy();
+    const manifest = injected.entries.find((entry) => entry.path === 'ad-policy.json');
+    const tampered = JSON.parse(new TextDecoder().decode(manifest.bytes));
+    tampered.adPaths.bannerPath1 = '/wrong/path';
+    manifest.bytes = new TextEncoder().encode(JSON.stringify(tampered));
+    const pathReport = context.__restoration.verifyInjectedOutput(injected.entries, project, config, policy, injected.changedPages);
+    expect(pathReport.valid).toBe(false);
+    expect(pathReport.errors.map((item) => item.code)).toContain('AD_EXPORT_PATH_MISMATCH');
+    manifest.bytes = new TextEncoder().encode(JSON.stringify({ ...tampered, adPaths: config }));
+    const home = injected.entries.find((entry) => entry.path === 'index.html');
+    home.bytes = new TextEncoder().encode(new TextDecoder().decode(home.bytes).replace('</body>', '<div id="div-gpt-ad-banner1"></div></body>'));
+    const duplicateReport = context.__restoration.verifyInjectedOutput(injected.entries, project, config, policy, injected.changedPages);
+    expect(duplicateReport.valid).toBe(false);
+    expect(duplicateReport.errors.map((item) => item.code)).toContain('RESTORE_CONTAINER_COUNT');
   });
 
   it('matches multiple finished sites to advertiser TXT files by domain', () => {

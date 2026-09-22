@@ -107,7 +107,9 @@ body::after {
 
 /* The workflow itself is the page's only top-level command surface. */
 .liquid-command-progress {
-    --step-rail-offset: 18px;
+    --step-rail-trim: 7.2px;
+    --step-rail-double-trim: 14.4px;
+    --step-circle-center-y: 28px;
     width: min(calc(100% - 48px), 1120px);
     min-height: 78px;
     margin-top: clamp(24px, 4vh, 44px);
@@ -150,7 +152,8 @@ body::after {
 /* A segment appears only after its preceding step is complete; future steps do not get a preview rail. */
 .liquid-command-progress > .step-line {
     position: absolute;
-    top: 26px;
+    /* The rail uses the same vertical axis as the numbered circles, not the command surface itself. */
+    top: calc(var(--step-circle-center-y) - 1px);
     z-index: 0;
     min-width: 0;
     max-width: none;
@@ -161,10 +164,11 @@ body::after {
     background: transparent;
     transition: opacity 160ms ease, background 160ms ease;
 }
-.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(1) { left: calc(10% + var(--step-rail-offset)); width: 20%; }
-.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(2) { left: calc(30% + var(--step-rail-offset)); width: 20%; }
-.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(3) { left: calc(50% + var(--step-rail-offset)); width: 20%; }
-.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(4) { left: calc(70% + var(--step-rail-offset)); width: 20%; }
+/* Each segment starts and ends at the actual centers of adjacent flexed steps. */
+.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(1) { left: calc(10% + var(--step-rail-double-trim)); width: calc(20% - var(--step-rail-trim)); }
+.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(2) { left: calc(30% + var(--step-rail-trim)); width: calc(20% - var(--step-rail-trim)); }
+.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(3) { left: 50%; width: calc(20% - var(--step-rail-trim)); }
+.liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(4) { left: calc(70% - var(--step-rail-trim)); width: calc(20% - var(--step-rail-trim)); }
 .game-command-progress > .step-line { left: calc(25% + 9px); width: calc(50% - 18px); }
 .liquid-command-progress .step-item.completed + .step-line {
     opacity: 1;
@@ -443,7 +447,7 @@ body::after {
     position: relative;
     min-height: 42px;
     border: 1px solid #dce5ef !important;
-    border-radius: 14px !important;
+    border-radius: 28px !important;
     background: rgba(255, 255, 255, 0.86) !important;
     color: #56667a !important;
     box-shadow: none !important;
@@ -468,6 +472,12 @@ body::after {
     background: #2379e5 !important;
     transition: opacity 150ms ease, transform 220ms cubic-bezier(.34,1.56,.64,1);
 }
+.btn-prev.jelly-explore-button.jelly-workflow-secondary .jelly-explore-shadow,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary .jelly-explore-shadow {
+    /* Secondary controls sit side-by-side, so their resting shadows must not merge into a dark seam. */
+    opacity: 0;
+    transform: translateY(5px);
+}
 .btn-prev.jelly-explore-button.jelly-workflow-secondary .jelly-explore-blob,
 .btn-reupload.jelly-explore-button.jelly-workflow-secondary .jelly-explore-blob {
     width: 58px;
@@ -488,6 +498,11 @@ body::after {
     color: #fff !important;
     box-shadow: none !important;
     transform: translateY(-1px) scale(1.02) !important;
+}
+.btn-prev.jelly-explore-button.jelly-workflow-secondary.is-jelly-active .jelly-explore-shadow,
+.btn-reupload.jelly-explore-button.jelly-workflow-secondary.is-jelly-active .jelly-explore-shadow {
+    opacity: 0.32;
+    transform: translateY(8px) scale(1.01);
 }
 .btn-prev.jelly-explore-button.jelly-workflow-secondary:not(.is-jelly-active) .jelly-explore-goo,
 .btn-reupload.jelly-explore-button.jelly-workflow-secondary:not(.is-jelly-active) .jelly-explore-goo {
@@ -511,7 +526,7 @@ body::after {
 }
 
 @media (max-width: 640px) {
-    .liquid-command-progress { --step-rail-offset: 8px; width: calc(100% - 24px); margin-top: 18px; padding-inline: 8px; }
+    .liquid-command-progress { --step-rail-trim: 3.2px; --step-rail-double-trim: 6.4px; width: calc(100% - 24px); margin-top: 18px; padding-inline: 8px; }
     .liquid-command-progress .step-item { min-width: 0; }
     .game-command-progress > .step-line { left: calc(25% + 4px); width: calc(50% - 8px); }
     .game-workbench-command { width: calc(100% - 24px); min-height: 126px; margin-top: 18px; }

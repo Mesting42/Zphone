@@ -74,6 +74,27 @@ describe('local domain detection', () => {
     expect(result.evidence).toContain('来源关键词 “科技”');
   });
 
+  it('recognizes historic photographic-process archives as photography instead of falling back to general', () => {
+    const articles = Array.from({ length: 12 }, (_, index) => ({
+      title: index % 3 === 0
+        ? 'The Daguerreotype: The First Permanent Image'
+        : index % 3 === 1
+          ? 'Calotype and Talbotype: Photography from Negative to Positive'
+          : 'The Wet-Plate Collodion Process',
+      category: 'Historical Processes',
+      tags: index % 2 === 0
+        ? ['Daguerreotype', 'Early photography', 'Silver process']
+        : ['Calotype', 'Paper photography', 'Glass negative'],
+      content: 'Early photography used a camera, lens, darkroom, negative and photographic print to make lasting images.'
+    }));
+    const result = DomainEngine.detect(articles, catalog, {
+      fileName: '古典摄影工艺.rar',
+      entryPath: 'HistoricPhotoProcesses_articles.json'
+    });
+    expect(result.id).toBe('photography');
+    expect(result.reliable).toBe(true);
+  });
+
   it('prioritizes medical evidence over an incidental AI reference', () => {
     const result = DomainEngine.detect([
       {
@@ -225,6 +246,204 @@ describe('local domain detection', () => {
     const html = generator.generatePreviewHtml(appState, 'home');
     expect(config.style.logoIcon).toBe('🦊');
     expect(html).toContain('<span class="logo-mark" aria-hidden="true">🦊</span><span>OtakuSignal</span>');
+  });
+
+  it('gives boxed wordmarks a safe header height in every compact template', () => {
+    const appState = {
+      selectedTheme: 'science',
+      data: [{ title: 'Research update', content: 'Preview content', image: 'cover.jpg' }],
+      fieldMapping: { title: 'title', content: 'content', image: 'image' },
+      config: {
+        siteTitle: 'Lab Brief',
+        logoText: 'LabBrief',
+        logoStyle: 'boxed',
+        navbarHeight: '50px',
+        navLinks: ['home'],
+        categories: [{ name: 'Research', icon: '🔬', count: 1 }]
+      },
+      adPlacementMode: null,
+      isLocalImages: false
+    };
+    const preview = generator.generatePreviewHtml(appState, 'home');
+
+    expect(preview).toContain('--navbar-height: 72px;');
+    expect(preview).toMatch(/<nav class="navbar(?: [^"]+)? has-boxed-logo">/);
+    expect(preview).toContain('class="logo logo-boxed">LabBrief</a>');
+    expect(preview).toContain('.navbar.has-boxed-logo .container');
+    expect(preview).toContain('min-height: 42px;');
+    expect(preview).not.toContain('style="border: 2px solid var(--color-primary)');
+  });
+
+  it('honors a fixed one-column layout instead of applying automatic item-count balancing', () => {
+    const appState = {
+      selectedTheme: 'food',
+      data: [
+        { title: 'One', content: 'Preview content', image: 'one.jpg' },
+        { title: 'Two', content: 'Preview content', image: 'two.jpg' },
+        { title: 'Three', content: 'Preview content', image: 'three.jpg' },
+        { title: 'Four', content: 'Preview content', image: 'four.jpg' }
+      ],
+      fieldMapping: { title: 'title', content: 'content', image: 'image' },
+      config: {
+        siteTitle: 'Daily Journal',
+        logoText: 'DailyJournal',
+        cardColumns: '1',
+        cardViewMode: 'list',
+        navLinks: ['home'],
+        categories: [{ name: 'Latest', icon: '📰', count: 3 }]
+      },
+      adPlacementMode: null,
+      isLocalImages: false
+    };
+    const preview = generator.generatePreviewHtml(appState, 'home');
+    const listStyles = preview.slice(preview.indexOf('/* 列表视图模式 */'), preview.indexOf('/* 入场动画 */'));
+
+    expect(preview).toContain('<div class="items-grid item-count-3">');
+    expect(preview).toContain('grid-template-columns: repeat(1, 1fr);');
+    expect(preview).not.toContain('grid-template-columns: repeat(3, minmax(0, 1fr)) !important;');
+    expect(listStyles).toMatch(/\.items-grid\.item-count-1,\s*\.items-grid\.item-count-2,\s*\.items-grid\.item-count-3,\s*\.items-grid\.item-count-4,\s*\.items-grid\.item-count-5,\s*\.items-grid\.item-count-6,\s*\.items-grid\.item-count-7\s*\{\s*grid-template-columns: minmax\(0, 1fr\) !important;/);
+
+    const autoPreview = generator.generatePreviewHtml({
+      ...appState,
+      config: { ...appState.config, cardColumns: 'auto', cardViewMode: 'card' }
+    }, 'home');
+    expect(autoPreview).toContain('grid-template-columns: repeat(3, minmax(0, 1fr)) !important;');
+  });
+
+  it('keeps list templates single-column when a fixed card-column preference is present', () => {
+    const preview = generator.generatePreviewHtml({
+      selectedTheme: 'general',
+      data: [
+        { title: 'One', content: 'A short summary.', image: 'one.jpg' },
+        { title: 'Two', content: 'A much longer summary used to ensure the list card remains a readable horizontal row.', image: 'two.jpg' }
+      ],
+      fieldMapping: { title: 'title', content: 'content', image: 'image' },
+      config: {
+        siteTitle: 'DailyJournal',
+        logoText: 'DailyJournal',
+        cardColumns: '4',
+        cardViewMode: 'list',
+        homeLayout: 'masonry',
+        navLinks: ['home'],
+        categories: [{ name: 'Latest', icon: '📰', count: 2 }]
+      },
+      adPlacementMode: null,
+      isLocalImages: false
+    }, 'home');
+
+    const fixedColumnStyles = preview.slice(preview.indexOf('/* 固定列数时'), preview.indexOf('/* 卡片样式 */'));
+    const listStyles = preview.slice(preview.indexOf('/* 列表视图模式 */'), preview.indexOf('/* 入场动画 */'));
+
+    expect(fixedColumnStyles).toBe('');
+    expect(listStyles).toContain('grid-template-columns: minmax(0, 1fr) !important;');
+    expect(listStyles).toContain('flex-direction: row;');
+    expect(listStyles).toContain('min-width: 240px;');
+  });
+
+  it('keeps six-card categories in a readable three-by-two grid even when a fixed column preference is present', () => {
+    const preview = generator.generatePreviewHtml({
+      selectedTheme: 'photography',
+      data: Array.from({ length: 6 }, (_, index) => ({
+        title: 'Article ' + (index + 1), content: 'Summary ' + (index + 1), image: 'image-' + (index + 1) + '.jpg'
+      })),
+      fieldMapping: { title: 'title', content: 'content', image: 'image' },
+      config: {
+        siteTitle: 'DailySignal',
+        logoText: 'DailySignal',
+        cardColumns: '4',
+        cardViewMode: 'card',
+        homeLayout: 'compact',
+        navLinks: ['home'],
+        categories: [{ name: 'Latest', icon: '📷', count: 6 }]
+      },
+      adPlacementMode: null,
+      isLocalImages: false
+    }, 'home');
+
+    expect(preview).toContain('<div class="items-grid item-count-6">');
+    expect(preview).toContain('/* 分类数量布局不变量：2→2；3→3；4→2+2；5→1+2+2；6→3+3；7→1+2+2+2。');
+    expect(preview).toContain('.items-grid.item-count-6 {\n        display: grid !important;\n        width: 100%;\n        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;');
+    expect(preview).toContain('.items-grid.item-count-2 > .item-card,\n    .items-grid.item-count-3 > .item-card,\n    .items-grid.item-count-4 > .item-card,\n    .items-grid.item-count-5 > .item-card,\n    .items-grid.item-count-6 > .item-card,\n    .items-grid.item-count-7 > .item-card {\n        display: flex !important;\n        flex: none !important;');
+  });
+
+  it('fills a two-card row and keeps its fixed-layout cards equal in height', () => {
+    const appState = {
+      selectedTheme: 'finance',
+      data: [
+        { title: 'One', content: 'Preview content', image: 'one.jpg' },
+        { title: 'Two', content: 'Preview content', image: 'two.jpg' }
+      ],
+      fieldMapping: { title: 'title', content: 'content', image: 'image' },
+      config: {
+        siteTitle: 'ClearLedger',
+        logoText: 'ClearLedger',
+        cardColumns: '3',
+        homeLayout: 'split',
+        gridGap: '20px',
+        navLinks: ['home'],
+        categories: [{ name: 'Latest', icon: '🧭', count: 2 }]
+      },
+      adPlacementMode: null,
+      isLocalImages: false
+    };
+    const preview = generator.generatePreviewHtml(appState, 'home');
+
+    expect(preview).toContain('grid-template-columns: repeat(3, 1fr);');
+    expect(preview).toContain('display: flex;\n        flex-wrap: wrap;\n        justify-content: center;');
+    expect(preview).toContain('flex: 0 0 calc((100% - 40px) / 3);');
+    expect(preview).toContain('align-items: stretch;');
+    expect(preview).toContain('height: auto;\n        align-self: stretch;');
+    expect(preview).toContain('/* 分类数量布局不变量：2→2；3→3；4→2+2；5→1+2+2；6→3+3；7→1+2+2+2。');
+    expect(preview).toContain('grid-template-columns: repeat(2, minmax(0, 1fr)) !important;');
+    expect(preview).toContain('max-width: none !important;');
+    expect(preview).not.toContain('.main-content.layout-split .category-section:nth-child(even) .items-grid {');
+  });
+
+  it('enforces the two-through-seven card grid invariants across every domain card template', () => {
+    const failures = [];
+
+    templates.forEach((template) => {
+      if (template.structure.cardViewMode === 'list') return;
+      [2, 3, 4, 5, 6, 7].forEach((count) => {
+        const data = Array.from({ length: count }, (_, index) => ({
+          title: index === 0 ? 'Short title' : 'A much longer title that wraps onto another line',
+          content: index === 0 ? 'Short summary.' : 'A longer summary that deliberately occupies more lines than its neighbor so unequal card heights are detectable.',
+          image: 'image-' + index + '.jpg'
+        }));
+        const preview = generator.generatePreviewHtml({
+          selectedTheme: template.domainId,
+          data,
+          fieldMapping: { title: 'title', content: 'content', excerpt: 'content', image: 'image' },
+          config: {
+            ...template.structure,
+            ...template.style,
+            ...template.brand,
+            templateId: template.id,
+            categories: [{ name: 'First category', icon: '🧪', count }]
+          },
+          adPlacementMode: null,
+          isLocalImages: false
+        }, 'home');
+
+        const checks = [
+          '<div class="items-grid item-count-' + count + '">',
+          '/* 分类数量布局不变量：2→2；3→3；4→2+2；5→1+2+2；6→3+3；7→1+2+2+2。',
+          'grid-template-columns: repeat(' + ({ 2: 2, 3: 3, 4: 2, 5: 2, 6: 3, 7: 2 }[count]) + ', minmax(0, 1fr)) !important;',
+          'align-items: stretch !important;',
+          'width: auto !important;',
+          'max-width: none !important;',
+          'height: auto !important;',
+          'align-self: stretch !important;'
+        ];
+        if (count === 5 || count === 7) {
+          checks.push('.items-grid.item-count-' + count + ' > .item-card:first-child {\n        grid-column: 1 / -1;');
+        }
+        const missing = checks.filter((fragment) => !preview.includes(fragment));
+        if (missing.length) failures.push({ template: template.id, count, missing });
+      });
+    });
+
+    expect(failures).toEqual([]);
   });
 
   it('keeps every news header variant navigable and renders a visible gradient Logo', () => {

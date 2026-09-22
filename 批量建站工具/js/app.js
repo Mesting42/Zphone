@@ -1,4 +1,6 @@
 import './differentiated-builder.js?v=20260915-industrial-catalog-1';
+import { injectReactSource } from './react-source-ad-injector.js';
+import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection-preview-router.js';
 
 /**
  * 主应用逻辑
@@ -42,6 +44,11 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         adInjectionArchiveFiles: [],
         adInjectionCodeFiles: [],
         adInjectionCodes: [],
+        adInjectionAllowPartial: false,
+        adInjectionPolicy: null,
+        adInjectionPreviewSiteId: '',
+        adInjectionPreviewEntryPath: '',
+        adInjectionPlacementMode: null,
         batchAdBuild: { sites: [], codes: [], activeSiteIndex: 0 },
         differentiated: {
             siteType: 'editorial', vertical: '', audience: '', scope: '', baseUrl: '',
@@ -82,6 +89,15 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     }
     function updateWorkflowActionContext(step) {
         if (!workflowActionMessage) return;
+        if (isAdInjectionWorkflow()) {
+            var injectionMessages = {
+                1: '下一步：配置网站与广告位',
+                4: '下一步：导出加广告后的新副本',
+                5: '当前步骤：导出网站新副本'
+            };
+            workflowActionMessage.textContent = injectionMessages[step] || '成品站加广告';
+            return;
+        }
         var messages = {
             1: '下一步：识别领域',
             2: '下一步：字段匹配',
@@ -90,6 +106,69 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             5: '当前步骤：导出网站'
         };
         workflowActionMessage.textContent = messages[step] || '流程操作';
+    }
+
+    function isAdInjectionWorkflow() {
+        return appState.siteBuildMode === 'ad-injection';
+    }
+
+    function injectionWorkflowSteps() {
+        return [1, 4, 5];
+    }
+
+    function injectionWorkflowPosition(step) {
+        return injectionWorkflowSteps().indexOf(step) + 1;
+    }
+
+    function nextWorkflowStep() {
+        if (!isAdInjectionWorkflow()) return appState.currentStep < 5 ? appState.currentStep + 1 : 0;
+        var steps = injectionWorkflowSteps();
+        var position = steps.indexOf(appState.currentStep);
+        // The finished-site workflow deliberately skips domain detection and
+        // field mapping. If stale UI state ever reports an unknown step, route
+        // forward to configuration instead of silently yielding undefined.
+        if (position < 0) return appState.currentStep < 4 ? 4 : appState.currentStep < 5 ? 5 : 0;
+        return steps[position + 1] || 0;
+    }
+
+    function previousWorkflowStep() {
+        if (!isAdInjectionWorkflow()) return appState.currentStep > 1 ? appState.currentStep - 1 : 0;
+        var steps = injectionWorkflowSteps();
+        var position = steps.indexOf(appState.currentStep);
+        return position > 0 ? steps[position - 1] : 0;
+    }
+
+    function syncWorkflowNavigation() {
+        var injection = isAdInjectionWorkflow();
+        var step = appState.currentStep;
+        var visualPosition = injection ? injectionWorkflowPosition(step) : step;
+        btnPrev.style.display = visualPosition > 1 ? 'inline-block' : 'none';
+        if (btnReupload) {
+            var canReupload = injection ? (appState.adInjectionSites || []).length > 0 : appState.data && appState.data.length;
+            btnReupload.hidden = !(step === 1 && canReupload);
+        }
+        updateNextButtonLabel(injection ? (step === 1 ? '进入配置网站 →' : step === 4 ? '进入导出 →' : '完成') : (step === 5 ? '完成' : '下一步 →'));
+        btnNext.style.display = step === 5 ? 'none' : 'inline-block';
+        btnNext.dataset.nextStep = String(nextWorkflowStep() || '');
+        updateWorkflowActionContext(step);
+    }
+
+    function syncInjectionWorkflowChrome() {
+        var active = isAdInjectionWorkflow();
+        var labels = active
+            ? ['上传过审网站', '配置网站', '导出新副本']
+            : ['上传数据', '识别领域', '字段匹配', '配置网站', '导出网站'];
+        stepItems.forEach(function(item, index) {
+            var visible = !active || index < 3;
+            item.hidden = !visible;
+            if (visible) {
+                var step = active ? injectionWorkflowSteps()[index] : index + 1;
+                item.dataset.step = String(step);
+                var label = item.querySelector('.step-label');
+                if (label) label.textContent = labels[index];
+            }
+        });
+        stepLines.forEach(function(line, index) { line.hidden = active && index >= 2; });
     }
     var uploadArea = document.getElementById('upload-area');
     var fileInput = document.getElementById('file-input');
@@ -183,7 +262,8 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         var isRestoration = appState.siteBuildMode === 'ad-restoration';
         var isInjection = appState.siteBuildMode === 'ad-injection';
         var isBatchAdBuild = appState.siteBuildMode === 'batch-ad-build';
-        var isStandaloneTool = isRestoration || isInjection;
+        var isStandaloneTool = isRestoration;
+        syncInjectionWorkflowChrome();
         document.querySelectorAll('[data-build-mode]').forEach(function(button) {
             var selected = button.dataset.buildMode === appState.siteBuildMode;
             button.classList.toggle('is-selected', selected);
@@ -199,40 +279,49 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         if (injectionSection) injectionSection.hidden = !isInjection;
         var batchSection = document.getElementById('batch-ad-setup');
         if (batchSection) batchSection.hidden = !isBatchAdBuild;
-        if (uploadArea) uploadArea.hidden = isStandaloneTool || isBatchAdBuild;
-        if (dataOverview) dataOverview.hidden = isStandaloneTool || isBatchAdBuild;
+        if (uploadArea) uploadArea.hidden = isStandaloneTool || isInjection || isBatchAdBuild;
+        if (dataOverview) dataOverview.hidden = isStandaloneTool || isInjection || isBatchAdBuild;
         var stepProgress = document.querySelector('.step-progress');
         if (stepProgress) stepProgress.hidden = isStandaloneTool;
         if (btnNext && appState.currentStep === 1) btnNext.style.display = isStandaloneTool ? 'none' : 'inline-block';
         if (btnReupload) {
-            var hasUploadForMode = isBatchAdBuild ? (appState.batchAdBuild.sites || []).length > 0 : !!(appState.data && appState.data.length);
+            var hasUploadForMode = isInjection
+                ? (appState.adInjectionSites || []).length > 0
+                : isBatchAdBuild ? (appState.batchAdBuild.sites || []).length > 0 : !!(appState.data && appState.data.length);
             btnReupload.hidden = isStandaloneTool || appState.currentStep !== 1 || !hasUploadForMode;
         }
-        var standardConfigPanel = document.querySelector('#step-4 .config-panel');
-        if (standardConfigPanel) standardConfigPanel.hidden = isDifferentiated;
+        var standardConfigPanel = document.querySelector('#step-4 .config-panel:not(.ad-injection-config-panel)');
+        if (standardConfigPanel) standardConfigPanel.hidden = isDifferentiated || isInjection;
+        var injectionConfigPanel = document.getElementById('ad-injection-config-panel');
+        if (injectionConfigPanel) injectionConfigPanel.hidden = !isInjection;
         var differentiatedCustomizer = document.getElementById('differentiated-customizer');
         if (differentiatedCustomizer) differentiatedCustomizer.hidden = !isDifferentiated;
         // 广告代码模式在模板配置后可用；旧站移植仍只接受完整旧站源码压缩包。
         var adsTab = document.querySelector('.config-tab[data-tab="ads"]');
         var adsSection = document.getElementById('tab-ads');
-        if (adsTab) adsTab.hidden = isMigration;
-        if (adsSection) adsSection.hidden = isMigration;
-        if (adsSection) adsSection.querySelectorAll(':scope > .config-group').forEach(function(group) { group.hidden = isBatchAdBuild; });
+        if (adsTab) adsTab.hidden = isMigration || isInjection;
+        if (adsSection) adsSection.hidden = isMigration || isInjection;
+        if (adsSection) adsSection.querySelectorAll(':scope > .config-group').forEach(function(group) { group.hidden = isBatchAdBuild || isInjection; });
         var batchCodeWorkspace = document.getElementById('batch-ad-code-workspace');
         if (batchCodeWorkspace) batchCodeWorkspace.hidden = !isBatchAdBuild;
         var legacyExport = document.getElementById('legacy-export-options');
         var differentiatedExport = document.getElementById('differentiated-export-options');
         var defaultExportButton = document.getElementById('btn-export');
-        if (legacyExport) legacyExport.hidden = isDifferentiated || isBatchAdBuild;
+        var injectionExport = document.getElementById('ad-injection-export-options');
+        if (legacyExport) legacyExport.hidden = isDifferentiated || isBatchAdBuild || isInjection;
         if (differentiatedExport) differentiatedExport.hidden = !isDifferentiated;
-        if (defaultExportButton) defaultExportButton.hidden = isDifferentiated;
+        if (defaultExportButton) defaultExportButton.hidden = isDifferentiated || isInjection;
+        if (injectionExport) injectionExport.hidden = !isInjection;
         var uploadHint = document.getElementById('upload-hint');
         if (uploadHint) uploadHint.textContent = isDifferentiated
             ? '推荐上传规范 ZIP（manifest + content + assets + provenance）；也支持单个 JSON 草稿'
             : '支持 .json 文件 或压缩包（.zip/.rar/.7z，含JSON+图片）';
         if (isMigration) renderMigrationResult();
         if (isRestoration) updateAdRestorationControls();
-        if (isInjection) updateAdInjectionControls();
+        if (isInjection) {
+            updateAdInjectionControls();
+            renderAdInjectionConfig();
+        }
         if (isBatchAdBuild) {
             renderBatchDataList();
             renderBatchAdCodeWorkspace();
@@ -241,6 +330,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             renderDifferentiatedPackageStatus();
             populateDifferentiatedDesigns();
         }
+        // Switching workflow cards happens without changing the numeric step.
+        // Keep the sticky action dock in sync immediately; otherwise it still
+        // advertises and may attempt the normal 1 → 2 route.
+        syncWorkflowNavigation();
     }
 
     function selectBuildMode(mode) {
@@ -315,7 +408,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         'detail-between-p-1': '第 1 段之后',
         'detail-between-p-2': '第 2 段之后',
         'detail-between-p-3': '第 3 段之后',
-        'detail-after-content': '正文之后',
+        'detail-after-content': '正文中部',
         'detail-before-related': '相关推荐之前',
         'detail-after-related': '相关推荐之后',
         'footer-top': '页脚上方'
@@ -767,6 +860,40 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         return match;
     }
 
+    var AD_INJECTION_FIELDS = [
+        ['bannerPath1', 'Banner 1'], ['bannerPath2', 'Banner 2'], ['bannerPath3', 'Banner 3'],
+        ['interstitialPath', 'Interstitial（INT）'], ['anchorPath', 'Anchor（ANC）'], ['analyticsID', 'Google Analytics']
+    ];
+
+    function isAdPathValue(value) { return /^\/[A-Za-z0-9_./-]+$/.test(String(value || '')); }
+    function isGaValue(value) { return /^G-[A-Z0-9]+$/i.test(String(value || '')); }
+
+    function refreshAdInjectionCodeValidity(code) {
+        if (!code) return;
+        var config = code.config || {};
+        var missing = ['bannerPath1', 'bannerPath2', 'bannerPath3'].filter(function(key) { return !isAdPathValue(config[key]); });
+        code.errors = (code.errors || []).filter(function(error) { return error.code !== 'AD_CODE_SLOT_MISSING' && error.code !== 'AD_CODE_MANUAL_INVALID'; });
+        if (missing.length && !appState.adInjectionAllowPartial) code.errors.push({ code: 'AD_CODE_SLOT_MISSING', message: '广告代码中未识别到 ' + missing.join('、') + '。' });
+        if (config.analyticsID && !isGaValue(config.analyticsID)) code.errors.push({ code: 'AD_CODE_MANUAL_INVALID', message: 'GA Measurement ID 必须以 G- 开头，不能填写 GAM 广告路径。' });
+        var primaryPath = config.bannerPath1 || config.bannerPath2 || config.bannerPath3 || '';
+        var hostMatch = String(primaryPath).match(/\/([^/]+)-(?:banner[123]|int|anc)$/i);
+        if (hostMatch) code.detectedHost = hostMatch[1].toLowerCase();
+        code.valid = code.errors.length === 0 || (appState.adInjectionAllowPartial && Object.keys(config).some(function(key) { return /^bannerPath[123]$/.test(key) && isAdPathValue(config[key]); }));
+        code.allowPartial = appState.adInjectionAllowPartial;
+    }
+
+    function renderAdInjectionFields() {
+        var container = document.getElementById('injection-fields');
+        if (!container) return;
+        var code = (appState.adInjectionCodes || [])[0];
+        if (!code) { container.innerHTML = '<p class="group-hint">上传或粘贴广告代码后，将在这里确认并手动修正六个字段。</p>'; return; }
+        var config = code.config || {};
+        container.innerHTML = '<h4 class="group-title">确认广告单元</h4><p class="group-hint">红色字段尚未识别。GAM 路径与 GA 衡量 ID 分开校验，修改后即时生效。</p>' + AD_INJECTION_FIELDS.map(function(item) {
+            var key = item[0], value = config[key] || '', valid = key === 'analyticsID' ? (!value || isGaValue(value)) : isAdPathValue(value);
+            return '<label class="injection-field ' + (valid ? '' : 'is-missing') + '"><span>' + item[1] + '</span><input data-injection-config-key="' + key + '" value="' + escapeHtml(value) + '" placeholder="' + (key === 'analyticsID' ? 'G-XXXXXXXXXX' : '/123456/example-' + item[1].replace(/[^A-Za-z0-9]/g, '').toLowerCase()) + '"></label>';
+        }).join('');
+    }
+
     function updateAdInjectionControls() {
         var sites = appState.adInjectionSites || [];
         var codes = appState.adInjectionCodes || [];
@@ -791,6 +918,711 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         if (runButton) runButton.disabled = adInjectionRunning || match.validCount === 0;
     }
 
+    function adInjectionPlacementLabel(position) {
+        var labels = {
+            off: '不放置', 'after-navbar': '导航栏后', 'after-hero': '首屏后', 'content-top': '内容顶部',
+            'after-section-0': '第 1 个区块后', 'after-section-1': '第 2 个区块后', 'after-section-2': '第 3 个区块后',
+            'content-bottom': '内容底部', 'footer-top': '页脚前', 'detail-before-content': '详情正文前',
+            'detail-between-p-1': '详情第 1 段后', 'detail-between-p-2': '详情第 2 段后', 'detail-between-p-3': '详情第 3 段后',
+            'detail-after-content': '详情内容中部', 'detail-before-related': '相关推荐前', 'detail-after-related': '相关推荐后'
+        };
+        if (/^custom-after-(?:\d+)(?:-\d+)*$/.test(String(position || ''))) return '自定义内容位置';
+        return labels[position] || position;
+    }
+
+    function getAdInjectionPolicy() {
+        if (!appState.adInjectionPolicy && typeof AdRestoration !== 'undefined') appState.adInjectionPolicy = AdRestoration.createPolicy();
+        return appState.adInjectionPolicy || { slots: { home: [], detail: [] } };
+    }
+
+    function entryTextForPreview(entry) {
+        if (!entry) return '';
+        if (typeof entry.text === 'string') return entry.text;
+        if (typeof entry.content === 'string') return entry.content;
+        if (entry.bytes) return new TextDecoder('utf-8').decode(entry.bytes);
+        return '';
+    }
+
+    function clearAdInjectionPreviewUrls() {
+        (appState._previewBlobUrls || []).forEach(function(url) { URL.revokeObjectURL(url); });
+        appState._previewBlobUrls = [];
+    }
+
+    function adInjectionPreviewDataUrl(value, mime) {
+        var bytes = typeof value === 'string'
+            ? new TextEncoder().encode(value)
+            : value instanceof Uint8Array ? value : new Uint8Array(value || []);
+        var binary = '';
+        for (var offset = 0; offset < bytes.length; offset += 32768) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(offset, Math.min(offset + 32768, bytes.length)));
+        }
+        return 'data:' + mime + ';base64,' + btoa(binary);
+    }
+
+    function normalizeAdInjectionPreviewPath(value) {
+        var parts = String(value || '').replace(/\\/g, '/').split('/');
+        var normalized = [];
+        parts.forEach(function(part) {
+            if (!part || part === '.') return;
+            if (part === '..') normalized.pop();
+            else normalized.push(part);
+        });
+        return normalized.join('/');
+    }
+
+    function adInjectionPreviewMime(path) {
+        var extension = String(path || '').toLowerCase().split('.').pop();
+        return {
+            css: 'text/css', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif',
+            ico: 'image/x-icon', avif: 'image/avif', woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf', mp4: 'video/mp4', webm: 'video/webm',
+            js: 'text/javascript', mjs: 'text/javascript', cjs: 'text/javascript'
+        }[extension] || 'application/octet-stream';
+    }
+
+    function adInjectionPreviewRoot(entryPath) {
+        var path = normalizeAdInjectionPreviewPath(entryPath);
+        var match = path.match(/^(.*?(?:dist|build|out|output|export|www|_site|public|\.output\/public|\.vercel\/output\/static)\/(?:client\/)?)index\.html?$/i);
+        return match ? match[1] : path.replace(/[^/]+$/, '');
+    }
+
+    function findAdInjectionPreviewEntry(site, pageType) {
+        var entries = (site && site.entries || []).filter(function(entry) { return /\.html?$/i.test(entry.path || ''); });
+        if (!entries.length) return null;
+        var project = site.project || {};
+        var preferredPath = normalizeAdInjectionPreviewPath(project.previewEntryPath || project.entryPath || '');
+        var preferred = entries.find(function(entry) { return normalizeAdInjectionPreviewPath(entry.path).toLowerCase() === preferredPath.toLowerCase(); });
+        if (!pageType || pageType === 'home') return preferred || entries.find(function(entry) { return /(?:^|\/)index\.html?$/i.test(entry.path || ''); }) || entries[0];
+        var namedPage = entries.filter(function(entry) {
+            var path = normalizeAdInjectionPreviewPath(entry.path).toLowerCase();
+            if (pageType === 'detail') return /\/(?:details?|articles?|blog|tools)\/[^/]+\/index\.html?$/.test('/' + path) || /\/(?:detail|article)[^/]*\.html?$/.test('/' + path);
+            return new RegExp('/' + pageType + '(?:/index)?\\.html?$').test('/' + path);
+        }).sort(function(a, b) { return String(a.path).split('/').length - String(b.path).split('/').length; })[0];
+        return namedPage || preferred || entries[0];
+    }
+
+    function resolveAdInjectionPreviewAsset(reference, fromPath, root, entryByPath) {
+        var raw = String(reference || '').trim();
+        if (!raw || /^(?:[a-z]+:|#|\/\/)/i.test(raw)) return '';
+        try { raw = decodeURIComponent(raw); } catch (error) {}
+        raw = raw.split(/[?#]/)[0];
+        var candidate = raw.charAt(0) === '/'
+            ? normalizeAdInjectionPreviewPath(root + raw.slice(1))
+            : normalizeAdInjectionPreviewPath(fromPath.replace(/[^/]+$/, '') + raw);
+        if (entryByPath[candidate.toLowerCase()]) return candidate;
+        var bare = normalizeAdInjectionPreviewPath(raw.replace(/^\/+/, '')).toLowerCase();
+        if (entryByPath[bare]) return bare;
+        var paths = Object.keys(entryByPath).filter(function(path) { return path.endsWith('/' + bare); });
+        return paths.length === 1 ? entryByPath[paths[0]].path : '';
+    }
+
+    function rewriteAdInjectionPreviewCss(css, fromPath, root, entryByPath, assetUrls) {
+        return String(css || '').replace(/url\(\s*(['"]?)([^)'"\s]+)\1\s*\)/gi, function(match, quote, reference) {
+            var resolved = resolveAdInjectionPreviewAsset(reference, fromPath, root, entryByPath);
+            return resolved && assetUrls[resolved.toLowerCase()] ? 'url("' + assetUrls[resolved.toLowerCase()] + '")' : match;
+        });
+    }
+
+    function adInjectionPreviewModuleId(path) {
+        return 'sitefoundry-module:' + normalizeAdInjectionPreviewPath(path);
+    }
+
+    function rewriteAdInjectionPreviewModule(source, fromPath, root, entryByPath, assetUrls) {
+        // Preload hints are an optimization, not an execution dependency. Vite's
+        // generated helper resolves them relative to import.meta.url, which has no
+        // directory when the preview module is a data URL, so omit only that hint
+        // list and keep the actual dynamic import below intact.
+        var rewritten = String(source || '').replace(/__vite__mapDeps\(\[[^\]]*\]\)/g, '[]').replace(/(\b(?:from|import)\s*(?:\(\s*)?)(['"])([^'"]+)\2/g, function(match, prefix, quote, reference) {
+            var resolved = resolveAdInjectionPreviewAsset(reference, fromPath, root, entryByPath);
+            if (!resolved) return match;
+            if (/\.(?:[cm]?js|jsx|tsx)$/i.test(resolved)) return prefix + quote + adInjectionPreviewModuleId(resolved) + quote;
+            return assetUrls[resolved.toLowerCase()] ? prefix + quote + assetUrls[resolved.toLowerCase()] + quote : match;
+        });
+        // Vite records lazy-route dependencies as plain strings and later feeds
+        // them to new URL(..., import.meta.url). A data: module has no
+        // hierarchical base, so give those local dependencies stable import-map
+        // identifiers before the uploaded bundle executes.
+        rewritten = rewritten.replace(/(['"])((?:\.?\.?\/|\/)?assets\/[^'"]+\.(?:[cm]?js|css|wasm))\1/g, function(match, quote, reference) {
+            var resolved = resolveAdInjectionPreviewAsset(reference, fromPath, root, entryByPath);
+            if (!resolved) return match;
+            if (/\.(?:[cm]?js)$/i.test(resolved)) return quote + adInjectionPreviewModuleId(resolved) + quote;
+            return assetUrls[resolved.toLowerCase()] ? quote + assetUrls[resolved.toLowerCase()] + quote : match;
+        });
+        return rewritten.replace(/new\s+URL\(\s*(['"])([^'"]+)\1\s*,\s*import\.meta\.url\s*\)/g, function(match, quote, reference) {
+            var resolved = resolveAdInjectionPreviewAsset(reference, fromPath, root, entryByPath);
+            return resolved && assetUrls[resolved.toLowerCase()] ? 'new URL(' + JSON.stringify(assetUrls[resolved.toLowerCase()]) + ')' : match;
+        });
+    }
+
+    function isAdInjectionPreviewSourceShell(site, entry) {
+        if (!site || !entry || !site.project || site.project.kind !== 'react-source') return false;
+        var path = normalizeAdInjectionPreviewPath(entry.path);
+        if (/(?:^|\/)(?:dist|build|out|output|export|www|_site|public|\.output\/public|\.vercel\/output\/static)\/(?:client\/)?index\.html?$/i.test(path)) return false;
+        var html = entryTextForPreview(entry);
+        return /<script\b[^>]*\bsrc\s*=\s*["'][^"']*(?:\/src\/|\.(?:jsx|tsx)(?:[?#"']|$))/i.test(html) || /<div\b[^>]*\bid\s*=\s*["']root["'][^>]*>\s*<\/div>/i.test(html);
+    }
+
+    function shouldExecuteAdInjectionPreviewScripts(site, entry) {
+        var project = site && site.project || {};
+        var isFrameworkBuild = project.kind === 'react-source' || /React|TanStack|Next\.js|Gatsby/i.test(project.framework || '');
+        if (!isFrameworkBuild) return true;
+        var parsed = new DOMParser().parseFromString(entryTextForPreview(entry), 'text/html');
+        var content = parsed.querySelector('main, article, [role="main"]') || parsed.body;
+        var text = String(content && content.textContent || '').replace(/\s+/g, ' ').trim();
+        // A prerendered/SSR framework export already contains the exact page the
+        // user selected. Re-hydrating it inside srcdoc gives the app the parent
+        // tool's URL and can replace that page with a 404. Preserve the complete
+        // server-rendered document; execute framework JS only for an actual SPA
+        // shell that needs JavaScript to create its content.
+        return text.length < 120;
+    }
+
+    function adInjectionPreviewPage(pageType) {
+        return pageType === 'detail' ? 'detail' : 'home';
+    }
+
+    function adInjectionPolicyPlacement(unit, page) {
+        var slot = (getAdInjectionPolicy().slots[page] || []).find(function(item) { return item && item.unit === unit; });
+        return slot ? slot.position : '';
+    }
+
+    function setAdInjectionPolicyPlacement(unit, page, position) {
+        var index = Number(String(unit || '').replace('banner', '')) - 1;
+        var policy = getAdInjectionPolicy();
+        if (!policy.slots[page] || index < 0 || index > 2) return;
+        policy.slots[page][index] = position
+            ? { position: position, unit: unit }
+            : { position: 'off', unit: 'off' };
+        appState.adInjectionPolicy = AdRestoration.normalizePolicy(policy);
+    }
+
+    function adInjectionOccupiedPositions(page, ignoredUnit) {
+        var occupied = {};
+        (getAdInjectionPolicy().slots[page] || []).forEach(function(slot) {
+            if (slot && slot.unit === ignoredUnit) return;
+            if (slot && slot.unit !== 'off' && slot.position !== 'off') occupied[slot.position] = true;
+        });
+        return occupied;
+    }
+
+    function adInjectionMeaningfulChildren(target) {
+        return target ? Array.from(target.children || []).filter(function(child) {
+            var tag = String(child.tagName || '').toLowerCase();
+            if (['script', 'style', 'template', 'header', 'nav', 'footer', 'aside'].indexOf(tag) !== -1) return false;
+            return !child.matches('[data-sitefoundry-preview-ad], .sitefoundry-injection-marker, .related-section, [class*="related"]');
+        }) : [];
+    }
+
+    function adInjectionDetailContentTarget(doc, main) {
+        var target = doc.querySelector('.detail-content, .article-content, [class*="article-content"], article') || main;
+        // Only unwrap layout containers. Searching for the descendant with the
+        // most children can mistake an FAQ or card grid for the whole article.
+        for (var depth = 0; target && depth < 8; depth++) {
+            var children = adInjectionMeaningfulChildren(target);
+            if (children.length !== 1 || !/^(?:main|article|div|section)$/i.test(children[0].tagName || '')) break;
+            target = children[0];
+        }
+        return target || main;
+    }
+
+    function insertAdInjectionContentMiddle(target, node) {
+        if (!target || !node) return;
+        var children = adInjectionMeaningfulChildren(target);
+        if (!children.length) {
+            target.appendChild(node);
+            return;
+        }
+        var anchor = children[Math.max(0, Math.ceil(children.length / 2) - 1)];
+        anchor.parentNode.insertBefore(node, anchor.nextSibling);
+    }
+
+    function adInjectionCustomPath(position) {
+        var match = String(position || '').match(/^custom-after-((?:\d+)(?:-\d+)*)$/);
+        return match ? match[1].split('-').map(Number) : null;
+    }
+
+    function adInjectionResolveCustomTarget(root, position) {
+        var path = adInjectionCustomPath(position);
+        var target = root;
+        if (!path || !target) return null;
+        for (var index = 0; index < path.length; index++) {
+            var children = adInjectionMeaningfulChildren(target);
+            if (!children.length) return target;
+            target = children[Math.min(path[index], children.length - 1)];
+        }
+        return target;
+    }
+
+    function collectAdInjectionCustomPlacements(root) {
+        var placements = [];
+        var maxDepth = 9;
+        // A finished site can nest article sections, card grids and rich text
+        // several levels deep.  Keep a generous catalogue so a visual gap late
+        // in the page is never lost merely because the hero had many elements.
+        var maxPlacements = 2400;
+        var excludedTags = ['script', 'style', 'template', 'header', 'nav', 'footer', 'aside', 'svg', 'path', 'button', 'input', 'select', 'textarea', 'label', 'option', 'video', 'audio', 'canvas'];
+        var layoutTags = ['main', 'article', 'section', 'div', 'ul', 'ol', 'table', 'tbody', 'thead', 'tfoot', 'figure', 'details', 'fieldset', 'blockquote', 'dl'];
+        // Visit broad page structure first.  A deep hero must not consume the
+        // entire placement budget before a later tool/article grid is reached.
+        var queue = [{ container: root, path: [], depth: 0 }];
+        while (queue.length && placements.length < maxPlacements) {
+            var current = queue.shift();
+            var container = current.container;
+            var path = current.path;
+            var depth = current.depth;
+            if (!container || depth > maxDepth) continue;
+            var children = adInjectionMeaningfulChildren(container);
+            if (children.length > 1) {
+                // Keep structural endpoints.  The interactive overlay below
+                // merges cards sharing a grid row into one horizontal gap.
+                for (var index = 0; index < children.length; index++) {
+                    var child = children[index];
+                    placements.push({
+                        target: child,
+                        next: children[index + 1] || null,
+                        position: 'custom-after-' + path.concat(index).join('-'),
+                        label: '自定义位置 · 放在此处'
+                    });
+                    if (placements.length >= maxPlacements) break;
+                }
+            }
+            children.forEach(function(child, index) {
+                var tag = String(child.tagName || '').toLowerCase();
+                if (excludedTags.indexOf(tag) !== -1 || child.matches('.related-section, [class*="related"], [id*="related"]')) return;
+                if (layoutTags.indexOf(tag) === -1) return;
+                if (!adInjectionMeaningfulChildren(child).length) return;
+                queue.push({ container: child, path: path.concat(index), depth: depth + 1 });
+            });
+        }
+        return placements;
+    }
+
+    function mountAdInjectionPlacementOverlay(doc, page, candidates) {
+        var ids = new Map();
+        var nextId = 0;
+        function idFor(element) {
+            if (!element) return '';
+            if (!ids.has(element)) {
+                nextId += 1;
+                ids.set(element, String(nextId));
+                element.setAttribute('data-sitefoundry-placement-anchor', String(nextId));
+            }
+            return ids.get(element);
+        }
+        var descriptors = candidates.map(function(candidate) {
+            return {
+                position: candidate.position,
+                label: candidate.label,
+                kind: candidate.kind || 'custom',
+                relation: candidate.relation || 'after',
+                anchor: idFor(candidate.target),
+                next: idFor(candidate.next)
+            };
+        }).filter(function(candidate) { return candidate.anchor; });
+        if (!descriptors.length) return;
+
+        var script = doc.createElement('script');
+        script.type = 'module';
+        // The button is deliberately created only for the gap under the pointer.
+        // Unlike the prototype's in-flow dashed bars, this overlay never becomes
+        // part of the uploaded page's layout and therefore cannot move its cards.
+        script.textContent = `(function(){
+            var candidates=${JSON.stringify(descriptors)},page=${JSON.stringify(page)};
+            var overlay,customButton,active,geometries=[],commonButtons=[];
+            function byId(id){return id?document.querySelector('[data-sitefoundry-placement-anchor="'+id+'"]'):null;}
+            function relevantNext(candidate,anchor){var next=byId(candidate.next);if(next)return next;return candidate.relation==='before'?anchor.previousElementSibling:anchor.nextElementSibling;}
+            function rowBounds(anchor,rect){var parent=anchor.parentElement;if(!parent)return{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom};var row=Array.prototype.filter.call(parent.children,function(node){var r=node.getBoundingClientRect();return r.width>1&&r.height>1&&Math.abs(r.top-rect.top)<4;});return row.reduce(function(bounds,node){var r=node.getBoundingClientRect();return{left:Math.min(bounds.left,r.left),right:Math.max(bounds.right,r.right),top:Math.min(bounds.top,r.top),bottom:Math.max(bounds.bottom,r.bottom)};},{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom});}
+            function geometry(candidate,anchor){var rect=anchor.getBoundingClientRect(),near=relevantNext(candidate,anchor),nearRect=near&&near.getBoundingClientRect(),bounds=rowBounds(anchor,rect),top,bottom;if(rect.width<1||rect.height<1)return null;if(candidate.relation==='before'){bottom=bounds.top;top=nearRect&&nearRect.bottom<bottom-2?nearRect.bottom:bottom-18;}else{top=bounds.bottom;if(nearRect&&Math.abs(nearRect.top-bounds.top)<4)return null;bottom=nearRect&&nearRect.top>top+2?nearRect.top:top+18;}if(bottom-top<3)return null;return{left:Math.max(6,bounds.left),right:Math.min(window.innerWidth-6,bounds.right),y:(top+bottom)/2,top:top,bottom:bottom};}
+            function rebuild(){geometries=[];candidates.forEach(function(candidate){var anchor=byId(candidate.anchor),gap=anchor&&geometry(candidate,anchor);if(gap)geometries.push({candidate:candidate,gap:gap});});}
+            function overlapsCommon(gap){return geometries.some(function(entry){if(entry.candidate.kind!=='common')return false;var common=entry.gap;return gap.right>common.left-10&&gap.left<common.right+10&&gap.bottom>common.top-18&&gap.top<common.bottom+18;});}
+            function candidateAt(event){var x=event.clientX,y=event.clientY,best=null;geometries.forEach(function(entry){if(entry.candidate.kind!=='custom'||overlapsCommon(entry.gap))return;var gap=entry.gap;if(x<gap.left-10||x>gap.right+10||y<gap.top-16||y>gap.bottom+16)return;var distance=Math.abs(y-gap.y);if(!best||distance<best.distance)best={candidate:entry.candidate,gap:gap,distance:distance};});return best;}
+            function fallbackAt(event){var x=event.clientX,y=event.clientY,best=null;candidates.forEach(function(candidate){if(candidate.kind!=='custom'||candidate.relation==='before')return;var anchor=byId(candidate.anchor);if(!anchor)return;var rect=anchor.getBoundingClientRect(),bounds=rowBounds(anchor,rect),next=relevantNext(candidate,anchor),nextRect=next&&next.getBoundingClientRect(),top=bounds.bottom,bottom=nextRect&&nextRect.top>top+2?nextRect.top:top+180;if(nextRect&&Math.abs(nextRect.top-bounds.top)<4)return;var fallbackGap={left:Math.max(6,bounds.left),right:Math.min(window.innerWidth-6,bounds.right),y:y,top:top,bottom:bottom};if(overlapsCommon(fallbackGap))return;if(x<bounds.left-10||x>bounds.right+10||y<top-3||y>Math.min(top+180,bottom+16))return;var distance=y-top;if(!best||distance<best.distance)best={candidate:candidate,gap:fallbackGap,distance:distance};});return best;}
+            function hideCustom(){active=null;if(customButton)customButton.hidden=true;}
+            function showCustom(match){active=match.candidate;customButton.hidden=false;customButton.textContent='＋ 点击放置广告';customButton.title=match.candidate.label;customButton.style.left=Math.round(match.gap.left)+'px';customButton.style.top=Math.round(match.gap.y-12)+'px';customButton.style.width=Math.max(96,Math.round(match.gap.right-match.gap.left))+'px';}
+            function pointerMove(event){var match=candidateAt(event);if(!match){rebuild();match=candidateAt(event)||fallbackAt(event);}if(match)showCustom(match);else hideCustom();}
+            function commonButton(candidate){var node=document.createElement('button');node.type='button';node.className='sitefoundry-injection-marker sitefoundry-injection-common-marker';node.textContent='＋ '+candidate.label.replace(/^常用广告位\\s*·\\s*/, '');node.title=candidate.label;node.style.cssText='position:fixed;height:28px;margin:0;padding:0 10px;z-index:2147483647;pointer-events:auto;cursor:pointer;border:1px dashed #2683df;border-radius:6px;background:rgba(238,247,255,.97);color:#174f87;font:700 11px/26px system-ui,sans-serif;box-shadow:0 1px 5px rgba(13,67,112,.16);';node.addEventListener('click',function(event){event.preventDefault();event.stopPropagation();window.parent.postMessage({type:'ad-injection-place',position:candidate.position,page:page},'*');});overlay.appendChild(node);return{candidate:candidate,node:node};}
+            function render(){rebuild();hideCustom();commonButtons.forEach(function(item){var entry=geometries.find(function(value){return value.candidate===item.candidate;});if(!entry){item.node.hidden=true;return;}var gap=entry.gap;item.node.hidden=false;item.node.style.left=Math.round(gap.left)+'px';item.node.style.top=Math.round(gap.y-14)+'px';item.node.style.width=Math.max(116,Math.round(gap.right-gap.left))+'px';});}
+            function queue(){requestAnimationFrame(render);}
+            overlay=document.createElement('div');overlay.id='sitefoundry-ad-placement-overlay';overlay.style.cssText='position:fixed;inset:0;z-index:2147483646;pointer-events:none;overflow:hidden;';
+            customButton=document.createElement('button');customButton.type='button';customButton.className='sitefoundry-injection-marker sitefoundry-injection-custom-marker';customButton.hidden=true;customButton.style.cssText='position:fixed;height:24px;margin:0;padding:0 8px;z-index:2147483647;pointer-events:auto;cursor:pointer;border:1px dashed #2683df;border-radius:6px;background:rgba(238,247,255,.96);color:#174f87;font:700 11px/22px system-ui,sans-serif;box-shadow:0 1px 5px rgba(13,67,112,.16);';
+            customButton.addEventListener('click',function(event){if(!active)return;event.preventDefault();event.stopPropagation();window.parent.postMessage({type:'ad-injection-place',position:active.position,page:page},'*');});
+            overlay.appendChild(customButton);candidates.filter(function(candidate){return candidate.kind==='common';}).forEach(function(candidate){commonButtons.push(commonButton(candidate));});document.body.appendChild(overlay);document.addEventListener('pointerover',pointerMove,true);document.addEventListener('mouseover',pointerMove,true);document.addEventListener('pointermove',pointerMove,true);document.addEventListener('mousemove',pointerMove,true);document.documentElement.addEventListener('mouseleave',hideCustom);
+            function ensureOverlay(){if(!document.getElementById('sitefoundry-ad-placement-overlay')&&document.body)document.body.appendChild(overlay);queue();}
+            if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensureOverlay,{once:true});else ensureOverlay();addEventListener('resize',queue);document.addEventListener('scroll',queue,true);new MutationObserver(ensureOverlay).observe(document.documentElement,{childList:true,subtree:true});[50,250,1000,2000].forEach(function(delay){setTimeout(ensureOverlay,delay);});
+        })();`;
+        doc.body.appendChild(script);
+    }
+
+    function addAdInjectionPlacementMarkers(doc, pageType) {
+        if (!appState.adInjectionPlacementMode) return;
+        var page = adInjectionPreviewPage(pageType);
+        var occupied = adInjectionOccupiedPositions(page, appState.adInjectionPlacementMode);
+        var main = doc.querySelector('main') || doc.body;
+        var sections = main ? Array.from(main.querySelectorAll(':scope > section, :scope > article, section')) : [];
+        var content = adInjectionDetailContentTarget(doc, main);
+        var related = doc.querySelector('.related-section, [class*="related"], [id*="related"]');
+        var footer = doc.querySelector('footer');
+        var customPlacements = collectAdInjectionCustomPlacements(main);
+        var candidates = page === 'detail' ? [
+            ['after-navbar', doc.querySelector('header, nav'), 'after', '导航栏下方'],
+            ['detail-before-content', content, 'before', '正文前'],
+            ['detail-after-content', content, 'middle', '正文中部'],
+            ['detail-after-related', related, 'after', '相关推荐后'],
+            ['footer-top', footer, 'before', '页脚上方']
+        ] : [
+            ['after-navbar', doc.querySelector('header, nav'), 'after', '导航栏下方'],
+            ['after-hero', doc.querySelector('.hero, [class*="hero"], main > section'), 'after', '首屏区下方'],
+            ['content-top', main && main.firstElementChild, 'before', '内容区顶部'],
+            ['after-section-0', sections[0], 'after', '第一个分类后'],
+            ['after-section-1', sections[1], 'after', '第二个分类后'],
+            ['content-bottom', main && main.lastElementChild, 'after', '内容区底部'],
+            ['footer-top', footer, 'before', '页脚上方']
+        ];
+        var candidatesForOverlay = [];
+        function addCandidate(position, target, next, relation, label, kind) {
+            if (!target || !target.parentNode || occupied[position]) return;
+            var duplicate = candidatesForOverlay.some(function(item) { return item.target === target && item.relation === relation; });
+            if (duplicate) return;
+            candidatesForOverlay.push({ position: position, target: target, next: next || null, relation: relation, label: label, kind: kind });
+        }
+        candidates.forEach(function(candidate) {
+            var position = candidate[0];
+            var target = candidate[1];
+            if (candidate[2] === 'middle') {
+                var children = adInjectionMeaningfulChildren(target);
+                var middle = children[Math.max(0, Math.ceil(children.length / 2) - 1)] || target;
+                addCandidate(position, middle, middle && middle.nextElementSibling, 'after', '常用广告位 · ' + candidate[3], 'common');
+            } else {
+                addCandidate(position, target, target && (candidate[2] === 'before' ? target.previousElementSibling : target.nextElementSibling), candidate[2], '常用广告位 · ' + candidate[3], 'common');
+            }
+        });
+        customPlacements.forEach(function(candidate) {
+            addCandidate(candidate.position, candidate.target, candidate.next, 'after', candidate.label, 'custom');
+        });
+        mountAdInjectionPlacementOverlay(doc, page, candidatesForOverlay);
+    }
+
+    function addAdInjectionPreviewNavigation(doc, entryPath) {
+        var navigationScript = doc.createElement('script');
+        navigationScript.type = 'module';
+        navigationScript.textContent = "(function(){var fromPath=" + JSON.stringify(normalizeAdInjectionPreviewPath(entryPath)) + ";document.addEventListener('click',function(event){var link=event.target&&event.target.closest?event.target.closest('a[href]'):null;if(!link)return;var href=String(link.getAttribute('href')||'').trim();if(!href||href.charAt(0)==='#'||/^(?:mailto|tel|javascript|data):/i.test(href))return;event.preventDefault();event.stopPropagation();window.parent.postMessage({type:'ad-injection-preview-navigate',href:href,fromPath:fromPath},'*');});})();";
+        doc.body.appendChild(navigationScript);
+    }
+
+    function centerAdInjectionCustomPlacements(doc) {
+        // DOMParser documents have no layout box until the preview iframe loads.
+        // Run this small, local helper in that iframe and recompute after resizing.
+        var script = doc.createElement('script');
+        script.type = 'module';
+        script.textContent = "(function(){function center(){document.querySelectorAll('.sitefoundry-ad-custom-placement').forEach(function(node){node.style.setProperty('--sitefoundry-ad-center-offset','0px');var rect=node.getBoundingClientRect();var offset=window.innerWidth/2-(rect.left+rect.width/2);node.style.setProperty('--sitefoundry-ad-center-offset',Math.round(offset*100)/100+'px');});}function queue(){requestAnimationFrame(center);}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',queue,{once:true});else queue();addEventListener('resize',queue);})();";
+        doc.body.appendChild(script);
+    }
+
+    function addAdInjectionPreviewSlots(doc, pageType) {
+        var page = pageType === 'detail' ? 'detail' : 'home';
+        var slots = (getAdInjectionPolicy().slots[page] || []).filter(function(slot) {
+            if (!slot || slot.unit === 'off' || slot.position === 'off') return false;
+            return !(slot.unit === appState.adInjectionPlacementMode && /^custom-after-(?:\d+)(?:-\d+)*$/.test(String(slot.position || '')));
+        });
+        function insertAfter(target, node) { if (target && target.parentNode) target.parentNode.insertBefore(node, target.nextSibling); }
+        function placeholder(slot, fallbackIndex) {
+            var unitNumber = Number(String(slot.unit || '').replace('banner', '')) || fallbackIndex + 1;
+            var outer = doc.createElement('div');
+            outer.id = 'adv' + unitNumber;
+            outer.setAttribute('data-sitefoundry-preview-ad', String(unitNumber));
+            // Keep the finished-site preview structurally identical to the normal
+            // builder's AD_TEMPLATES.  This is deliberately a quiet placeholder:
+            // GPT owns the creative area only after the exported site is deployed.
+            outer.style.cssText = 'text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;';
+            if (/^custom-after-(?:\d+)(?:-\d+)*$/.test(String(slot.position || ''))) {
+                outer.classList.add('sitefoundry-ad-custom-placement');
+                outer.style.position = 'relative';
+                outer.style.transform = 'translateX(var(--sitefoundry-ad-center-offset, 0px))';
+            }
+            var label = doc.createElement('div');
+            label.textContent = 'advertisement' + unitNumber;
+            label.style.cssText = 'text-align:center;color:black;font-size:13px;';
+            var area = doc.createElement('div');
+            area.id = 'div-gpt-ad-banner' + unitNumber;
+            area.style.cssText = 'min-width:300px;min-height:250px;';
+            outer.appendChild(label); outer.appendChild(area);
+            return outer;
+        }
+        slots.forEach(function(slot, index) {
+            var node = placeholder(slot, index);
+            var main = doc.querySelector('main') || doc.body;
+            var sections = main ? Array.from(main.querySelectorAll(':scope > section, :scope > article, section')) : [];
+            var content = adInjectionDetailContentTarget(doc, main);
+            var related = doc.querySelector('.related-section, [class*="related"], [id*="related"]');
+            if (slot.position === 'after-navbar') insertAfter(doc.querySelector('header, nav'), node);
+            else if (slot.position === 'after-hero') insertAfter(doc.querySelector('.hero, [class*="hero"], main > section'), node);
+            else if (slot.position === 'content-top' && main) main.insertBefore(node, main.firstChild);
+            else if (/^after-section-\d+$/.test(slot.position)) insertAfter(sections[Number(slot.position.split('-').pop())], node);
+            else if (slot.position === 'footer-top' && doc.querySelector('footer')) doc.querySelector('footer').parentNode.insertBefore(node, doc.querySelector('footer'));
+            else if (slot.position === 'detail-before-content' && content && content.parentNode) content.parentNode.insertBefore(node, content);
+            else if (/^detail-between-p-\d+$/.test(slot.position)) insertAfter((content || main).querySelectorAll('p')[Number(slot.position.split('-').pop()) - 1], node);
+            else if (slot.position === 'detail-before-related' && related && related.parentNode) related.parentNode.insertBefore(node, related);
+            else if (slot.position === 'detail-after-related') insertAfter(related, node);
+            else if (slot.position === 'detail-after-content') insertAdInjectionContentMiddle(content, node);
+            else if (/^custom-after-(?:\d+)(?:-\d+)*$/.test(slot.position)) insertAfter(adInjectionResolveCustomTarget(main, slot.position), node);
+            else if (slot.position === 'content-bottom' && main) main.appendChild(node);
+            else if (main) main.appendChild(node);
+        });
+        centerAdInjectionCustomPlacements(doc);
+    }
+
+    function buildAdInjectionPreviewDocument(site, pageType, entryPath) {
+        var normalizedEntryPath = normalizeAdInjectionPreviewPath(entryPath);
+        var entry = normalizedEntryPath
+            ? (site.entries || []).find(function(item) { return normalizeAdInjectionPreviewPath(item.path).toLowerCase() === normalizedEntryPath.toLowerCase(); })
+            : findAdInjectionPreviewEntry(site, pageType);
+        if (!entry || isAdInjectionPreviewSourceShell(site, entry)) return '<!doctype html><html><body style="font-family:system-ui;padding:32px;line-height:1.65;color:#172033"><h2>该源码包还没有浏览器可运行的预览产物</h2><p>源码型 React 项目需要先完成自身的依赖安装与生产构建。请把构建后的 <strong>dist、build、out、public、.output/public</strong> 等目录一并放入压缩包后重新上传；纯 HTML/CSS/JavaScript 站点和任何框架的已构建静态产物都可直接预览。</p><p>当前仍可继续配置并导出源码，随后在原项目环境执行构建命令。</p></body></html>';
+        clearAdInjectionPreviewUrls();
+        var entries = site.entries || [];
+        var entryByPath = {};
+        entries.forEach(function(item) { entryByPath[normalizeAdInjectionPreviewPath(item.path).toLowerCase()] = item; });
+        var homeEntry = findAdInjectionPreviewEntry(site, 'home');
+        var root = adInjectionPreviewRoot(homeEntry ? homeEntry.path : entry.path);
+        var assetUrls = {};
+        entries.filter(function(item) { return !/\.(?:html?|css|[cm]?jsx?|tsx?|map)$/i.test(item.path || ''); }).forEach(function(item) {
+            var path = normalizeAdInjectionPreviewPath(item.path);
+            assetUrls[path.toLowerCase()] = adInjectionPreviewDataUrl(item.bytes || new Uint8Array(), adInjectionPreviewMime(path));
+        });
+        entries.filter(function(item) { return /\.css$/i.test(item.path || ''); }).forEach(function(item) {
+            var path = normalizeAdInjectionPreviewPath(item.path);
+            var css = rewriteAdInjectionPreviewCss(entryTextForPreview(item), path, root, entryByPath, assetUrls);
+            assetUrls[path.toLowerCase()] = adInjectionPreviewDataUrl(css, 'text/css;charset=utf-8');
+        });
+        var executeSiteScripts = shouldExecuteAdInjectionPreviewScripts(site, entry);
+        var moduleImports = {};
+        entries.filter(function(item) { return executeSiteScripts && /\.(?:[cm]?js|jsx|tsx)$/i.test(item.path || ''); }).forEach(function(item) {
+            var path = normalizeAdInjectionPreviewPath(item.path);
+            var source = rewriteAdInjectionPreviewModule(entryTextForPreview(item), path, root, entryByPath, assetUrls);
+            var url = adInjectionPreviewDataUrl(source, 'text/javascript;charset=utf-8');
+            assetUrls[path.toLowerCase()] = url;
+            moduleImports[adInjectionPreviewModuleId(path)] = url;
+            var rootedPath = path.indexOf(root) === 0 ? path.slice(root.length) : path;
+            moduleImports['/' + rootedPath] = url;
+            moduleImports['./' + rootedPath] = url;
+        });
+        var doc = new DOMParser().parseFromString(entryTextForPreview(entry), 'text/html');
+        doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], base').forEach(function(node) { node.remove(); });
+        doc.querySelectorAll('script[src]').forEach(function(node) {
+            if (!executeSiteScripts || /(?:^|\/)js\/ad\.js(?:[?#]|$)/i.test(node.getAttribute('src') || '') || node.hasAttribute('data-sitefoundry-ad-runtime')) {
+                node.remove();
+                return;
+            }
+            var resolved = resolveAdInjectionPreviewAsset(node.getAttribute('src'), entry.path, root, entryByPath);
+            if (resolved && assetUrls[resolved.toLowerCase()]) node.setAttribute('src', assetUrls[resolved.toLowerCase()]);
+            else node.remove();
+        });
+        if (!executeSiteScripts) doc.querySelectorAll('script:not([type="application/ld+json"]):not([type="application/json"])').forEach(function(node) { node.remove(); });
+        doc.querySelectorAll('script[type="module"]:not([src])').forEach(function(node) {
+            node.textContent = rewriteAdInjectionPreviewModule(node.textContent, entry.path, root, entryByPath, assetUrls);
+        });
+        doc.querySelectorAll('link[rel="modulepreload"], link[rel="preload"][as="script"]').forEach(function(node) { node.remove(); });
+        doc.querySelectorAll('*').forEach(function(node) {
+            Array.from(node.attributes || []).forEach(function(attribute) {
+                if ((attribute.name === 'href' || attribute.name === 'src') && /^\s*javascript:/i.test(attribute.value)) node.removeAttribute(attribute.name);
+            });
+        });
+        doc.querySelectorAll('[src], [href], [poster]').forEach(function(node) {
+            ['src', 'href', 'poster'].forEach(function(attribute) {
+                if (!node.hasAttribute(attribute)) return;
+                var resolved = resolveAdInjectionPreviewAsset(node.getAttribute(attribute), entry.path, root, entryByPath);
+                if (resolved && assetUrls[resolved.toLowerCase()]) node.setAttribute(attribute, assetUrls[resolved.toLowerCase()]);
+            });
+        });
+        doc.querySelectorAll('[srcset]').forEach(function(node) {
+            var rewritten = String(node.getAttribute('srcset') || '').split(',').map(function(candidate) {
+                var parts = candidate.trim().split(/\s+/);
+                var resolved = resolveAdInjectionPreviewAsset(parts[0], entry.path, root, entryByPath);
+                if (resolved && assetUrls[resolved.toLowerCase()]) parts[0] = assetUrls[resolved.toLowerCase()];
+                return parts.join(' ');
+            }).join(', ');
+            node.setAttribute('srcset', rewritten);
+        });
+        doc.querySelectorAll('style').forEach(function(node) {
+            node.textContent = rewriteAdInjectionPreviewCss(node.textContent, entry.path, root, entryByPath, assetUrls);
+        });
+        doc.querySelectorAll('[style]').forEach(function(node) {
+            node.setAttribute('style', rewriteAdInjectionPreviewCss(node.getAttribute('style'), entry.path, root, entryByPath, assetUrls));
+        });
+        var csp = doc.createElement('meta');
+        csp.httpEquiv = 'Content-Security-Policy';
+        csp.content = "default-src 'none'; img-src data:; style-src data: 'unsafe-inline'; font-src data:; media-src data:; script-src 'unsafe-inline' data:";
+        doc.head.prepend(csp);
+        if (Object.keys(moduleImports).length) {
+            var importMap = doc.createElement('script');
+            importMap.type = 'importmap';
+            importMap.textContent = JSON.stringify({ imports: moduleImports }).replace(/</g, '\\u003c');
+            csp.after(importMap);
+        }
+        addAdInjectionPreviewSlots(doc, pageType);
+        addAdInjectionPlacementMarkers(doc, pageType);
+        addAdInjectionPreviewNavigation(doc, entry.path);
+        return '<!doctype html>\n' + doc.documentElement.outerHTML;
+    }
+
+    function currentAdInjectionPreviewPage() {
+        var activeTab = document.querySelector('.preview-tab.active');
+        return adInjectionPreviewPage(activeTab ? activeTab.dataset.page : 'home');
+    }
+
+    function adInjectionPlacementSummary(unit) {
+        var home = adInjectionPolicyPlacement(unit, 'home');
+        var detail = adInjectionPolicyPlacement(unit, 'detail');
+        var parts = [];
+        if (home) parts.push('首页: ' + adInjectionPlacementLabel(home));
+        if (detail) parts.push('详情页: ' + adInjectionPlacementLabel(detail));
+        return parts.length ? parts.join(' | ') : '未放置';
+    }
+
+    function syncAdInjectionPlacementControls() {
+        var page = currentAdInjectionPreviewPage();
+        var activeUnit = appState.adInjectionPlacementMode;
+        document.querySelectorAll('.injection-ad-select-btn').forEach(function(button) {
+            var unit = button.dataset.injectionAdUnit;
+            var isActive = activeUnit === unit;
+            var hasCurrent = !!adInjectionPolicyPlacement(unit, page);
+            var hasOther = !!adInjectionPolicyPlacement(unit, page === 'home' ? 'detail' : 'home');
+            button.textContent = isActive ? '取消放置' : hasCurrent ? '重新放置' : hasOther ? '放置到当前页' : '选择位置';
+            button.disabled = !!activeUnit && !isActive;
+            button.classList.toggle('is-active', isActive);
+        });
+        document.querySelectorAll('.injection-ad-position-label').forEach(function(label) {
+            label.textContent = adInjectionPlacementSummary(label.dataset.injectionAdUnit);
+        });
+        document.querySelectorAll('.injection-ad-remove-btn').forEach(function(button) {
+            var unit = button.dataset.injectionAdUnit;
+            button.hidden = !adInjectionPolicyPlacement(unit, page);
+            button.textContent = '移除当前页';
+        });
+        var hint = document.getElementById('injection-ad-placement-hint');
+        if (hint) hint.hidden = !activeUnit;
+    }
+
+    function renderAdInjectionPlacementControls(grid) {
+        if (!grid) return;
+        grid.innerHTML = ['banner1', 'banner2', 'banner3'].map(function(unit, index) {
+            return '<article class="ad-container-config injection-policy-card">' +
+                '<div class="ad-slot-header"><span class="ad-slot-name">广告' + (index + 1) + '</span>' +
+                '<div class="ad-slot-actions"><button type="button" class="ad-select-btn injection-ad-select-btn" data-injection-ad-unit="' + unit + '">选择位置</button>' +
+                '<button type="button" class="ad-remove-btn injection-ad-remove-btn" data-injection-ad-unit="' + unit + '">移除</button></div></div>' +
+                '<div class="ad-slot-meta">ID: div-gpt-ad-banner' + (index + 1) + ' <span aria-hidden="true">·</span> 位置: ' +
+                '<span class="ad-position-label injection-ad-position-label" data-injection-ad-unit="' + unit + '">' + escapeHtml(adInjectionPlacementSummary(unit)) + '</span></div></article>';
+        }).join('') + '<div class="ad-placement-hint injection-ad-placement-hint" id="injection-ad-placement-hint" hidden>已选择广告。右侧会直接显示常用广告位；也可将鼠标移动到内容空隙，出现“点击放置广告”后选择自定义位置。重新放置时仅隐藏当前自定义广告，不会挤压原页面布局。</div>';
+        syncAdInjectionPlacementControls();
+    }
+
+    function renderAdInjectionConfig() {
+        var sites = appState.adInjectionSites || [];
+        var policy = getAdInjectionPolicy();
+        var selectedId = appState.adInjectionPreviewSiteId;
+        if (!sites.some(function(site) { return site.id === selectedId; })) selectedId = sites[0] ? sites[0].id : '';
+        appState.adInjectionPreviewSiteId = selectedId;
+        var activeSite = sites.find(function(site) { return site.id === selectedId; }) || null;
+        var structure = document.getElementById('injection-structure-summary');
+        var style = document.getElementById('injection-style-summary');
+        var select = document.getElementById('injection-preview-site');
+        if (select) {
+            select.disabled = !sites.length;
+            select.innerHTML = sites.length
+                ? sites.map(function(site) { return '<option value="' + escapeHtml(site.id) + '">' + escapeHtml(site.name) + ' · ' + escapeHtml((site.project && site.project.framework) || '待识别') + '</option>'; }).join('')
+                : '<option>等待上传站点</option>';
+            select.value = selectedId;
+        }
+        if (structure) structure.innerHTML = activeSite
+            ? '<strong>' + escapeHtml(activeSite.name) + '</strong><br>站点类型：' + escapeHtml((activeSite.project && activeSite.project.framework) || '正在识别') + '<br>源码入口：' + escapeHtml((activeSite.project && activeSite.project.entryPath) || '由框架路由管理') + '<br>预览入口：' + escapeHtml((activeSite.project && activeSite.project.previewEntryPath) || (activeSite.project && activeSite.project.entryPath) || '未包含构建产物') + '<br>本次识别到 ' + activeSite.entries.length + ' 个源文件。'
+            : '请先上传已过审网站压缩包。';
+        if (style) {
+            var styleFiles = activeSite ? activeSite.entries.filter(function(entry) { return /\.css$/i.test(entry.path || ''); }).length : 0;
+            style.innerHTML = activeSite
+                ? '已保留 <strong>' + styleFiles + '</strong> 个 CSS 样式文件和原有页面标记。广告容器只使用独立标记，不改写原有配色、字号、布局或内容。'
+                : '等待读取原站样式资源。';
+        }
+        var grid = document.getElementById('injection-policy-grid');
+        if (grid && typeof AdRestoration !== 'undefined') {
+            renderAdInjectionPlacementControls(grid);
+        }
+        renderAdInjectionFields();
+    }
+
+    function updateAdInjectionPreview(pageType, entryPath) {
+        if (!isAdInjectionWorkflow() || appState.currentStep !== 4) return;
+        var sites = appState.adInjectionSites || [];
+        var site = sites.find(function(item) { return item.id === appState.adInjectionPreviewSiteId; }) || sites[0];
+        if (!site) return;
+        var hasExplicitPage = typeof pageType === 'string' && !!pageType;
+        if (!pageType) {
+            var activeTab = document.querySelector('.preview-tab.active');
+            pageType = activeTab ? activeTab.dataset.page : 'home';
+        }
+        if (entryPath) appState.adInjectionPreviewEntryPath = normalizeAdInjectionPreviewPath(entryPath);
+        else if (hasExplicitPage) appState.adInjectionPreviewEntryPath = '';
+        syncAdInjectionPlacementControls();
+        var html = buildAdInjectionPreviewDocument(site, pageType, appState.adInjectionPreviewEntryPath);
+        previewFrame.setAttribute('sandbox', 'allow-scripts');
+        previewFrame.removeAttribute('src');
+        previewFrame.srcdoc = html;
+    }
+
+    function initAdInjectionConfig() {
+        var panel = document.getElementById('ad-injection-config-panel');
+        if (!panel || panel.dataset.ready === 'true') return;
+        panel.dataset.ready = 'true';
+        panel.querySelectorAll('.injection-config-tab').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                var name = tab.dataset.injectionTab;
+                panel.querySelectorAll('.injection-config-tab').forEach(function(item) { var active = item === tab; item.classList.toggle('active', active); item.setAttribute('aria-selected', active ? 'true' : 'false'); });
+                panel.querySelectorAll('.injection-config-section').forEach(function(section) { var active = section.dataset.injectionSection === name; section.hidden = !active; section.classList.toggle('active', active); });
+            });
+        });
+        var siteSelect = document.getElementById('injection-preview-site');
+        if (siteSelect) siteSelect.addEventListener('change', function() { appState.adInjectionPreviewSiteId = this.value; appState.adInjectionPreviewEntryPath = ''; renderAdInjectionConfig(); updateAdInjectionPreview(); });
+        var policyGrid = document.getElementById('injection-policy-grid');
+        if (policyGrid) policyGrid.addEventListener('click', function(event) {
+            var selectButton = event.target.closest('.injection-ad-select-btn');
+            var removeButton = event.target.closest('.injection-ad-remove-btn');
+            var unit = (selectButton || removeButton) && (selectButton || removeButton).dataset.injectionAdUnit;
+            if (!unit || typeof AdRestoration === 'undefined') return;
+            if (removeButton) {
+                setAdInjectionPolicyPlacement(unit, currentAdInjectionPreviewPage(), '');
+                if (appState.adInjectionPlacementMode === unit) appState.adInjectionPlacementMode = null;
+            } else if (appState.adInjectionPlacementMode === unit) {
+                appState.adInjectionPlacementMode = null;
+            } else {
+                appState.adInjectionPlacementMode = unit;
+            }
+            renderAdInjectionPlacementControls(policyGrid);
+            updateAdInjectionPreview();
+        });
+        window.addEventListener('message', function(event) {
+            if (event.source !== previewFrame.contentWindow || !event.data) return;
+            if (event.data.type === 'ad-injection-preview-navigate') {
+                var sites = appState.adInjectionSites || [];
+                var site = sites.find(function(item) { return item.id === appState.adInjectionPreviewSiteId; }) || sites[0];
+                if (!site) return;
+                var homeEntry = findAdInjectionPreviewEntry(site, 'home');
+                var root = adInjectionPreviewRoot(homeEntry ? homeEntry.path : event.data.fromPath);
+                var targetEntry = resolvePreviewHtmlEntry(site.entries || [], event.data.href, event.data.fromPath, root);
+                if (!targetEntry) return;
+                var targetPage = previewPageTypeForEntry(targetEntry.path, root);
+                document.querySelectorAll('.preview-tab').forEach(function(tab) {
+                    var active = tab.dataset.page === targetPage;
+                    tab.classList.toggle('active', active);
+                    tab.classList.toggle('is-jelly-active', active);
+                });
+                updateAdInjectionPreview(targetPage, targetEntry.path);
+                return;
+            }
+            if (event.data.type !== 'ad-injection-place' || !appState.adInjectionPlacementMode) return;
+            setAdInjectionPolicyPlacement(appState.adInjectionPlacementMode, event.data.page === 'detail' ? 'detail' : 'home', event.data.position);
+            appState.adInjectionPlacementMode = null;
+            renderAdInjectionPlacementControls(policyGrid);
+            updateAdInjectionPreview();
+        });
+    }
+
     function renderAdInjectionResult(results, outputName, failedMessage, isFolder) {
         var target = document.getElementById('injection-result');
         if (!target) return;
@@ -800,13 +1632,13 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         target.hidden = false;
         target.className = 'injection-result ' + (successful.length ? 'is-success' : 'is-error');
         var heading = successful.length
-            ? '已为 ' + successful.length + ' 个成品站加入广告' + (failed.length ? '，' + failed.length + ' 个未通过校验' : '')
+            ? '已为 ' + successful.length + ' 个成品站完成广告与部署产物核验' + (failed.length ? '，' + failed.length + ' 个未通过校验' : '')
             : (failedMessage || '成品站广告注入未完成');
         var html = '<h4>' + escapeHtml(heading) + '</h4>';
         if (outputName) html += '<p>' + (isFolder ? '已生成新目录：' : '已开始下载：') + '<strong>' + escapeHtml(outputName) + '</strong></p>';
         if (results.length) html += '<ul>' + results.map(function(item) {
             var detail = item.valid
-                ? '成功：' + item.siteName + '（' + item.framework + '，' + item.host + '，修改 ' + item.changedPages + ' 个入口/页面）'
+                ? '成功：' + item.siteName + '（' + item.framework + '，' + item.host + '，核验 ' + ((item.verification && item.verification.checkedPages || []).length) + ' 个页面，' + (item.exportScope || '完整静态源码') + '）'
                 : '失败：' + item.siteName + '—' + (item.errors || []).map(function(error) { return error.message; }).join('；');
             return '<li>' + escapeHtml(detail) + '</li>';
         }).join('') + '</ul>';
@@ -820,9 +1652,48 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         var siteInput = document.getElementById('injection-sites-input');
         var codeButton = document.getElementById('injection-code-button');
         var codeInput = document.getElementById('injection-code-input');
+        var pasteButton = document.getElementById('injection-paste-button');
+        var pastePanel = document.getElementById('injection-paste-panel');
+        var pasteInput = document.getElementById('injection-code-paste');
+        var parsePaste = document.getElementById('injection-parse-paste');
+        var fields = document.getElementById('injection-fields');
+        var allowPartial = document.getElementById('injection-allow-partial');
         var runButton = document.getElementById('injection-run');
         if (!runButton || runButton.dataset.ready === 'true') return;
         runButton.dataset.ready = 'true';
+        initAdInjectionConfig();
+
+        if (pasteButton && pastePanel) pasteButton.addEventListener('click', function() {
+            pastePanel.hidden = !pastePanel.hidden;
+            if (!pastePanel.hidden && pasteInput) pasteInput.focus();
+        });
+        if (parsePaste) parsePaste.addEventListener('click', function() {
+            var pasted = pasteInput && pasteInput.value || '';
+            if (!pasted.trim()) return;
+            var parsed = AdMigration.inspectAdCodeText(pasted, 'pasted-ad-code.txt');
+            parsed.fileName = 'pasted-ad-code.txt';
+            appState.adInjectionCodes = [parsed];
+            refreshAdInjectionCodeValidity(parsed);
+            renderAdInjectionConfig();
+            updateAdInjectionControls();
+            updateAdInjectionPreview();
+        });
+        if (allowPartial) allowPartial.addEventListener('change', function() {
+            appState.adInjectionAllowPartial = !!this.checked;
+            (appState.adInjectionCodes || []).forEach(refreshAdInjectionCodeValidity);
+            renderAdInjectionConfig();
+            updateAdInjectionControls();
+        });
+        if (fields) fields.addEventListener('input', function(event) {
+            var key = event.target && event.target.dataset && event.target.dataset.injectionConfigKey;
+            var code = (appState.adInjectionCodes || [])[0];
+            if (!key || !code) return;
+            code.config[key] = String(event.target.value || '').trim();
+            refreshAdInjectionCodeValidity(code);
+            renderAdInjectionFields();
+            updateAdInjectionControls();
+            updateAdInjectionPreview();
+        });
 
         async function scanSource(mode, source) {
             var progress = document.getElementById('injection-scan-progress');
@@ -836,6 +1707,14 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             updateAdInjectionControls();
             try {
                 var progressCallback = function(percent, message) { if (fill) fill.style.width = percent + '%'; if (textTarget) textTarget.textContent = message; };
+                var selectedArchives = mode === 'archives' ? Array.from(source || []) : [];
+                var needsArchiveRuntime = selectedArchives.some(function(file) { return /\.(?:rar|7z)$/i.test(String(file && file.name || '')); });
+                if (needsArchiveRuntime) {
+                    progressCallback(4, '正在加载 RAR / 7Z 本地解析组件…');
+                    var archiveRuntime = await ensureArchiveRuntime();
+                    // readRarArchive 通过同一 Promise 获取实例，避免重复加载或竞态。
+                    window.ArchiveRuntimeReady = Promise.resolve(archiveRuntime);
+                }
                 var scan = mode === 'directory-handle'
                     ? await AdRestoration.readInjectableDirectoryHandle(source, progressCallback)
                     : mode === 'directory'
@@ -843,16 +1722,21 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                         : await AdRestoration.readInjectableArchiveFiles(source, progressCallback);
                 appState.adInjectionSites = scan.sites;
                 appState.adInjectionSourceMode = mode === 'archives' ? 'archives' : 'directory';
+                appState.adInjectionPreviewSiteId = scan.sites[0] ? scan.sites[0].id : '';
+                appState.adInjectionPolicy = typeof AdRestoration !== 'undefined' ? AdRestoration.createPolicy() : null;
                 if (fill) fill.style.width = '100%';
                 if (textTarget) textTarget.textContent = '已识别 ' + scan.sites.length + ' 个成品站、' + scan.fileCount + ' 个文件';
             } catch (error) {
                 appState.adInjectionSites = [];
                 appState.adInjectionSourceMode = '';
-                if (textTarget) textTarget.textContent = '成品站识别未完成';
-                renderAdInjectionResult([], '', error.message, false);
+                var scanError = formatUiError(error, '压缩包解析器未返回错误详情，请刷新页面后重试；RAR 文件会自动切换 RAR5 解析器。');
+                if (textTarget) textTarget.textContent = '成品站识别失败：' + scanError;
+                renderAdInjectionResult([], '', scanError, false);
             } finally {
                 adInjectionRunning = false;
                 updateAdInjectionControls();
+                renderAdInjectionConfig();
+                syncWorkflowNavigation();
             }
         }
 
@@ -894,12 +1778,15 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             updateAdInjectionControls();
             try {
                 appState.adInjectionCodes = await AdRestoration.readAdvertiserCodeFiles(appState.adInjectionCodeFiles);
+                appState.adInjectionCodes.forEach(refreshAdInjectionCodeValidity);
             } catch (error) {
                 appState.adInjectionCodes = [];
                 renderAdInjectionResult([], '', error.message, false);
             } finally {
                 adInjectionRunning = false;
                 updateAdInjectionControls();
+                renderAdInjectionConfig();
+                updateAdInjectionPreview();
             }
         });
         runButton.addEventListener('click', async function() {
@@ -922,7 +1809,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 var output = await AdRestoration.applyAdCodeBatch(appState.adInjectionSites, appState.adInjectionCodes, function(percent, message) {
                     if (fill) fill.style.width = Math.min(percent, 88) + '%';
                     if (textTarget) textTarget.textContent = message;
-                });
+                }, getAdInjectionPolicy(), injectReactSource);
                 if (destinationHandle) {
                     await AdRestoration.writePolicyBatchToDirectory(output, destinationHandle, function(percent, message) {
                         if (fill) fill.style.width = (88 + Math.round(percent * .12)) + '%';
@@ -1479,6 +2366,12 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         return owner ? '与“' + (owner.fileName || '另一个站点') + '”重复使用模板' : '';
     }
 
+    function batchSiteDisplayName(site) {
+        var fileName = String(site && site.fileName || '未命名数据源').trim();
+        // 顶部切换器空间有限；展示用户命名的来源名，同时隐藏仅用于导入的归档扩展名。
+        return fileName.replace(/\.(?:json|zip|rar|7z)$/i, '') || '未命名数据源';
+    }
+
     function renderBatchPreviewSiteTabs() {
         var target = document.getElementById('batch-preview-site-tabs');
         var switcher = document.getElementById('preview-site-switcher');
@@ -1493,8 +2386,9 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         if (switcher) switcher.hidden = false;
         target.innerHTML = sites.map(function(site, index) {
             var selected = site === activeSite;
+            var displayName = batchSiteDisplayName(site);
             var label = '站点 ' + (index + 1) + '：' + (site.fileName || '未命名数据源');
-            return '<button type="button" class="batch-preview-site-tab" role="tab" id="batch-preview-site-tab-' + index + '" aria-selected="' + (selected ? 'true' : 'false') + '" aria-controls="preview-frame" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '" tabindex="' + (selected ? '0' : '-1') + '" data-batch-preview-site-index="' + index + '">' + String(index + 1).padStart(2, '0') + '</button>';
+            return '<button type="button" class="batch-preview-site-tab" role="tab" id="batch-preview-site-tab-' + index + '" aria-selected="' + (selected ? 'true' : 'false') + '" aria-controls="preview-frame" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '" tabindex="' + (selected ? '0' : '-1') + '" data-batch-preview-site-index="' + index + '">' + escapeHtml(displayName) + '</button>';
         }).join('');
         target.querySelectorAll('[data-batch-preview-site-index]').forEach(function(button) {
             button.addEventListener('click', function() {
@@ -1526,8 +2420,9 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         target.innerHTML = sites.map(function(site, index) {
             var selected = site === activeSite;
             var profile = DOMAIN_CATALOG[site.themeId];
+            var displayName = batchSiteDisplayName(site);
             var label = '站点 ' + (index + 1) + '：' + (site.fileName || '未命名数据源') + (profile ? '，' + profile.label : '，等待确认领域');
-            return '<button type="button" class="batch-domain-site-tab" role="tab" id="batch-domain-site-tab-' + index + '" aria-selected="' + (selected ? 'true' : 'false') + '" aria-controls="domain-detection" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '" tabindex="' + (selected ? '0' : '-1') + '" data-batch-domain-site-index="' + index + '">站点 ' + String(index + 1).padStart(2, '0') + '</button>';
+            return '<button type="button" class="batch-domain-site-tab" role="tab" id="batch-domain-site-tab-' + index + '" aria-selected="' + (selected ? 'true' : 'false') + '" aria-controls="domain-detection" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '" tabindex="' + (selected ? '0' : '-1') + '" data-batch-domain-site-index="' + index + '">' + escapeHtml(displayName) + '</button>';
         }).join('');
         target.querySelectorAll('[data-batch-domain-site-index]').forEach(function(button) {
             button.addEventListener('click', function() {
@@ -1659,6 +2554,30 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         status.classList.add('is-ready');
     }
 
+    function setBatchDataImportProgress(percent, message, state) {
+        var panel = document.getElementById('batch-data-progress');
+        var fill = document.getElementById('batch-data-progress-fill');
+        var text = document.getElementById('batch-data-progress-text');
+        var status = document.getElementById('batch-data-status');
+        var card = document.querySelector('.batch-ad-file-card');
+        var button = document.getElementById('batch-data-button');
+        var input = document.getElementById('batch-data-input');
+        var isLoading = state === 'loading';
+        if (panel) {
+            panel.hidden = false;
+            panel.dataset.state = state || 'loading';
+        }
+        if (fill) fill.style.width = Math.max(0, Math.min(100, Number(percent) || 0)) + '%';
+        if (text) text.textContent = message;
+        if (status && isLoading) {
+            status.textContent = message;
+            status.classList.remove('is-ready');
+        }
+        if (card) card.classList.toggle('is-importing', isLoading);
+        if (button) button.disabled = isLoading;
+        if (input) input.disabled = isLoading;
+    }
+
     async function importBatchDataFiles(files) {
         if (typeof BatchAdBuilder === 'undefined') {
             showNotice('批量建站组件未加载。请刷新页面后重试。', '无法读取数据源');
@@ -1669,8 +2588,21 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             showNotice('批量建站至少需要选择两份 JSON、ZIP、RAR 或 7Z 数据源。', '数据源数量不足');
             return;
         }
+        setBatchDataImportProgress(0, '准备读取 ' + list.length + ' 份数据源…', 'loading');
         try {
-            var loaded = await Promise.all(list.map(function(file, index) { return readBatchDataSource(file, index); }));
+            var loaded = [];
+            for (var index = 0; index < list.length; index++) {
+                var file = list[index];
+                var progressBase = index / list.length;
+                setBatchDataImportProgress(progressBase * 100, '正在读取第 ' + (index + 1) + '/' + list.length + ' 份：' + file.name, 'loading');
+                await new Promise(function(resolve) { window.requestAnimationFrame(resolve); });
+                var site = await readBatchDataSource(file, index, function(fileProgress, phase) {
+                    var totalProgress = (index + Math.max(0, Math.min(1, Number(fileProgress) || 0))) / list.length;
+                    setBatchDataImportProgress(totalProgress * 100, '正在读取第 ' + (index + 1) + '/' + list.length + ' 份：' + file.name + ' · ' + phase, 'loading');
+                });
+                loaded.push(site);
+                setBatchDataImportProgress(((index + 1) / list.length) * 100, '已完成第 ' + (index + 1) + '/' + list.length + ' 份：' + file.name, 'loading');
+            }
             appState.batchAdBuild = { sites: loaded, codes: [], activeSiteIndex: 0 };
             appState.adCodeMigration = null;
             // 每个数据源独立分析，严禁把第一份数据的医疗/科技等结果套用给同批其他站点。
@@ -1684,30 +2616,46 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             renderDomainDetection();
             renderBatchDataList();
             renderBatchPreviewSiteTabs();
+            setBatchDataImportProgress(100, '已完成解析 ' + loaded.length + ' 份数据源，可继续逐站确认领域。', 'success');
         } catch (error) {
+            setBatchDataImportProgress(100, '解析失败：' + (error && error.message ? error.message : '请检查数据源后重试。'), 'error');
             showNotice(error.message, '无法读取批量数据源');
         }
     }
 
-    async function readBatchDataSource(file, index) {
+    async function readBatchDataSource(file, index, onProgress) {
+        function report(progress, phase) {
+            if (typeof onProgress === 'function') onProgress(progress, phase);
+        }
         var ext = String(file && file.name || '').split('.').pop().toLowerCase();
         var data;
         var localImages = {};
         if (ext === 'json') {
+            report(0.08, '正在读取 JSON 文件');
             data = BatchAdBuilder.normalizeData(parseUploadedJson(await file.text()));
+            report(0.82, '正在分析 JSON 数据');
         } else if (ext === 'zip') {
             if (!window.JSZip) throw new Error('ZIP 解析组件未加载，请刷新页面后重试。');
+            report(0.08, '正在打开 ZIP 压缩包');
             var zip = await window.JSZip.loadAsync(await file.arrayBuffer());
             var jsonPath = Object.keys(zip.files).find(function(path) { return !zip.files[path].dir && /\.json$/i.test(path); });
             if (!jsonPath) throw new Error(file.name + ' 中没有找到 JSON 数据文件。');
+            report(0.42, '正在读取压缩包内 JSON');
             data = BatchAdBuilder.normalizeData(parseUploadedJson(await zip.files[jsonPath].async('text')));
             var imagePaths = Object.keys(zip.files).filter(function(path) { return !zip.files[path].dir && /\.(?:jpg|jpeg|png|gif|webp|svg)$/i.test(path); });
-            await Promise.all(imagePaths.map(async function(path) { localImages[path] = await zip.files[path].async('blob'); }));
+            for (var imageIndex = 0; imageIndex < imagePaths.length; imageIndex++) {
+                var imagePath = imagePaths[imageIndex];
+                report(0.55 + (imageIndex / Math.max(1, imagePaths.length)) * 0.38, '正在读取图片 ' + (imageIndex + 1) + '/' + imagePaths.length);
+                localImages[imagePath] = await zip.files[imagePath].async('blob');
+            }
         } else if (ext === 'rar' || ext === '7z') {
+            report(0.08, '正在加载 ' + ext.toUpperCase() + ' 解析组件');
             var Archive = await ensureArchiveRuntime();
+            report(0.22, '正在打开 ' + ext.toUpperCase() + ' 压缩包');
             var archive = await Archive.open(file);
             var entries;
             try {
+                report(0.42, '正在解压文件目录');
                 await archive.extractFiles();
                 entries = await archive.getFilesArray();
             } finally {
@@ -1715,6 +2663,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             }
             var jsonEntry = entries.find(function(entry) { return entry.file && /\.json$/i.test(String(entry.path || '') + String(entry.file.name || '')); });
             if (!jsonEntry) throw new Error(file.name + ' 中没有找到 JSON 数据文件。');
+            report(0.72, '正在读取压缩包内 JSON');
             data = BatchAdBuilder.normalizeData(parseUploadedJson(await jsonEntry.file.text()));
             entries.filter(function(entry) { return entry.file && /\.(?:jpg|jpeg|png|gif|webp|svg)$/i.test(String(entry.path || '') + String(entry.file.name || '')); }).forEach(function(entry) {
                 localImages[(String(entry.path || '') + String(entry.file.name || '')).replace(/\\/g, '/')] = entry.file;
@@ -1723,6 +2672,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             throw new Error(file.name + ' 不支持；批量建站只接受 .json 或包含 JSON+图片的 .zip、.rar、.7z。');
         }
         if (!data.length) throw new Error(file.name + ' 不是包含对象列表的有效数据源。');
+        report(1, '数据解析完成');
         return {
             id: 'batch-site-' + index + '-' + Date.now(), fileName: file.name, data: data,
             jsonFields: BatchAdBuilder.collectFields(data), fieldMapping: {}, codeId: '',
@@ -1815,9 +2765,19 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             .replace(/'/g, '&#39;');
     }
 
+    function formatUiError(error, fallback) {
+        if (typeof error === 'string' && error.trim()) return error.trim();
+        if (error && typeof error.message === 'string' && error.message.trim()) return error.message.trim();
+        if (error && typeof error.reason === 'string' && error.reason.trim()) return error.reason.trim() + (error.file ? '（' + error.file + '）' : '');
+        if (error && typeof error.name === 'string' && error.name && error.name !== 'Error') return error.name;
+        return fallback || '操作失败，请重试。';
+    }
+
     // ========== 步骤导航 ==========
     function goToStep(step) {
-        if (step < 1 || step > 5) return;
+        if (isAdInjectionWorkflow()) {
+            if (injectionWorkflowSteps().indexOf(step) === -1) return;
+        } else if (step < 1 || step > 5) return;
 
         // 验证当前步骤是否完成
         if (step > appState.currentStep) {
@@ -1834,21 +2794,21 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
         // 更新进度条
         stepItems.forEach(function(item, idx) {
-            var s = idx + 1;
+            var s = isAdInjectionWorkflow() ? injectionWorkflowSteps()[idx] : idx + 1;
+            if (!s) return;
+            var visualStep = isAdInjectionWorkflow() ? injectionWorkflowPosition(step) : step;
+            var itemVisualStep = isAdInjectionWorkflow() ? idx + 1 : s;
             item.classList.remove('active', 'completed');
-            if (s < step) item.classList.add('completed');
-            if (s === step) item.classList.add('active');
-            if (s === step) item.setAttribute('aria-current', 'step');
+            if (itemVisualStep < visualStep) item.classList.add('completed');
+            if (itemVisualStep === visualStep) item.classList.add('active');
+            if (itemVisualStep === visualStep) item.setAttribute('aria-current', 'step');
             else item.removeAttribute('aria-current');
-            item.disabled = s >= step;
+            item.disabled = itemVisualStep >= visualStep;
         });
 
         // 更新按钮
-        btnPrev.style.display = step > 1 ? 'inline-block' : 'none';
-        if (btnReupload) btnReupload.hidden = !(step === 1 && appState.data && appState.data.length);
-        updateNextButtonLabel(step === 5 ? '完成' : '下一步 →');
-        btnNext.style.display = step === 5 ? 'none' : 'inline-block';
-        updateWorkflowActionContext(step);
+        var injectionStep = isAdInjectionWorkflow();
+        syncWorkflowNavigation();
 
         // 步骤5：生成导出摘要
         if (step === 5) {
@@ -1857,6 +2817,12 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
         // 步骤4：更新预览
         if (step === 4) {
+            if (injectionStep) {
+                initPreviewControls();
+                var adsTab = document.querySelector('.injection-config-tab[data-injection-tab="ads"]');
+                if (adsTab) adsTab.click();
+                renderAdInjectionConfig();
+            }
             updatePreview();
         }
     }
@@ -1867,6 +2833,13 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 if (appState.siteBuildMode === 'ad-restoration') {
                     showNotice('批量广告策略是第一步内的独立工具。选择站点总目录，设置全局方案和需要的单站覆盖后，直接生成新的站点总目录。', '无需进入后续建站步骤');
                     return false;
+                }
+                if (isAdInjectionWorkflow()) {
+                    if (!(appState.adInjectionSites || []).length) {
+                        showNotice('请先上传至少一个已过审网站压缩包，并等待结构识别完成。', '还不能进入配置网站');
+                        return false;
+                    }
+                    return true;
                 }
                 if (isBatchAdBuild()) {
                     if (!appState.batchAdBuild.sites || appState.batchAdBuild.sites.length < 2) {
@@ -1926,6 +2899,16 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 }
                 return true;
             case 4:
+                if (isAdInjectionWorkflow()) {
+                    var injectionMatch = typeof AdRestoration !== 'undefined'
+                        ? AdRestoration.matchAdCodesToSites(appState.adInjectionSites || [], appState.adInjectionCodes || [])
+                        : { validCount: 0 };
+                    if (!appState.adInjectionSites.length || injectionMatch.validCount !== appState.adInjectionSites.length) {
+                        showNotice('请在广告配置中上传并通过每个站点的广告代码 TXT 配对校验。', '广告代码尚未完成');
+                        return false;
+                    }
+                    return true;
+                }
                 if (isBatchAdBuild()) {
                     var batchReport = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(appState.batchAdBuild.sites, appState.batchAdBuild.codes) : { valid: false, errors: [{ message: '批量建站组件未加载。' }] };
                     if (!batchReport.valid) {
@@ -1940,16 +2923,28 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     }
 
     btnPrev.addEventListener('click', function() {
-        goToStep(appState.currentStep - 1);
+        var targetStep = previousWorkflowStep();
+        if (targetStep) goToStep(targetStep);
     });
 
     if (btnReupload) btnReupload.addEventListener('click', function() {
         // 取消文件选择时保留已成功导入的数据，避免用户意外丢失当前工作。
+        if (isAdInjectionWorkflow()) {
+            var injectionInput = document.getElementById('injection-sites-input');
+            if (injectionInput) { injectionInput.value = ''; injectionInput.click(); }
+            return;
+        }
         openFilePicker();
     });
 
     btnNext.addEventListener('click', function() {
-        goToStep(appState.currentStep + 1);
+        try {
+            var targetStep = nextWorkflowStep();
+            if (targetStep) goToStep(targetStep);
+        } catch (error) {
+            console.error('Workflow navigation error:', error);
+            showNotice('无法进入下一步：' + formatUiError(error, '页面状态异常，请刷新后重新上传。'), '步骤切换失败');
+        }
     });
 
     // 点击步骤进度条跳转（仅已完成的步骤）
@@ -2158,25 +3153,82 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         return JSON.parse(String(text == null ? '' : text).replace(/^\uFEFF/, ''));
     }
 
+    function setSingleImportProgress(percent, message, state) {
+        var panel = document.getElementById('upload-import-progress');
+        var fill = document.getElementById('upload-import-progress-fill');
+        var value = document.getElementById('upload-import-progress-value');
+        var text = document.getElementById('upload-import-progress-text');
+        var isLoading = state === 'loading';
+        var numericPercent = Number(percent);
+        var safePercent = Number.isFinite(numericPercent)
+            ? Math.max(0, Math.min(100, Math.round(numericPercent)))
+            : Number(panel && panel.dataset.progress) || 0;
+        if (panel) {
+            panel.hidden = false;
+            panel.dataset.state = state || 'loading';
+            panel.dataset.progress = String(safePercent);
+        }
+        if (fill) fill.style.width = safePercent + '%';
+        if (value) value.textContent = safePercent + '%';
+        if (text) text.textContent = message;
+        if (uploadArea) {
+            uploadArea.classList.toggle('is-importing', isLoading);
+            uploadArea.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+        }
+        if (fileInput) fileInput.disabled = isLoading;
+    }
+
+    function beginSingleDataImport(file) {
+        // The successful-import overview hides its upload area. Re-open it only
+        // after a replacement file has actually been selected, so its progress
+        // feedback remains visible while a cancelled picker keeps prior data intact.
+        if (uploadArea) uploadArea.hidden = false;
+        setSingleImportProgress(3, '正在读取 ' + file.name + '…', 'loading');
+    }
+
+    function finishSingleDataImport(file) {
+        setSingleImportProgress(100, '已解析 ' + file.name + '，正在展示数据概览。', 'success');
+    }
+
+    function failSingleDataImport(file, error) {
+        var reason = error && error.message ? error.message : '请检查数据源后重试。';
+        setSingleImportProgress(100, '解析失败：' + reason, 'error');
+    }
+
     function handleFile(file) {
         var ext = file.name.split('.').pop().toLowerCase();
+
+        if (['json', 'zip', 'rar', '7z'].indexOf(ext) !== -1) beginSingleDataImport(file);
 
         if (ext === 'json') {
             if (appState.siteBuildMode === 'differentiated') clearDifferentiatedImport();
             var reader = new FileReader();
+            reader.onprogress = function(event) {
+                var fraction = event.lengthComputable && event.total ? event.loaded / event.total : 0.35;
+                setSingleImportProgress(5 + Math.round(fraction * 52), '正在读取 JSON：' + file.name, 'loading');
+            };
             reader.onload = function(e) {
                 try {
+                    setSingleImportProgress(68, '正在解析 JSON 结构…', 'loading');
                     var data = parseUploadedJson(e.target.result);
                     if (appState.siteBuildMode === 'differentiated') {
                         var imported = DifferentiatedBuilder.importJsonData(data, appState.differentiated.siteType);
                         applyDifferentiatedImport(imported, file.name);
                         processData(imported.data, false, {}, false, { fileName: file.name });
+                        finishSingleDataImport(file);
                         return;
                     }
                     processData(data, false, {}, false, { fileName: file.name });
+                    finishSingleDataImport(file);
                 } catch (err) {
+                    failSingleDataImport(file, err);
                     showNotice('JSON 文件解析失败：' + err.message, '无法读取文件');
                 }
+            };
+            reader.onerror = function() {
+                var error = reader.error || new Error('浏览器无法读取该文件。');
+                failSingleDataImport(file, error);
+                showNotice('JSON 文件读取失败：' + error.message, '无法读取文件');
             };
             reader.readAsText(file);
         } else if (ext === 'zip') {
@@ -2194,12 +3246,18 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             return;
         }
         if (typeof window.JSZip === 'undefined') {
+            failSingleDataImport(file, new Error('ZIP 解析组件未加载。'));
             showNotice('ZIP 解析组件未加载。请刷新页面后重试；工具会优先从本地加载该组件。', '无法读取压缩包');
             return;
         }
         var reader = new FileReader();
+        reader.onprogress = function(event) {
+            var fraction = event.lengthComputable && event.total ? event.loaded / event.total : 0.35;
+            setSingleImportProgress(5 + Math.round(fraction * 28), '正在读取 ZIP：' + file.name, 'loading');
+        };
         reader.onload = function(e) {
             window.JSZip.loadAsync(e.target.result).then(function(zip) {
+                setSingleImportProgress(42, '正在检查 ZIP 内的数据与图片…', 'loading');
                 var jsonFile = null;
                 var jsonFilePath = '';
                 var images = {};
@@ -2224,38 +3282,46 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 });
 
                 if (!jsonFile) {
+                    failSingleDataImport(file, new Error('ZIP 文件中未找到 JSON 数据文件。'));
                     showNotice('ZIP 文件中未找到 JSON 数据文件。请确认压缩包内包含可用的 JSON 文件。', '找不到数据文件');
                     return;
                 }
 
                 // 读取JSON
-                jsonFile.async('string').then(function(jsonStr) {
+                return jsonFile.async('string').then(function(jsonStr) {
                     try {
+                        setSingleImportProgress(64, '正在解析 ZIP 内的 JSON…', 'loading');
                         var data = parseUploadedJson(jsonStr);
                         var hasLocalImages = Object.keys(images).length > 0;
 
                         // 如果有本地图片，需要读取图片为blob
                         if (hasLocalImages) {
-                            var imagePromises = [];
                             var imageMap = {};
-                            Object.keys(images).forEach(function(path) {
-                                imagePromises.push(
-                                    images[path].async('blob').then(function(blob) {
+                            var imagePaths = Object.keys(images);
+                            return imagePaths.reduce(function(chain, path, imageIndex) {
+                                return chain.then(function() {
+                                    var completed = imageIndex + 1;
+                                    var percent = 70 + Math.round((completed / imagePaths.length) * 24);
+                                    setSingleImportProgress(percent, '正在读取图片 ' + completed + '/' + imagePaths.length + '：' + path, 'loading');
+                                    return images[path].async('blob').then(function(blob) {
                                         imageMap[path] = blob;
-                                    })
-                                );
-                            });
-                            Promise.all(imagePromises).then(function() {
+                                    });
+                                });
+                            }, Promise.resolve()).then(function() {
                                 processData(data, true, imageMap, false, { fileName: file.name, entryPath: jsonFilePath });
+                                finishSingleDataImport(file);
                             });
                         } else {
                             processData(data, false, {}, false, { fileName: file.name, entryPath: jsonFilePath });
+                            finishSingleDataImport(file);
                         }
                     } catch (err) {
+                        failSingleDataImport(file, err);
                         showNotice('JSON 文件解析失败：' + err.message, '无法读取数据');
                     }
                 });
             }).catch(function(err) {
+                failSingleDataImport(file, err);
                 var ext = file.name.split('.').pop().toLowerCase();
                 if (ext === 'rar' || ext === '7z') {
                     showNotice('暂不支持 .' + ext + ' 格式的直接解析。请将压缩包解压后重新打包为 .zip 格式再上传。', '无法读取压缩包');
@@ -2264,24 +3330,34 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 }
             });
         };
+        reader.onerror = function() {
+            var error = reader.error || new Error('浏览器无法读取该压缩包。');
+            failSingleDataImport(file, error);
+            showNotice('压缩包读取失败：' + error.message, '无法读取压缩包');
+        };
         reader.readAsArrayBuffer(file);
     }
 
     async function handleDifferentiatedZipFile(file) {
         if (typeof window.JSZip === 'undefined' || typeof DifferentiatedBuilder === 'undefined') {
+            failSingleDataImport(file, new Error('差异化 ZIP 解析组件未加载。'));
             showNotice('差异化 ZIP 解析组件未加载，请刷新页面后重试。', '无法读取压缩包');
             return;
         }
         clearDifferentiatedImport();
+        setSingleImportProgress(18, '正在读取差异化数据包…', 'loading');
         uploadArea.classList.add('is-reading-archive');
         uploadArea.setAttribute('aria-busy', 'true');
         fileInput.disabled = true;
         renderDifferentiatedPackageStatus('正在读取 manifest、内容、素材与来源记录…', 'pending');
         try {
             var imported = await DifferentiatedBuilder.importZip(file, appState.differentiated.siteType, { JSZip: window.JSZip });
+            setSingleImportProgress(76, '正在分析内容、素材与来源记录…', 'loading');
             applyDifferentiatedImport(imported, file.name);
             processData(imported.data, Object.keys(imported.localImages || {}).length > 0, imported.localImages || {}, true, { fileName: file.name });
+            finishSingleDataImport(file);
         } catch (error) {
+            failSingleDataImport(file, error);
             renderDifferentiatedPackageStatus('读取失败：' + error.message, 'invalid');
             showNotice('差异化数据包读取失败：' + error.message, '无法读取压缩包');
         } finally {
@@ -2307,12 +3383,15 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     }
 
     function handleArchiveFile(file, archiveType) {
+        setSingleImportProgress(16, '正在加载 ' + archiveType.toUpperCase() + ' 解析组件…', 'loading');
         uploadArea.classList.add('is-reading-archive');
         uploadArea.setAttribute('aria-busy', 'true');
         fileInput.disabled = true;
         ensureArchiveRuntime().then(function(Archive) {
+            setSingleImportProgress(30, '正在打开 ' + archiveType.toUpperCase() + ' 压缩包…', 'loading');
             return Archive.open(file).then(function(archive) {
                 return archive.extractFiles().then(function() {
+                    setSingleImportProgress(56, '正在解压数据与图片目录…', 'loading');
                     return archive.getFilesArray();
                 }).finally(function() {
                     archive.close();
@@ -2323,15 +3402,18 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 return entry.file && /\.json$/i.test(entry.path + entry.file.name);
             });
             if (!jsonEntry) {
+                failSingleDataImport(file, new Error(archiveType.toUpperCase() + ' 文件中未找到 JSON 数据文件。'));
                 showNotice(archiveType.toUpperCase() + ' 文件中未找到 JSON 数据文件。请确认压缩包内包含可用的 JSON 文件。', '找不到数据文件');
                 return;
             }
 
             return jsonEntry.file.text().then(function(jsonStr) {
+                setSingleImportProgress(76, '正在解析压缩包内的 JSON…', 'loading');
                 var data;
                 try {
                     data = parseUploadedJson(jsonStr);
                 } catch (err) {
+                    failSingleDataImport(file, err);
                     showNotice('JSON 文件解析失败：' + err.message, '无法读取数据');
                     return;
                 }
@@ -2351,8 +3433,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                     imageMap[(entry.path + entry.file.name).replace(/\\/g, '/')] = entry.file;
                 });
                 processData(data, Object.keys(imageMap).length > 0, imageMap, false, { fileName: file.name, entryPath: (jsonEntry.path || '') + jsonEntry.file.name });
+                finishSingleDataImport(file);
             });
         }).catch(function(err) {
+            failSingleDataImport(file, err);
             var details = err && err.message ? '：' + err.message : '';
             showNotice(archiveType.toUpperCase() + ' 压缩包读取失败' + details + '。请确认文件未加密、未分卷且未损坏；若问题持续，请刷新页面后重试。', '无法读取压缩包');
         }).finally(function() {
@@ -3578,6 +4662,9 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
     // ========== 预览控制 ==========
     function initPreviewControls() {
+        if (!previewFrame || previewFrame.dataset.previewControlsReady === 'true') return;
+        previewFrame.dataset.previewControlsReady = 'true';
+
         function applyPreviewSize(size) {
             var normalizedSize = ['desktop', 'tablet', 'mobile'].indexOf(size) !== -1 ? size : 'desktop';
             var configLayout = document.querySelector('.config-layout');
@@ -3927,7 +5014,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
             'content-bottom': '内容区底部',
             'footer-top': '页脚上方',
             'detail-before-content': '正文前',
-            'detail-after-content': '正文后',
+            'detail-after-content': '正文中部',
             'detail-before-related': '相关推荐前',
             'detail-after-related': '相关推荐后'
         };
@@ -3962,6 +5049,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     var previewTimeout = null;
     function updatePreview(pageType) {
         if (appState.currentStep !== 4) return;
+        if (isAdInjectionWorkflow()) {
+            updateAdInjectionPreview(pageType);
+            return;
+        }
         if (appState.siteBuildMode === 'differentiated' && (typeof DifferentiatedBuilder === 'undefined' || DifferentiatedBuilder.BUILD_VERSION !== REQUIRED_DIFFERENTIATED_BUILDER_VERSION)) {
             if (previewTimeout) clearTimeout(previewTimeout);
             previewFrame.removeAttribute('src');
@@ -3995,6 +5086,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                         categorySlug: appState.previewSectionSlug
                     })
                     : Generator.generatePreviewHtml(appState, pageType, appState.previewDetailIndex);
+                previewFrame.removeAttribute('sandbox');
                 previewFrame.removeAttribute('src');
                 previewFrame.srcdoc = html;
             } catch(e) {
@@ -4005,6 +5097,26 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 
     // ========== Step 5: 导出 ==========
     function generateExportSummary() {
+        if (isAdInjectionWorkflow()) {
+            var injectionSites = appState.adInjectionSites || [];
+            var injectionCodes = appState.adInjectionCodes || [];
+            var injectionReport = typeof AdRestoration !== 'undefined'
+                ? AdRestoration.matchAdCodesToSites(injectionSites, injectionCodes)
+                : { validCount: 0 };
+            var reactSourceSites = injectionSites.filter(function(site) { return site && site.project && site.project.kind === 'react-source'; });
+            var injectionReady = injectionSites.length > 0 && injectionReport.validCount === injectionSites.length;
+            var summary = document.getElementById('export-summary');
+            if (summary) summary.innerHTML = '<h4>成品站加广告导出前检查</h4><div class="summary-grid">' +
+                makeSummaryItem('已过审站点', injectionSites.length + ' 个') +
+                makeSummaryItem('有效广告 TXT', injectionCodes.filter(function(code) { return code.valid; }).length + '/' + injectionCodes.length + ' 份') +
+                makeSummaryItem('完成域名配对', injectionReport.validCount + '/' + injectionSites.length + ' 站') +
+                makeSummaryItem('广告位策略', '首页与详情页分别配置') +
+                makeSummaryItem('输出方式', reactSourceSites.length ? '加入广告后的完整 React 源码' : '新目录或 ZIP 新副本') +
+                '</div><section class="migration-validation ' + (injectionReady ? '' : 'invalid') + '"><h5>' + (injectionReady ? '广告代码与站点配对校验通过' : '导出仍被阻止') + '</h5><p>' + (injectionReady ? '导出只向新副本增加广告脚本和已确认广告位；上传的已过审源站保持不变。' : '请返回“配置网站”上传广告代码 TXT，并确保每个站点都有一份有效且域名匹配的代码。') + '</p></section>';
+            if (summary && reactSourceSites.length) summary.innerHTML += '<section class="migration-validation"><h5>React 源码将完整导出</h5><p>浏览器不会执行 npm install 或 npm run build；工具会导出加入广告后的完整工程。请下载后在项目环境安装依赖并执行生产构建，再部署新生成的 dist、build 或框架输出目录。</p></section>';
+            updateAdInjectionControls();
+            return;
+        }
         if (isBatchAdBuild()) {
             var batchTarget = document.getElementById('export-summary');
             var batch = appState.batchAdBuild || { sites: [], codes: [] };
@@ -4099,6 +5211,26 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         return '<div class="summary-item"><span class="label">' + escapeHtml(label) + '</span><span class="value">' + escapeHtml(value) + '</span></div>';
     }
 
+    function updateExportProgress(percent, message, state) {
+        var progressDiv = document.getElementById('export-progress');
+        var progressFill = document.getElementById('progress-fill');
+        var progressValue = document.getElementById('progress-value');
+        var progressText = document.getElementById('progress-text');
+        var numericPercent = Number(percent);
+        var safePercent = Number.isFinite(numericPercent)
+            ? Math.max(0, Math.min(100, Math.round(numericPercent)))
+            : Number(progressDiv && progressDiv.dataset.progress) || 0;
+
+        if (progressDiv) {
+            progressDiv.hidden = false;
+            progressDiv.dataset.state = state || 'loading';
+            progressDiv.dataset.progress = String(safePercent);
+        }
+        if (progressFill) progressFill.style.width = safePercent + '%';
+        if (progressValue) progressValue.textContent = safePercent + '%';
+        if (progressText) progressText.textContent = message;
+    }
+
     // 导出按钮
     document.getElementById('btn-export').addEventListener('click', function() {
         if (isBatchAdBuild()) {
@@ -4109,22 +5241,20 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
                 return;
             }
             var batchButton = this;
-            var batchProgress = document.getElementById('export-progress');
-            var batchFill = document.getElementById('progress-fill');
-            var batchText = document.getElementById('progress-text');
             batchButton.disabled = true;
-            batchProgress.style.display = 'block';
+            batchButton.setAttribute('aria-busy', 'true');
+            updateExportProgress(3, '正在准备批量站点与广告代码…', 'loading');
             BatchAdBuilder.exportBatch(appState, function(percent, text) {
-                batchFill.style.width = percent + '%';
-                batchText.textContent = text;
+                updateExportProgress(percent, text, 'loading');
             }, window.JSZip).then(function(result) {
                 saveAs(result.blob, 'batch-ad-websites.zip');
-                batchText.textContent = '✅ ' + result.reports.length + ' 个站点已完成运行时广告检查并开始下载';
+                updateExportProgress(100, result.reports.length + ' 个站点已完成运行时广告检查，ZIP 已开始下载。', 'success');
             }).catch(function(error) {
-                batchText.textContent = '❌ 批量导出失败：' + error.message;
+                updateExportProgress(null, '批量导出失败：' + error.message, 'error');
                 showNotice(error.message, '批量导出未完成');
             }).finally(function() {
                 batchButton.disabled = false;
+                batchButton.removeAttribute('aria-busy');
                 generateExportSummary();
             });
             return;
@@ -4139,45 +5269,40 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         }
         var btn = this;
         btn.disabled = true;
-        var progressDiv = document.getElementById('export-progress');
-        var progressFill = document.getElementById('progress-fill');
-        var progressText = document.getElementById('progress-text');
-        progressDiv.style.display = 'block';
+        btn.setAttribute('aria-busy', 'true');
+        updateExportProgress(3, '正在准备导出文件…', 'loading');
 
         Generator.exportWebsite(appState, function(percent, text) {
-            progressFill.style.width = percent + '%';
-            progressText.textContent = text;
+            updateExportProgress(percent, text, 'loading');
         }).then(function(blob) {
             var theme = THEMES[appState.selectedTheme];
             var exportTitle = appState.config.siteTitle || theme.siteTitle;
             saveAs(blob, exportTitle.replace(/\s+/g, '-').toLowerCase() + '-website.zip');
-            progressText.textContent = '✅ 导出成功！文件已开始下载';
+            updateExportProgress(100, '导出成功，ZIP 文件已开始下载。', 'success');
             btn.disabled = false;
+            btn.removeAttribute('aria-busy');
         }).catch(function(err) {
-            progressText.textContent = '❌ 导出失败: ' + err.message;
+            updateExportProgress(null, '导出失败：' + err.message, 'error');
             btn.disabled = false;
+            btn.removeAttribute('aria-busy');
             console.error('Export error:', err);
         });
     });
 
     function exportDifferentiatedSite(variant, button) {
         appState.differentiated.exportVariant = variant;
-        var progressDiv = document.getElementById('export-progress');
-        var progressFill = document.getElementById('progress-fill');
-        var progressText = document.getElementById('progress-text');
         document.querySelectorAll('[data-diff-export]').forEach(function(item) { item.disabled = true; });
         if (button) button.setAttribute('aria-busy', 'true');
-        progressDiv.style.display = 'block';
+        updateExportProgress(3, '正在准备差异化站点的导出文件…', 'loading');
         DifferentiatedBuilder.exportWebsite(appState, function(percent, text) {
-            progressFill.style.width = percent + '%';
-            progressText.textContent = text;
+            updateExportProgress(percent, text, 'loading');
         }, { variant: variant, siteType: appState.differentiated.siteType, JSZip: window.JSZip }).then(function(blob) {
             var config = DifferentiatedBuilder.buildConfig(appState, { variant: variant, siteType: appState.differentiated.siteType });
             saveAs(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'static-site') + '-' + variant + '.zip');
-            progressText.textContent = '✅ 差异化静态站导出成功；ZIP 已开始下载';
+            updateExportProgress(100, '差异化静态站导出成功，ZIP 已开始下载。', 'success');
             generateExportSummary();
         }).catch(function(error) {
-            progressText.textContent = '❌ 导出失败：' + error.message;
+            updateExportProgress(null, '导出失败：' + error.message, 'error');
             showNotice(error.message, '差异化导出未完成');
             generateExportSummary();
         }).finally(function() {
@@ -4207,7 +5332,7 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
     goToStep = function(step) {
         var prevStep = appState.currentStep;
         originalGoToStep(step);
-        if (step !== prevStep) {
+        if (appState.currentStep === step && step !== prevStep) {
             onStepEnter(step);
         }
     };
@@ -4238,8 +5363,10 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         var templateId = randomPickWithoutRecent(domainTemplates.map(function(t) { return t.id; }), appState.randomTemplateHistory, 3);
         applyTemplatePreset(templateId, false);
         applyRandomIconSet(false);
+        // 每次都从完整配色主题库抽取，模板和配色共同构成随机结果。
+        c.selectedStyle = randomPick(STYLE_PRESETS.map(function(s) { return s.id; }));
 
-        // 再做少量可控扰动，保留模板的设计意图，避免随机结果沦为“颜色抽奖”。
+        // 再做少量可控扰动，保留模板的设计意图。
         c.categoryTitleStyle = randomPick(['single', 'none', 'double', 'dotted', 'gradient', 'left-accent']);
         c.categoryTitleAlign = randomPick(['left', 'center']);
         c.cardHover = randomPick(['float', 'scale', 'glow', 'slide-up', 'image-zoom', 'color-reveal', 'title-underline', 'accent-line', 'none']);
@@ -4252,7 +5379,6 @@ import './differentiated-builder.js?v=20260915-industrial-catalog-1';
         if (Math.random() > 0.35) c.fontStyle = randomPick(FONT_PRESETS.map(function(font) { return font.id; }));
 
         // 仅小概率改动高影响项，仍然让模板之间保持明显识别度。
-        if (Math.random() > 0.55) c.selectedStyle = randomPick(STYLE_PRESETS.map(function(s) { return s.id; }));
         if (Math.random() > 0.65) c.cardColumns = randomPick(['auto', '2', '3', '4']);
     }
 

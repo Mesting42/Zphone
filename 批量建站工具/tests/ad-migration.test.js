@@ -148,6 +148,23 @@ describe('legacy ad migration', () => {
     expect(config.adPaths.analyticsID).toBe('G-Z5JQ643FJG');
   });
 
+  it('classifies out-of-page slots, commented GAM paths and gtag URLs by their names instead of source order', () => {
+    const result = context.__migration.inspectAdCodeText(`
+      // /23362639143/example.com-banner3
+      googletag.defineOutOfPageSlot( '/23362639143/example.com-ANC' , googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR);
+      googletag.defineSlot('/23362639143/example.com-banner1', [[250, 300]], 'one');
+      googletag.defineOutOfPageSlot('/23362639143/example.com-INT', googletag.enums.OutOfPageFormat.INTERSTITIAL);
+      googletag.defineSlot('/23362639143/example.com-banner2', [[300, 250]], 'two');
+      <script src="https://www.googletagmanager.com/gtag/js?id=G-8CL47RETMP"></script>
+    `, 'example.com.txt');
+    expect(result.valid).toBe(true);
+    expect(result.config).toMatchObject({
+      bannerPath1: '/23362639143/example.com-banner1', bannerPath2: '/23362639143/example.com-banner2',
+      bannerPath3: '/23362639143/example.com-banner3', interstitialPath: '/23362639143/example.com-INT',
+      anchorPath: '/23362639143/example.com-ANC', analyticsID: 'G-8CL47RETMP'
+    });
+  });
+
   it('keeps bannerPath4 empty through the archive-based ad-migration export workflow', async () => {
     const threeBannerEntries = [
       {
@@ -269,7 +286,9 @@ describe('legacy ad migration', () => {
 
     const migration = context.__migration.inspectEntries(legacyEntries);
     const migrationPreview = context.__generator.generatePreviewHtml(createState('ad-migration', migration), 'home');
-    expect(count(migrationPreview, '>advertisement</div>')).toBe(3);
+    expect(count(migrationPreview, '>advertisement1</div>')).toBe(1);
+    expect(count(migrationPreview, '>advertisement2</div>')).toBe(1);
+    expect(count(migrationPreview, '>advertisement3</div>')).toBe(1);
     await context.__generator.exportWebsite(createState('ad-migration', migration), () => {});
     const migrated = globalThis.__legacyGeneratedFiles;
     const home = migrated['website/index.html'];
@@ -283,9 +302,11 @@ describe('legacy ad migration', () => {
     expect(count(home, 'src="js/ad\\.js\\?v=20260919-ad-runtime-init-1-[a-z0-9]+"')).toBe(1);
     expect(count(detail, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js')).toBe(1);
     expect(count(detail, 'src="\\.\\./js/ad\\.js\\?v=20260919-ad-runtime-init-1-[a-z0-9]+"')).toBe(1);
-    expect(count(home, '>advertisement</div>')).toBe(3);
-    expect(count(detail, '>advertisement</div>')).toBe(3);
-    expect(home).toContain('color:var(--color-text,#111)');
+    ['advertisement1', 'advertisement2', 'advertisement3'].forEach((label) => {
+      expect(count(home, '>' + label + '</div>')).toBe(1);
+      expect(count(detail, '>' + label + '</div>')).toBe(1);
+    });
+    expect(home).toContain('color:black;font-size:13px');
     ['banner1', 'banner2', 'banner3'].forEach((name) => {
       expect(count(home, 'id="div-gpt-ad-' + name + '"')).toBe(1);
       expect(count(detail, 'id="div-gpt-ad-' + name + '"')).toBe(1);

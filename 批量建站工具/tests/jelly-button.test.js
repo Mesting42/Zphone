@@ -40,6 +40,12 @@ describe('Jelly Explore button', () => {
         expect(mainIndex).not.toContain('liquid-command-deck');
         expect(mainIndex).not.toContain('header-brand');
         expect(mainIndex).toContain('workflow-action-dock');
+        expect(mainIndex).toContain('class="btn-export btn-next"');
+        expect(mainIndex).toContain('data-lucide-icon="package"');
+        expect(mainIndex).toContain('data-size="tablet" title="平板" aria-label="平板预览"');
+        expect(mainIndex).toContain('aria-label="平板预览">📟</button>');
+        expect(mainIndex).not.toContain('📦 导出网站ZIP');
+        expect(mainIndex).toContain('id="export-progress" role="status" aria-live="polite"');
         ['panels-top-left', 'gamepad-2', 'file-input', 'badge-plus', 'sliders-horizontal', 'wand-sparkles'].forEach((icon) => {
             expect(mainIndex).toContain(`data-lucide-icon="${icon}"`);
         });
@@ -73,7 +79,9 @@ describe('Jelly Explore button', () => {
         expect(liquidGlassCss).toContain('.btn-next.jelly-explore-button.jelly-hover-only');
         expect(liquidGlassCss).toContain('.btn-prev.jelly-explore-button.jelly-workflow-secondary');
         expect(liquidGlassCss).toContain('.btn-reupload.jelly-explore-button.jelly-workflow-secondary');
-  expect(liquidGlassCss).toContain('Baseline geometry must not depend on the decoration script');
+        expect(liquidGlassCss).toContain('Secondary controls sit side-by-side');
+        expect(liquidGlassCss).toContain('opacity: 0.32;');
+        expect(liquidGlassCss).toContain('Baseline geometry must not depend on the decoration script');
   expect(liquidGlassCss).toContain('border-radius: 28px !important');
   expect(liquidGlassCss).toContain('border-radius 220ms cubic-bezier(.16, 1, .3, 1)');
   expect(runtime).not.toContain('is-jelly-exiting');
@@ -81,6 +89,11 @@ describe('Jelly Explore button', () => {
         expect(liquidGlassCss).toContain('transform: translateY(0) scale(0.94) !important');
         expect(liquidGlassCss).toContain('.liquid-command-progress');
         expect(liquidGlassCss).toContain('/* A segment appears only after its preceding step is complete; future steps do not get a preview rail. */');
+        expect(liquidGlassCss).toContain('The rail uses the same vertical axis as the numbered circles');
+        expect(liquidGlassCss).toContain('/* Each segment starts and ends at the actual centers of adjacent flexed steps. */');
+        expect(liquidGlassCss).toContain('top: calc(var(--step-circle-center-y) - 1px);');
+        expect(liquidGlassCss).toContain('left: calc(10% + var(--step-rail-double-trim));');
+        expect(liquidGlassCss).toContain('width: calc(20% - var(--step-rail-trim));');
         expect(liquidGlassCss).toContain('opacity: 0;');
         expect(liquidGlassCss).toContain('opacity: 1;');
         expect(liquidGlassCss).toContain('.game-command-progress > .step-line { left: calc(25% + 9px); width: calc(50% - 18px); }');
@@ -90,6 +103,19 @@ describe('Jelly Explore button', () => {
         expect(liquidGlassCss).toContain('margin: 18px auto 0;');
         expect(liquidGlassCss).toContain('.tool-return-link.jelly-explore-button .jelly-explore-body');
         expect(liquidGlassCss).toContain('.tool-return-link.jelly-explore-button.is-jelly-active .jelly-explore-body { opacity: 1; }');
+    });
+
+    it('keeps export feedback determinate and distinguishes success from failure', () => {
+        const mainApp = readFileSync(resolve(projectRoot, 'js/app.js'), 'utf8');
+        const mainCss = readFileSync(resolve(projectRoot, 'css/tool.css'), 'utf8');
+
+        expect(mainApp).toContain('function updateExportProgress(percent, message, state)');
+        expect(mainApp).toContain("updateExportProgress(100, '导出成功，ZIP 文件已开始下载。', 'success')");
+        expect(mainApp).toContain("updateExportProgress(null, '导出失败：' + err.message, 'error')");
+        expect(mainCss).toContain('.export-progress[data-state="success"]');
+        expect(mainCss).toContain('.export-progress[data-state="error"]');
+        expect(mainCss).toContain('font-variant-numeric: tabular-nums;');
+        expect(mainCss).toContain('.export-button-icon svg');
     });
 });
 

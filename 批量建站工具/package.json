@@ -14,9 +14,14 @@
   },
   "dependencies": {
     "jszip": "3.10.1",
-    "libarchive.js": "^2.0.2"
+    "libarchive.js": "^2.0.2",
+    "node-unrar-js": "^2.0.2"
   },
   "devDependencies": {
+    "@babel/generator": "^8.0.6",
+    "@babel/parser": "^8.0.6",
+    "@babel/traverse": "^8.0.6",
+    "@babel/types": "^8.0.6",
     "vite": "7.1.4",
     "vitest": "3.2.4"
   }

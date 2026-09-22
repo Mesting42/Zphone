@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
-const app = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+const app = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const builder = readFileSync(new URL('../js/batch-ad-builder.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../css/tool.css', import.meta.url), 'utf8');

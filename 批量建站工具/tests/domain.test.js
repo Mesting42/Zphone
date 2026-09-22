@@ -5,7 +5,7 @@ import vm from 'node:vm';
 const context = {};
 const dataSource = readFileSync(new URL('../js/data.js', import.meta.url), 'utf8');
 const domainSource = readFileSync(new URL('../js/domain.js', import.meta.url), 'utf8');
-const generatorSource = readFileSync(new URL('../js/generator.js', import.meta.url), 'utf8');
+const generatorSource = readFileSync(new URL('../js/generator.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 vm.runInNewContext(`${dataSource}\nthis.__catalog = DOMAIN_CATALOG; this.__templates = TEMPLATE_PRESETS; this.__styles = STYLE_PRESETS; this.__brands = BRAND_PRESETS; this.__logoIconGroups = LOGO_ICON_GROUPS; this.__logoIconDefaults = LOGO_ICON_DEFAULTS; this.__allCategoryEmojiIcons = ALL_CATEGORY_EMOJI_ICONS; this.__categoryEmojiPools = DOMAIN_CATEGORY_EMOJI_POOLS; this.__themes = THEMES; this.__iconSets = ICON_SET_PRESETS;`, context);
 vm.runInNewContext(domainSource, context);
 vm.runInNewContext(`${generatorSource}\nthis.__generator = Generator;`, context);

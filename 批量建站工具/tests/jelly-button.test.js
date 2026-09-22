@@ -121,7 +121,7 @@ describe('Jelly Explore button', () => {
 
 describe('configuration select layering', () => {
     it('raises the complete glass group while a custom select is open', () => {
-        const app = readFileSync(resolve(projectRoot, 'js/app.js'), 'utf8');
+        const app = readFileSync(resolve(projectRoot, 'js/app.js'), 'utf8').replace(/\r\n/g, '\n');
         const css = readFileSync(resolve(projectRoot, 'css/tool.css'), 'utf8');
 
         expect(app).toContain("var configGroup = shell.closest('.config-group');");
@@ -134,7 +134,7 @@ describe('configuration select layering', () => {
     });
 
     it('raises category icon menus above later glass groups and uses an Emoji font stack', () => {
-        const app = readFileSync(resolve(projectRoot, 'js/app.js'), 'utf8');
+        const app = readFileSync(resolve(projectRoot, 'js/app.js'), 'utf8').replace(/\r\n/g, '\n');
         const css = readFileSync(resolve(projectRoot, 'css/tool.css'), 'utf8');
 
         expect(app).toContain('function closeCategoryIconPickers(exceptPicker)');

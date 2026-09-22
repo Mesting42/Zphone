@@ -31,6 +31,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         previewDetailIndex: 0,
         previewSectionSlug: '',
         adPlacementMode: null,  // null or 'adv1'|'adv2'|'adv3'
+        normalAdMode: 'code',   // code: 上传 TXT 自动接入；reserve: 先导出空 ad.js 与手动广告位
         siteBuildMode: 'normal',
         legacyAdMigration: null,
         adCodeMigration: null,
@@ -330,6 +331,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             renderDifferentiatedPackageStatus();
             populateDifferentiatedDesigns();
         }
+        syncDirectAdPlacementUI();
         // Switching workflow cards happens without changing the numeric step.
         // Keep the sticky action dock in sync immediately; otherwise it still
         // advertises and may attempt the normal 1 → 2 route.
@@ -4819,17 +4821,38 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
     }
 
     function hasValidatedDirectAdCode() {
-        return appState.siteBuildMode !== 'ad-migration' && !!(appState.adCodeMigration && appState.adCodeMigration.valid);
+        return appState.siteBuildMode !== 'ad-migration' && appState.normalAdMode !== 'reserve' && !!(appState.adCodeMigration && appState.adCodeMigration.valid);
     }
 
-    // 已验证的 TXT 使用固定广告位；没有 TXT 时才允许以预览标记手动挑选位置。
+    function isReservedDirectAdMode() {
+        return appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
+    }
+
+    function reservedAdPlacementCount() {
+        var placements = appState.config && appState.config.adPlacements || {};
+        return Object.keys(placements).reduce(function(total, adId) {
+            var pages = placements[adId] || {};
+            return total + (pages.home ? 1 : 0) + (pages.detail ? 1 : 0);
+        }, 0);
+    }
+
+    // 两种模式互斥：预留模式只显示手动位置；代码模式只显示 TXT 上传与自动放置结果。
     function syncDirectAdPlacementUI() {
         var automatic = hasValidatedDirectAdCode();
+        var reserved = isReservedDirectAdMode();
         var manualGroup = document.getElementById('ad-placement-group');
+        var codePanel = document.getElementById('ad-code-mode-panel');
         var automaticNote = document.getElementById('ad-auto-placement-note');
-        if (manualGroup) manualGroup.hidden = automatic;
+        var modeGroup = document.getElementById('normal-ad-mode-group');
+        var normalWorkflow = appState.siteBuildMode === 'normal';
+        if (modeGroup) modeGroup.hidden = !normalWorkflow;
+        if (manualGroup) manualGroup.hidden = !reserved;
+        if (codePanel) codePanel.hidden = reserved || !normalWorkflow;
         if (automaticNote) automaticNote.hidden = !automatic;
-        if (automatic) appState.adPlacementMode = null;
+        document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
+            input.checked = input.value === appState.normalAdMode;
+        });
+        if (!reserved) appState.adPlacementMode = null;
     }
 
     function initAdConfig() {
@@ -4838,6 +4861,16 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var adCodeBtn = document.getElementById('ad-code-btn');
         var adCodeStatus = document.getElementById('ad-code-status');
         var adCodePreview = document.getElementById('ad-code-preview');
+        document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                appState.normalAdMode = this.value === 'reserve' ? 'reserve' : 'code';
+                if (appState.normalAdMode !== 'reserve') exitAdPlacementMode();
+                syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
+        });
         // 自定义按钮触发文件选择
         if (adCodeBtn && adCodeUpload) {
             adCodeBtn.addEventListener('click', function() {
@@ -4917,6 +4950,10 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
     }
 
     function enterAdPlacementMode(adId) {
+        if (!isReservedDirectAdMode()) {
+            showNotice('请先选择“先预留广告位”模式，再手动设置首页和详情页的位置。', '请选择广告接入方式');
+            return;
+        }
         if (hasValidatedDirectAdCode()) {
             showNotice('广告 TXT 已通过校验，系统会自动插入三个广告位，无需手动选择位置。', '已自动放置广告');
             return;
@@ -5190,13 +5227,18 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         summaryHtml += makeSummaryItem('相关推荐', config.relatedCount + '条');
         var migration = appState.legacyAdMigration;
         var isMigration = appState.siteBuildMode === 'ad-migration';
+        var isReservedAds = appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
         summaryHtml += makeSummaryItem('建站方式', isMigration ? '广告移植建站' : '普通建站');
+        if (!isMigration) summaryHtml += makeSummaryItem('广告接入', isReservedAds ? '先预留广告位，后填 ID' : '上传代码自动添加');
         summaryHtml += '</div>';
         var adCode = appState.adCodeMigration;
-        var isAdCodeBuild = !isMigration && !!adCode;
+        var isAdCodeBuild = !isMigration && !isReservedAds && !!adCode;
         var adCodeValid = !adCode || adCode.valid;
+        var reservedCount = isReservedAds ? reservedAdPlacementCount() : 0;
         if (isMigration) {
             summaryHtml += '<section class="migration-validation ' + (migration && migration.valid ? '' : 'invalid') + '"><h5>广告移植导出前校验</h5>' + migrationResultHtml(migration) + '</section>';
+        } else if (isReservedAds) {
+            summaryHtml += '<section class="migration-validation ' + (reservedCount ? '' : 'invalid') + '"><h5>' + (reservedCount ? '广告位预留配置完成' : '尚未放置广告位') + '</h5><p>' + (reservedCount ? '将导出 ' + reservedCount + ' 个首页/详情页广告位置，并生成路径为空的 js/ad.js。拿到运营代码后，只需填写 bannerPath1/2/3、interstitialPath、anchorPath 和 analyticsID。' : '请返回“广告代码”标签，至少在首页或详情页放置一个广告容器后再导出。') + '</p></section>';
         } else if (isAdCodeBuild) {
             summaryHtml += '<section class="migration-validation ' + (adCodeValid ? '' : 'invalid') + '"><h5>广告代码建站校验</h5>' + migrationResultHtml(adCode) + '</section>';
         } else {
@@ -5204,7 +5246,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         }
 
         document.getElementById('export-summary').innerHTML = summaryHtml;
-        document.getElementById('btn-export').disabled = (isMigration && !(migration && migration.valid)) || (!isMigration && isAdCodeBuild && !adCodeValid);
+        document.getElementById('btn-export').disabled = (isMigration && !(migration && migration.valid)) || (!isMigration && isAdCodeBuild && !adCodeValid) || (isReservedAds && !reservedCount);
     }
 
     function makeSummaryItem(label, value) {
@@ -5263,7 +5305,11 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             showNotice('广告移植校验尚未通过，不能导出不完整站点。请先处理校验结果中的问题。', '暂时不能导出');
             return;
         }
-        if (appState.siteBuildMode === 'normal' && appState.adCodeMigration && !appState.adCodeMigration.valid) {
+        if (appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve' && !reservedAdPlacementCount()) {
+            showNotice('请先在首页或详情页至少放置一个广告容器。导出后，这些位置会保留并由空配置的 js/ad.js 管理。', '尚未放置广告位');
+            return;
+        }
+        if (appState.siteBuildMode === 'normal' && appState.normalAdMode !== 'reserve' && appState.adCodeMigration && !appState.adCodeMigration.valid) {
             showNotice('广告代码尚未通过校验。请重新上传对应子域名的广告代码 TXT 文件。', '暂时不能导出');
             return;
         }

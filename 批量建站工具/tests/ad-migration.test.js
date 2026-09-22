@@ -194,6 +194,39 @@ describe('legacy ad migration', () => {
     expect(globalThis.__legacyGeneratedFiles['website/index.html']).not.toContain('div-gpt-ad-banner1');
   });
 
+  it('exports manually placed ad containers with an empty editable ad.js in reserve mode', async () => {
+    const state = createState();
+    state.normalAdMode = 'reserve';
+    state.config.adPlacements = {
+      adv1: { home: 'content-top', detail: 'detail-before-content' },
+      adv2: { home: 'after-section-0' },
+      adv3: { detail: 'detail-before-related' }
+    };
+
+    const config = context.__generator.buildConfig(state);
+    expect(config.siteBuildMode).toBe('ad-placeholder');
+    expect(config.adRuntimeEnabled).toBe(true);
+    expect(config.adPlacements).toEqual(state.config.adPlacements);
+    expect(config.adPaths).toEqual({});
+
+    await context.__generator.exportWebsite(state, () => {});
+    const files = globalThis.__legacyGeneratedFiles;
+    expect(files['website/index.html']).toContain('div-gpt-ad-banner1');
+    expect(files['website/index.html']).toContain('div-gpt-ad-banner2');
+    expect(files['website/details/article1.html']).toContain('div-gpt-ad-banner1');
+    expect(files['website/details/article1.html']).toContain('div-gpt-ad-banner3');
+    expect(files['website/index.html']).toContain('src="js/ad.js?v=');
+    expect(files['website/details/article1.html']).toContain('src="../js/ad.js?v=');
+    expect(files['website/js/ad.js']).toContain('const bannerPath1 = "";');
+    expect(files['website/js/ad.js']).toContain('const bannerPath2 = "";');
+    expect(files['website/js/ad.js']).toContain('const bannerPath3 = "";');
+    expect(files['website/js/ad.js']).toContain('const interstitialPath = "";');
+    expect(files['website/js/ad.js']).toContain('const anchorPath = "";');
+    expect(files['website/js/ad.js']).toContain('const analyticsID = "";');
+    expect(files['website/AD_PLACEHOLDER_SETUP.txt']).toContain('不需要重新生成页面');
+    expect(files['website/generate_details.py']).toBeUndefined();
+  });
+
   it('uses the in-app notice dialog instead of browser alert prompts', () => {
     const app = source('app.js');
     const page = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
@@ -208,7 +241,11 @@ describe('legacy ad migration', () => {
     expect(page).not.toContain('M20 11a8 8 0 1 0 2 5.2');
     expect(page).toContain('id="ad-placement-group"');
     expect(page).toContain('id="ad-auto-placement-note"');
+    expect(page).toContain('name="normal-ad-mode"');
+    expect(page).toContain('value="reserve"');
+    expect(page).toContain('id="ad-code-mode-panel"');
     expect(app).toContain('function syncDirectAdPlacementUI()');
+    expect(app).toContain("normalAdMode: 'code'");
   });
 
   it('keeps featured home grids balanced for three, four, and six items', () => {

@@ -15,8 +15,12 @@ const Generator = (function() {
             .replace(/&/g, '\\u0026');
     }
 
-    function hasMigratedAds(config) {
-        return !!(config && config.siteBuildMode === 'ad-migration' && config.adMigration && config.adMigration.valid);
+    function hasAdRuntime(config) {
+        return !!(config && (config.adRuntimeEnabled || (config.siteBuildMode === 'ad-migration' && config.adMigration && config.adMigration.valid)));
+    }
+
+    function hasValidatedAdConfig(config) {
+        return !!(config && config.adMigration && config.adMigration.valid);
     }
 
     // 导出页以内联样式作为外部 CSS 的兜底。部分静态托管会错误地跳过 css/
@@ -2164,7 +2168,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const footer = generateFooter(config);
         const adPlacements = config.adPlacements || {};
         const adRuntimeVersion = getAdRuntimeVersion(config.adPaths);
-        const adScripts = hasMigratedAds(config)
+        const adScripts = hasAdRuntime(config)
             ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
             : '';
 
@@ -2486,7 +2490,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const itemId = getItemId(item, index);
         const siteName = theme.siteTitle;
         const adRuntimeVersion = getAdRuntimeVersion(config.adPaths);
-        const adScripts = hasMigratedAds(config)
+        const adScripts = hasAdRuntime(config)
             ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="../js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
             : '';
 
@@ -2942,7 +2946,7 @@ if __name__ == '__main__':
 
         // index.html
         const homeHtml = generateIndexHtml(config);
-        if (hasMigratedAds(config)) {
+        if (hasValidatedAdConfig(config)) {
             const errors = validateMigratedPage(homeHtml, 'home');
             if (errors.length) throw new Error('广告移植首页校验失败：' + errors.map(function(item) { return item.message; }).join(' '));
         }
@@ -2953,8 +2957,8 @@ if __name__ == '__main__':
         // script.js
         siteFolder.folder('js').file('script.js', generateScriptJs(config));
 
-        // 广告移植模式才生成 ad.js；普通建站不读取旧站，也不输出广告资源。
-        if (hasMigratedAds(config)) {
+        // 已校验广告代码与“先预留广告位”模式都输出同一份运行时；后者的路径保持为空。
+        if (hasAdRuntime(config)) {
             siteFolder.folder('js').file('ad.js', generateAdJs(config.adPaths));
         }
 
@@ -2988,7 +2992,7 @@ if __name__ == '__main__':
 
         for (let i = 0; i < total; i++) {
             const detailHtml = generateDetailHtml(data[i], i, data, config);
-            if (hasMigratedAds(config)) {
+            if (hasValidatedAdConfig(config)) {
                 const errors = validateMigratedPage(detailHtml, 'detail');
                 if (errors.length) throw new Error('广告移植详情页校验失败（第 ' + (i + 1) + ' 页）：' + errors.map(function(item) { return item.message; }).join(' '));
             }
@@ -3013,10 +3017,12 @@ if __name__ == '__main__':
             }
         }
 
-        // 广告移植站必须通过本生成器重新生成详情页，避免另一个简化脚本覆盖已校验的广告容器。
-        onProgress(92, hasMigratedAds(config) ? '正在写入广告移植说明...' : '正在生成Python脚本...');
-        if (hasMigratedAds(config)) {
+        // 带广告运行时的站点必须通过本生成器重新生成详情页，避免简化脚本覆盖广告容器。
+        onProgress(92, hasAdRuntime(config) ? '正在写入广告运行时说明...' : '正在生成Python脚本...');
+        if (hasValidatedAdConfig(config)) {
             siteFolder.file('AD_MIGRATION_REGENERATION.txt', '广告移植站的详情页必须使用本建站工具重新导出。生成器模板会在所有详情页保留 GPT、../js/ad.js 与 banner1/2/3 容器，并在打包前重新校验数量。请勿使用旧版 generate_details.py 覆盖详情页。\n');
+        } else if (hasAdRuntime(config)) {
+            siteFolder.file('AD_PLACEHOLDER_SETUP.txt', '本网站已预留广告容器，并生成路径为空的 js/ad.js。拿到运营广告代码后，请填写 bannerPath1、bannerPath2、bannerPath3、interstitialPath、anchorPath 与 analyticsID；不需要重新生成页面。请勿使用旧版 generate_details.py 覆盖详情页。\n');
         } else {
             siteFolder.file('generate_details.py', generatePythonScript(config));
         }
@@ -3051,15 +3057,17 @@ if __name__ == '__main__':
         // 四个信任页面必须跟随当前领域、分类、品牌和联系邮箱，而不是复用某个默认资讯主题的文案。
         theme.pages = buildDomainTrustPages(appState.selectedTheme, profile, theme, selectedCategories, contactEmail);
         const mapping = appState.fieldMapping;
+        const reserveAds = appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
         const migration = appState.siteBuildMode === 'ad-migration' && appState.legacyAdMigration && appState.legacyAdMigration.valid
             ? appState.legacyAdMigration
-            : (appState.siteBuildMode === 'normal' && appState.adCodeMigration && appState.adCodeMigration.valid
+            : (appState.siteBuildMode === 'normal' && !reserveAds && appState.adCodeMigration && appState.adCodeMigration.valid
                 ? appState.adCodeMigration
                 : null);
-        // 已验证广告代码采用固定广告位；未上传代码时，手动位置仅用于预览，
-        // 从而避免导出不包含广告代码的空白广告区域。
+        // 已验证广告代码继续采用固定位置；预留模式则把用户在首页/详情页选择的位置写入导出站。
         const automaticAdPlacements = migration && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
-        const previewAdPlacements = !migration && previewManualAds ? (appState.config.adPlacements || {}) : {};
+        const manualAdPlacements = appState.config.adPlacements || {};
+        const exportedAdPlacements = migration ? automaticAdPlacements : (reserveAds ? manualAdPlacements : {});
+        const previewAdPlacements = !migration && previewManualAds ? manualAdPlacements : exportedAdPlacements;
 
         return {
             theme: theme,
@@ -3123,9 +3131,10 @@ if __name__ == '__main__':
                 detailLayout: appState.config.detailLayout || 'single',
                 cardViewMode: appState.config.cardViewMode || 'card'
             },
-            siteBuildMode: migration ? 'ad-migration' : 'normal',
+            siteBuildMode: migration ? 'ad-migration' : (reserveAds ? 'ad-placeholder' : 'normal'),
             adMigration: migration,
-            adPlacements: migration ? automaticAdPlacements : previewAdPlacements,
+            adRuntimeEnabled: !!migration || reserveAds,
+            adPlacements: previewManualAds ? previewAdPlacements : exportedAdPlacements,
             adPaths: migration ? migration.config : {},
             adPlacementMode: appState.adPlacementMode || null,
             isLocalImages: appState.isLocalImages || false

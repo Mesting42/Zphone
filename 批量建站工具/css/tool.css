@@ -3696,6 +3696,37 @@ body.preview-fullscreen-open {
     .jelly-explore-button.is-jelly-active .jelly-explore-blob { opacity: 0; }
 }
 .differentiated-customizer { align-self:start; }
+.normal-ad-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+.normal-ad-mode-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid #d8e4f0;
+    border-radius: 10px;
+    background: #fff;
+    color: #334d6b;
+    cursor: pointer;
+    transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+.normal-ad-mode-card:hover,
+.normal-ad-mode-card:focus-within { border-color: #78aee8; box-shadow: 0 4px 12px rgba(35, 119, 216, .1); }
+.normal-ad-mode-card:has(input:checked) { border-color: #2377d8; background: #f2f7ff; box-shadow: inset 0 0 0 1px #2377d8; }
+.normal-ad-mode-card input { flex: 0 0 auto; margin: 3px 0 0; accent-color: #2377d8; }
+.normal-ad-mode-card span,
+.normal-ad-mode-card strong,
+.normal-ad-mode-card small { display: block; min-width: 0; }
+.normal-ad-mode-card strong { color: #203653; font-size: 13px; line-height: 1.4; }
+.normal-ad-mode-card small { margin-top: 4px; color: #71849a; font-size: 11px; line-height: 1.55; }
+.normal-ad-mode-card code { color: #1769c5; font-size: inherit; }
+@media (max-width: 760px) {
+    .normal-ad-mode-grid { grid-template-columns: 1fr; }
+}
 .ad-container-config {
     margin-bottom: 10px;
     padding: 11px 12px;

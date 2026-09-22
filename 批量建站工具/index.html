@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20260921-finished-site-preview-placement-1">
+    <link rel="stylesheet" href="css/tool.css?v=20260922-normal-ad-reserve-1">
   <link rel="stylesheet" href="css/liquid-glass.css?v=20260918-liquid-glass-17">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
@@ -906,7 +906,21 @@
                             <div class="batch-ad-code-actions"><button type="button" id="batch-ad-code-button">选择多个 TXT</button><input type="file" id="batch-ad-code-input" accept=".txt,text/plain" multiple hidden></div>
                             <div class="batch-ad-code-list" id="batch-ad-code-list" aria-live="polite"></div>
                         </section>
-                        <div class="config-group">
+                        <div class="config-group" id="normal-ad-mode-group">
+                            <h4 class="group-title">广告接入方式</h4>
+                            <p class="group-hint">普通建站支持先完成站点，也支持拿到运营广告代码后一次性自动接入。</p>
+                            <div class="normal-ad-mode-grid" role="radiogroup" aria-label="普通建站广告接入方式">
+                                <label class="normal-ad-mode-card">
+                                    <input type="radio" name="normal-ad-mode" value="reserve">
+                                    <span><strong>先预留广告位</strong><small>无需广告代码。手动设置首页和详情页位置，导出空配置的 <code>js/ad.js</code>，以后直接填写 ID。</small></span>
+                                </label>
+                                <label class="normal-ad-mode-card">
+                                    <input type="radio" name="normal-ad-mode" value="code" checked>
+                                    <span><strong>上传代码自动添加</strong><small>保持当前流程：上传 TXT 后识别 banner1/2/3、INT、ANC 与 GA，并使用固定广告位。</small></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="config-group" id="ad-code-mode-panel">
                             <h4 class="group-title">📢 自动广告代码</h4>
                             <div style="margin-bottom:12px;">
                                 <label style="display:block;font-size:13px;margin-bottom:6px;">对应子域名的广告代码 TXT</label>
@@ -924,7 +938,7 @@
                         </div>
                         <div class="config-group" id="ad-placement-group">
                             <h4 class="group-title">📢 广告容器</h4>
-                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择广告容器后，预览会显示带名称的常用广告位，点击即可放置。上传并校验广告 TXT 后，系统会自动插入三个可用广告位；未上传代码的手动位置不会导出为空白广告区域。</p>
+                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择广告容器后，切换首页或详情页，再点击预览中的常用广告位或自定义位置。导出会保留这些容器、GPT 引用和空配置的 <code>js/ad.js</code>；以后只需填写广告单元路径与 GA ID。</p>
 
                             <!-- 广告1 -->
                             <div class="ad-container-config">
@@ -1215,10 +1229,10 @@
     <script src="js/domain.js?v=20260921-tag-array-recognition-1"></script>
     <script src="js/ad-migration.js?v=20260921-finished-site-parser-2"></script>
     <script type="module" src="js/rar-import.js?v=20260921-rar5-fallback-1"></script>
-    <script src="js/generator.js?v=20260921-category-count-grid-4"></script>
+    <script src="js/generator.js?v=20260922-normal-ad-reserve-1"></script>
     <script src="js/ad-restoration.js?v=20260922-generic-preview-5"></script>
     <script src="js/batch-ad-builder.js?v=20260920-batch-ad-build-1"></script>
-    <script type="module" src="js/app.js?v=20260922-generic-finished-preview-10"></script>
+    <script type="module" src="js/app.js?v=20260922-normal-ad-reserve-1"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
     <script src="js/liquid-glass.js?v=20260918-liquid-glass-1"></script>
 </body>

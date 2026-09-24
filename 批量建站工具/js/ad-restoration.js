@@ -8,6 +8,10 @@ const AdRestoration = (function() {
     const AD_IDS = ['adv1', 'adv2', 'adv3'];
     const CONTAINER_IDS = ['div-gpt-ad-banner1', 'div-gpt-ad-banner2', 'div-gpt-ad-banner3'];
     const CONFIG_KEYS = ['bannerPath1', 'bannerPath2', 'bannerPath3', 'bannerPath4', 'interstitialPath', 'anchorPath', 'analyticsID'];
+    const CONFIG_ALIASES = {
+        bannerPath1: 'adUnitBanner1', bannerPath2: 'adUnitBanner2', bannerPath3: 'adUnitBanner3',
+        interstitialPath: 'adUnitInterstitial', anchorPath: 'adUnitAnchor', analyticsID: 'gaMeasurementId'
+    };
     const HOME_PLACEMENTS = ['off', 'after-navbar', 'after-hero', 'content-top', 'after-section-0', 'after-section-1', 'after-section-2', 'content-bottom', 'footer-top'];
     const DETAIL_PLACEMENTS = ['off', 'after-navbar', 'detail-before-content', 'detail-between-p-1', 'detail-between-p-2', 'detail-between-p-3', 'detail-after-content', 'detail-before-related', 'detail-after-related', 'footer-top'];
     const BANNER_UNITS = ['off', 'banner1', 'banner2', 'banner3'];
@@ -169,23 +173,66 @@ const AdRestoration = (function() {
 
     function extractAssignment(source, key) {
         const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const pattern = new RegExp('(?:\\b(?:const|let|var)\\s+)?\\b' + escapedKey + "\\s*=\\s*(['\"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1", 'm');
-        const match = pattern.exec(String(source || ''));
-        return match ? decodeJavaScriptString(match[2]) : '';
+        // Prefer an active nonempty declaration, even when an earlier comment
+        // contains an empty placeholder. A policy export has the opposite
+        // shape: an active empty placeholder and the original path in a
+        // comment, which must remain recoverable on the next import.
+        const activeSource = String(source || '').replace(/\/\*[\s\S]*?\*\//g, '');
+        const activePattern = new RegExp('^\\s*(?:(?:const|let|var)\\s+)?' + escapedKey + "\\s*=\\s*(['\"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1", 'gm');
+        let match;
+        let activeValue = '';
+        while ((match = activePattern.exec(activeSource)) !== null) {
+            const value = decodeJavaScriptString(match[2]);
+            if (value) activeValue = value;
+        }
+        if (activeValue) return activeValue;
+        const pattern = new RegExp('(?:\\b(?:const|let|var)\\s+)?\\b' + escapedKey + "\\s*=\\s*(['\"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1", 'gm');
+        while ((match = pattern.exec(String(source || ''))) !== null) {
+            const value = decodeJavaScriptString(match[2]);
+            if (value) return value;
+        }
+        return '';
     }
 
     function readExistingConfig(source) {
         return CONFIG_KEYS.reduce(function(config, key) {
-            config[key] = extractAssignment(source, key);
+            config[key] = extractAssignment(source, key) || (CONFIG_ALIASES[key] ? extractAssignment(source, CONFIG_ALIASES[key]) : '');
             return config;
         }, {});
+    }
+
+    function detectAdRuntimeFormat(source) {
+        // Detect the variable family, not a version comment: disabled units can
+        // have empty active declarations while their original paths are commented.
+        return /\b(?:const|let|var)\s+adUnit(?:Banner[123]|Interstitial|Anchor)\s*=/.test(String(source || ''))
+            ? 'ad-unit' : 'legacy';
+    }
+
+    function detectAdJsVersion(source) {
+        const text = String(source || '');
+        const markers = Array.from(text.matchAll(/\bad\.js\s+v(1\.0\.[012])\b/gi), function(match) {
+            return 'v' + match[1];
+        });
+        const versions = Array.from(new Set(markers));
+        const runtimeFormat = detectAdRuntimeFormat(text);
+        const hasInitialFingerprint = /\bfunction\s+delayLoadBanner\s*\(/.test(text)
+            && /\bnew\s+IntersectionObserver\s*\(/.test(text)
+            && /\bconst\s+bannerPath1\s*=/.test(text);
+        if (versions.length === 1 && runtimeFormat === 'ad-unit' && !hasInitialFingerprint) return versions[0];
+        if (versions.length) return '';
+
+        // The initial template predates version headers. Its delayed Banner
+        // loader and IntersectionObserver form a stable fingerprint that does
+        // not appear in the numbered ad-unit templates.
+        if (hasInitialFingerprint) return 'initial';
+        return '';
     }
 
     function detectedHost(config) {
         const paths = CONFIG_KEYS.filter(function(key) { return key !== 'analyticsID'; })
             .map(function(key) { return config && config[key]; }).filter(Boolean);
         for (let index = 0; index < paths.length; index++) {
-            const unit = String(paths[index]).replace(/-(?:banner[1-4]|int|anc)$/i, '');
+            const unit = String(paths[index]).replace(/-(?:banner\d+|int\d*|anc\d*)$/i, '');
             const host = unit.split('/').pop();
             if (host) return host.toLowerCase();
         }
@@ -274,7 +321,7 @@ const AdRestoration = (function() {
         return '';
     }
 
-    function inspectSiteEntries(rawEntries, archiveName) {
+    function inspectSiteEntries(rawEntries, archiveName, options) {
         const entries = (rawEntries || []).map(function(entry) {
             return { path: normalizePath(entry.path || entry.name), text: entryText(entry), source: entry };
         }).filter(function(entry) { return isSafePath(entry.path); });
@@ -288,10 +335,15 @@ const AdRestoration = (function() {
         for (let i = 0; i < indexCandidates.length; i++) {
             const candidate = indexCandidates[i];
             const root = candidate.path.replace(/index\.html?$/i, '');
+            const detailDirectory = options && options.finishedSite
+                ? /^(?:details?|articles?|news|posts?|stories?|guides?|blog)\//i
+                : /^(?:details?|articles?)\//i;
             const candidateDetails = htmlEntries.filter(function(entry) {
                 if (entry.path === candidate.path || entry.path.indexOf(root) !== 0) return false;
                 const relative = entry.path.slice(root.length);
-                return /^(?:details?|articles?)\//i.test(relative) || /class\s*=\s*["'][^"']*\bdetail-page\b/i.test(entry.text);
+                return detailDirectory.test(relative) || /class\s*=\s*["'][^"']*\bdetail-page\b/i.test(entry.text)
+                    || !!(options && options.finishedSite && /\.html?$/i.test(relative)
+                        && !/(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-service)?|legal|faq|404)(?:[\/.]|$)/i.test(relative));
             });
             if (candidateDetails.length) {
                 home = candidate;
@@ -309,11 +361,15 @@ const AdRestoration = (function() {
         const adPath = siteRoot + 'js/ad.js';
         const adEntry = entries.find(function(entry) { return entry.path.toLowerCase() === adPath.toLowerCase(); }) || null;
         const existingConfig = adEntry ? readExistingConfig(adEntry.text) : {};
+        const adRuntimeFormat = detectAdRuntimeFormat(adEntry && adEntry.text);
+        const adJsVersion = detectAdJsVersion(adEntry && adEntry.text);
         const embedded = discoverEmbeddedAdConfig(entries, existingConfig);
         const errors = [];
         const warnings = [];
         if (!home) errors.push(issue('压缩包中未识别到站点首页 index.html。', 'RESTORE_HOME_NOT_FOUND'));
-        if (!details.length) errors.push(issue('压缩包中未识别到详情页（details/articles 目录或 detail-page 结构）。', 'RESTORE_DETAILS_NOT_FOUND'));
+        if (!details.length && !(options && options.finishedSite)) errors.push(issue(options && options.finishedSite
+            ? '压缩包中未识别到详情页（details/articles/news/posts/blog 等内容目录或 detail-page 结构）。'
+            : '压缩包中未识别到详情页（details/articles 目录或 detail-page 结构）。', 'RESTORE_DETAILS_NOT_FOUND'));
         if (!adEntry && home) warnings.push(issue('未找到原 js/ad.js，恢复时将在站点目录中新建。', 'RESTORE_AD_JS_CREATE'));
         if (embedded.derived.length) warnings.push(issue('源站限流配置中有广告路径被清空；已根据同一广告单元的 banner2 命名恢复：' + embedded.derived.join('、') + '。', 'RESTORE_PATHS_DERIVED'));
         if (embedded.missing.length) errors.push(issue('源文件中无法识别完整广告单元，缺少：' + embedded.missing.join('、') + '。', 'RESTORE_EMBEDDED_CONFIG_INCOMPLETE'));
@@ -327,6 +383,8 @@ const AdRestoration = (function() {
             homePath: home ? home.path : '',
             detailPaths: details.map(function(entry) { return entry.path; }),
             adPath: adPath,
+            adRuntimeFormat: adRuntimeFormat,
+            adJsVersion: adJsVersion,
             existingConfig: existingConfig,
             embeddedConfig: embedded.config,
             configDerivedKeys: embedded.derived,
@@ -441,6 +499,33 @@ const AdRestoration = (function() {
             if (!match) return null;
             return { start: match.index, openEnd: match.index, end: findMatchingElementEnd(html, match.index, 'footer') };
         })();
+    }
+
+    function findNavigationElement(html) {
+        const semantic = findFirstElement(html, 'nav') || findFirstElement(html, 'header');
+        if (semantic) return semantic;
+
+        // Finished sites sometimes render their top navigation as a styled div.
+        // Require several links so an unrelated section with “nav” in its name
+        // does not become an insertion point.
+        const source = String(html || '');
+        const opener = /<(div|section)\b[^>]*>/gi;
+        let match;
+        while ((match = opener.exec(source)) !== null) {
+            const tag = match[1].toLowerCase();
+            const className = classValue(match[0]);
+            const idMatch = match[0].match(/\bid\s*=\s*(["'])(.*?)\1/i);
+            const name = className + ' ' + (idMatch ? idMatch[2] : '');
+            if (!/(?:header|navbar|navigation|(?:^|[\s_-])nav(?:[\s_-]|$))/i.test(name)
+                || /pagination|breadcrumb|footer|social|share/i.test(name)) continue;
+            const end = findMatchingElementEnd(source, match.index, tag);
+            if (end <= opener.lastIndex) continue;
+            const links = source.slice(opener.lastIndex, end).match(/<a\b[^>]*>/gi) || [];
+            if (links.length >= 2) {
+                return { start: match.index, openEnd: opener.lastIndex, end: end, openTag: match[0], tag: tag };
+            }
+        }
+        return null;
     }
 
     function closeStart(html, element, tagName) {
@@ -576,7 +661,7 @@ const AdRestoration = (function() {
         return target && target.end !== -1 ? target.end : -1;
     }
 
-    function insertPlacement(html, pageType, position, adIds) {
+    function insertPlacement(html, pageType, position, adIds, options) {
         const markup = adGroupMarkup(html, position, adIds);
         let anchor = null;
         let index = -1;
@@ -587,8 +672,8 @@ const AdRestoration = (function() {
             anchor = findFooter(html);
             index = anchor ? anchor.start : -1;
         } else if (pageType === 'home') {
-            const main = findElementByClass(html, 'main', 'main-content');
-            const hero = findElementByClass(html, 'section', 'hero');
+            const main = findElementByClass(html, 'main', 'main-content') || (options && options.finishedSite ? findFirstElement(html, 'main') : null);
+            const hero = findElementByClass(html, 'section', 'hero') || (options && options.finishedSite ? findElementByClass(html, 'div', 'hero') : null);
             if (position === 'after-navbar') {
                 anchor = hero || main;
                 index = anchor ? anchor.start : -1;
@@ -600,14 +685,34 @@ const AdRestoration = (function() {
                 index = position === 'content-top' ? (target ? target.openEnd : -1) : closeStart(html, target, target === main ? 'main' : 'div');
             } else if (/^after-section-\d+$/.test(position)) {
                 const sectionIndex = parseInt(position.replace('after-section-', ''), 10);
-                const sections = elementsByClass(html, 'section', 'category-section');
+                let sections = elementsByClass(html, 'section', 'category-section');
+                if (!sections.length && options && options.finishedSite && main) {
+                    sections = directHtmlElementChildren(html, main).filter(function(child) { return child.tag === 'section'; });
+                }
                 index = sections[sectionIndex] ? sections[sectionIndex].end : -1;
+                if (index < 0 && options && options.batchPolicy && !sections.length) {
+                    // Some exported grid sites have no category-section at all:
+                    // their original banner2/3 gaps survive as empty ad-slot
+                    // wrappers after the old ad container is removed.
+                    const footer = findFooter(html);
+                    const slots = elementsByClass(html, 'div', 'ad-slot').filter(function(slot) {
+                        return !footer || slot.start < footer.start;
+                    });
+                    const slot = slots[sectionIndex];
+                    index = slot ? closeStart(html, slot, 'div') : -1;
+                }
             }
         } else {
-            const detailPage = findElementByClass(html, 'div', 'detail-page') || findElementByClass(html, 'main', 'detail-page');
-            const detailContent = findElementByClass(html, 'div', 'detail-content') || findElementByClass(html, 'article', 'detail-content');
+            const detailPage = findElementByClass(html, 'div', 'detail-page') || findElementByClass(html, 'main', 'detail-page') || (options && options.finishedSite ? findFirstElement(html, 'main') || findFirstElement(html, 'article') : null);
+            const detailContent = findElementByClass(html, 'div', 'detail-content') || findElementByClass(html, 'article', 'detail-content') || (options && (options.finishedSite || options.batchPolicy) ? findElementByClass(html, 'div', 'prose') || findElementByClass(html, 'article', 'prose') || findElementByClass(html, 'div', 'article-content') || findFirstElement(html, 'article') : null);
             const related = relatedElement(html);
-            if (position === 'after-navbar') index = detailPage ? detailPage.start : -1;
+            if (position === 'after-navbar') {
+                // Legacy detail pages may have no detail-page wrapper, but a
+                // semantic nav still gives an exact, safe top-of-content gap.
+                const nav = detailPage ? null : findNavigationElement(html);
+                index = detailPage ? detailPage.start
+                    : nav && nav.end > 0 && (!detailContent || nav.end <= detailContent.start) ? nav.end : -1;
+            }
             else if (position === 'detail-before-content') index = detailContent ? detailContent.start : -1;
             else if (position === 'detail-after-content') index = detailContentMiddleIndex(html, detailContent);
             else if (position === 'detail-before-related') index = related ? related.start : -1;
@@ -647,7 +752,7 @@ const AdRestoration = (function() {
         return matches ? matches.length : 0;
     }
 
-    function validateRestoredHtml(html, pageType, scriptPath, requestedPolicy) {
+    function validateRestoredHtml(html, pageType, scriptPath, requestedPolicy, options) {
         const errors = [];
         const policy = normalizePolicy(requestedPolicy);
         const visibleHtml = String(html || '').replace(/<!--[\s\S]*?-->/g, '');
@@ -672,13 +777,18 @@ const AdRestoration = (function() {
         const p3 = visibleHtml.indexOf(CONTAINER_IDS[2]);
         if (orderedDefaults && !(p1 < p2 && p2 < p3)) errors.push(issue('三个 banner 的页面顺序不正确。', 'RESTORE_CONTAINER_ORDER'));
         const banner1Top = policy.slots.detail.some(function(slot) { return slot.unit === 'banner1' && slot.position === 'after-navbar'; });
-        if (pageType === 'detail' && banner1Top && p1 > visibleHtml.search(/\bclass\s*=\s*["'][^"']*\bdetail-page\b/i)) {
+        let detailStart = visibleHtml.search(/\bclass\s*=\s*["'][^"']*\bdetail-page\b/i);
+        if (detailStart < 0 && options && options.finishedSite) {
+            const semanticDetail = findFirstElement(visibleHtml, 'main') || findFirstElement(visibleHtml, 'article');
+            detailStart = semanticDetail ? semanticDetail.start : -1;
+        }
+        if (pageType === 'detail' && banner1Top && detailStart >= 0 && p1 > detailStart) {
             errors.push(issue('详情页第一个广告未恢复到正文容器之前。', 'RESTORE_DETAIL_FIRST_POSITION'));
         }
         return errors;
     }
 
-    function restoreHtml(source, pageType, scriptPath, requestedPolicy) {
+    function restoreHtml(source, pageType, scriptPath, requestedPolicy, options) {
         const policy = normalizePolicy(requestedPolicy);
         let html = removeAdScripts(removeExistingAds(source));
         const errors = validatePolicy(policy);
@@ -692,7 +802,7 @@ const AdRestoration = (function() {
         });
         Object.keys(groups).forEach(function(position) {
             if (errors.length) return;
-            const placed = insertPlacement(html, pageType, position, groups[position]);
+            const placed = insertPlacement(html, pageType, position, groups[position], options);
             html = placed.html;
             if (placed.error) errors.push(placed.error);
         });
@@ -710,7 +820,7 @@ const AdRestoration = (function() {
 
         html = injectAdScripts(html, scriptPath);
         if (!/<\/head\s*>/i.test(source)) errors.push(issue('页面缺少 </head>，无法恢复广告脚本。', 'RESTORE_HEAD_MISSING'));
-        if (!errors.length) errors.push.apply(errors, validateRestoredHtml(html, pageType, scriptPath, policy));
+        if (!errors.length) errors.push.apply(errors, validateRestoredHtml(html, pageType, scriptPath, policy, options));
         // 移除旧容器后只会留下空白行；统一收敛，保证重复恢复不会不断增加空白。
         html = html.replace(/^[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
         return { valid: errors.length === 0, errors: errors, html: html };
@@ -789,13 +899,69 @@ const AdRestoration = (function() {
         return !!(config && (config.bannerPath1 || config.bannerPath2 || config.bannerPath3));
     }
 
-    function restoreEntries(rawEntries, config, archiveName, requestedPolicy) {
+    function disablePolicyAdPaths(adSource, policy, adRuntimeFormat) {
+        let output = String(adSource || '');
+        if (!policy.writeDisabledComments) return output;
+        const enabledOnAnyPage = function(unit) {
+            return ['home', 'detail'].some(function(page) {
+                return policy.slots[page].some(function(slot) { return slot.unit === unit; });
+            });
+        };
+        const disabled = [
+            ['bannerPath1', !enabledOnAnyPage('banner1')],
+            ['bannerPath2', !enabledOnAnyPage('banner2')],
+            ['bannerPath3', !enabledOnAnyPage('banner3')],
+            ['interstitialPath', !policy.outOfPage.interstitial.home && !policy.outOfPage.interstitial.detail],
+            ['anchorPath', !policy.outOfPage.anchor.home && !policy.outOfPage.anchor.detail]
+        ];
+        disabled.forEach(function(pair) {
+            if (!pair[1]) return;
+            const key = adRuntimeFormat === 'ad-unit' ? CONFIG_ALIASES[pair[0]] : pair[0];
+            const declaration = new RegExp('^const ' + key + ' = [^\\r\\n]*;', 'm');
+            output = output.replace(declaration, function(line) {
+                // Keep a defined empty variable because the shared runtime
+                // still references these names even when the slots are off.
+                return '// ' + line + '\nconst ' + key + ' = "";';
+            });
+        });
+        return output;
+    }
+
+    function generateAdUnitPolicySource(config, policy, version) {
+        const source = Generator.generateSelectedAdJs(config || {}, version);
+        const interstitial = policy.outOfPage.interstitial;
+        const anchor = policy.outOfPage.anchor;
+        const interstitialGate = 'if (isIndex && adUnitInterstitial) {';
+        const anchorGate = 'if (adUnitAnchor) {';
+        if (!source.includes(interstitialGate) || !source.includes(anchorGate)) return null;
+        // Keep the new template (including its GPT lazy load and triggers),
+        // adding only page-specific gates required by the batch policy UI.
+        return source
+            .replace(interstitialGate,
+                'if (adUnitInterstitial && (isIndex ? ' + interstitial.home + ' : ' + interstitial.detail + ')) {')
+            .replace(anchorGate,
+                'if (adUnitAnchor && (isIndex ? ' + anchor.home + ' : ' + anchor.detail + ')) {');
+    }
+
+    function generateInitialPolicySource(config, policy) {
+        const source = Generator.generateSelectedAdJs(config || {}, 'initial');
+        const interstitialGate = 'if (isIndex && interstitialPath) {';
+        const anchorGate = 'if (anchorPath) {';
+        if (!source.includes(interstitialGate) || !source.includes(anchorGate)) return null;
+        return source
+            .replace(interstitialGate,
+                'if (interstitialPath && (isIndex ? ' + policy.outOfPage.interstitial.home + ' : ' + policy.outOfPage.interstitial.detail + ')) {')
+            .replace(anchorGate,
+                'if (anchorPath && (isIndex ? ' + policy.outOfPage.anchor.home + ' : ' + policy.outOfPage.anchor.detail + ')) {');
+    }
+
+    function restoreEntries(rawEntries, config, archiveName, requestedPolicy, options) {
         const policyMode = !!requestedPolicy;
         const policy = normalizePolicy(requestedPolicy);
         const entries = (rawEntries || []).map(function(entry) {
             return { path: normalizePath(entry.path || entry.name), bytes: entry.bytes ? new Uint8Array(entry.bytes) : textBytes(entryText(entry)) };
         }).filter(function(entry) { return isSafePath(entry.path); });
-        const metadata = inspectSiteEntries(entries, archiveName);
+        const metadata = inspectSiteEntries(entries, archiveName, options);
         if (hasExternalBannerConfig(config)) {
             metadata.errors = metadata.errors.filter(function(error) { return error.code !== 'RESTORE_EMBEDDED_CONFIG_INCOMPLETE'; });
             metadata.valid = metadata.errors.length === 0;
@@ -805,6 +971,16 @@ const AdRestoration = (function() {
         if (!metadata.valid) return { valid: false, errors: metadata.errors, warnings: metadata.warnings, entries: entries, metadata: metadata };
         const policyErrors = validatePolicy(policy);
         if (policyErrors.length) return { valid: false, errors: policyErrors, warnings: metadata.warnings, entries: entries, metadata: metadata, policy: policy };
+        if (options && options.batchPolicy && !metadata.adJsVersion) {
+            return {
+                valid: false,
+                errors: [issue('无法可靠识别该站点的 js/ad.js 版本；为避免恢复或限流时替换成错误模板，已阻止导出。', 'RESTORE_AD_VERSION_UNKNOWN')],
+                warnings: metadata.warnings,
+                entries: entries,
+                metadata: metadata,
+                policy: policy
+            };
+        }
 
         const byPath = {};
         entries.forEach(function(entry) { byPath[entry.path.toLowerCase()] = entry; });
@@ -816,7 +992,7 @@ const AdRestoration = (function() {
         })).forEach(function(page) {
             const entry = byPath[page.path.toLowerCase()];
             const scriptPath = relativeAdScriptPath(page.path, metadata.siteRoot) + (policyMode ? '?v=ad-policy-1' : '');
-            const result = restoreHtml(entryText(entry), page.type, scriptPath, policy);
+            const result = restoreHtml(entryText(entry), page.type, scriptPath, policy, options);
             if (!result.valid) {
                 result.errors.forEach(function(error) {
                     pageErrors.push(issue(page.path + '：' + error.message, error.code));
@@ -837,7 +1013,37 @@ const AdRestoration = (function() {
             return { valid: false, errors: [issue('建站器广告模板未加载。', 'RESTORE_GENERATOR_UNAVAILABLE')], warnings: metadata.warnings, entries: entries, metadata: metadata };
         }
 
-        const adSource = Generator.generateAdJs(config || {}, policyMode ? policy : null);
+        const useBatchPolicyTemplate = !!(options && options.batchPolicy);
+        if ((useBatchPolicyTemplate || (options && options.finishedSite && options.adJsVersion))
+            && typeof Generator.generateSelectedAdJs !== 'function') {
+            return { valid: false, errors: [issue('所需的 ad.js 版本模板未加载。', 'RESTORE_VERSION_GENERATOR_UNAVAILABLE')], warnings: metadata.warnings, entries: entries, metadata: metadata };
+        }
+        let generatedAdSource;
+        try {
+            generatedAdSource = useBatchPolicyTemplate
+                ? metadata.adJsVersion === 'initial'
+                    ? generateInitialPolicySource(config, policy)
+                    : generateAdUnitPolicySource(config, policy, metadata.adJsVersion)
+                : options && options.finishedSite && options.adJsVersion
+                    ? Generator.generateSelectedAdJs(config || {}, options.adJsVersion)
+                    : Generator.generateAdJs(config || {}, policyMode ? policy : null);
+        } catch (error) {
+            return {
+                valid: false,
+                errors: [issue('无法生成识别到的 ad.js ' + (metadata.adJsVersion || '版本') + ' 模板：' + (error && error.message ? error.message : '模板生成失败。'), 'RESTORE_AD_VERSION_TEMPLATE_FAILED')],
+                warnings: metadata.warnings,
+                entries: entries,
+                metadata: metadata
+            };
+        }
+        if (generatedAdSource == null) {
+            return { valid: false, errors: [issue('识别到的 ad.js 模板结构已变化，无法安全应用批量广告策略。', 'RESTORE_NEW_TEMPLATE_UNSUPPORTED')], warnings: metadata.warnings, entries: entries, metadata: metadata };
+        }
+        const outputAdRuntimeFormat = useBatchPolicyTemplate
+            ? metadata.adJsVersion === 'initial' ? 'legacy' : 'ad-unit'
+            : metadata.adRuntimeFormat;
+        const adSource = policyMode && options && options.batchPolicy
+            ? disablePolicyAdPaths(generatedAdSource, policy, outputAdRuntimeFormat) : generatedAdSource;
         const adKey = metadata.adPath.toLowerCase();
         if (byPath[adKey]) byPath[adKey].bytes = textBytes(adSource);
         else entries.push({ path: metadata.adPath, bytes: textBytes(adSource) });
@@ -849,8 +1055,11 @@ const AdRestoration = (function() {
                 generatedAt: new Date().toISOString(),
                 source: archiveName || metadata.detectedHost || 'site-directory',
                 host: metadata.detectedHost,
+                adRuntimeFormat: outputAdRuntimeFormat,
                 adPaths: config || {},
-                policy: policy
+                policy: policy,
+                ...(options && options.batchPolicy ? { adJsVersion: metadata.adJsVersion } : {}),
+                ...(options && options.finishedSite && options.adJsVersion ? { adJsVersion: options.adJsVersion, placementMode: 'manual' } : {})
             };
             const existingManifest = entries.find(function(entry) { return entry.path.toLowerCase() === manifestPath.toLowerCase(); });
             if (existingManifest) existingManifest.bytes = textBytes(JSON.stringify(manifest, null, 2) + '\n');
@@ -1253,6 +1462,25 @@ const AdRestoration = (function() {
         return !!dependencies[dependency];
     }
 
+    function staticGeneratorPreviewRoot(rawEntries) {
+        const entries = (rawEntries || []).map(function(entry) {
+            return { path: normalizePath(entry.path || entry.name), text: entryText(entry) };
+        });
+        const paths = new Set(entries.map(function(entry) { return entry.path.toLowerCase(); }));
+        const packages = entries.filter(function(entry) { return /(?:^|\/)package\.json$/i.test(entry.path); })
+            .sort(function(a, b) { return a.path.split('/').length - b.path.split('/').length; });
+        for (let index = 0; index < packages.length; index++) {
+            let packageData;
+            try { packageData = JSON.parse(packages[index].text); } catch (error) { continue; }
+            const command = String(packageData && packageData.scripts && packageData.scripts.build || '');
+            const match = command.match(/(?:^|&&\s*)node\s+(?:--[^\s]+\s+)*["']?([^"'\s]+\.(?:mjs|cjs|js))["']?/i);
+            if (!match) continue;
+            const root = packages[index].path.replace(/package\.json$/i, '');
+            if (paths.has(normalizePath(root + match[1]).toLowerCase())) return root;
+        }
+        return null;
+    }
+
     function classifyInjectableSiteEntries(rawEntries, archiveName) {
         const entries = (rawEntries || []).map(function(entry) {
             return { path: normalizePath(entry.path || entry.name), text: entryText(entry), source: entry };
@@ -1268,6 +1496,22 @@ const AdRestoration = (function() {
             if (!packageUses(packageData, 'react') && !packageUses(packageData, 'react-dom')) continue;
             const root = packageEntry.path.replace(/package\.json$/i, '');
             if (packageUses(packageData, 'next')) {
+                const nextLayout = entries.find(function(entry) {
+                    return entry.path.indexOf(root) === 0 && /(?:^|\/)(?:app\/layout|pages\/_document)\.(?:tsx?|jsx?)$/i.test(entry.path.slice(root.length));
+                });
+                const staticExport = byPath[(root + 'out/index.html').toLowerCase()];
+                if (nextLayout) return {
+                    valid: true, kind: 'react-source', framework: 'Next.js React 源码工程', siteRoot: root,
+                    entryPath: '', previewEntryPath: staticExport ? staticExport.path : '',
+                    runtimePath: root + 'public/js/ad.js', runtimeSrc: '/js/ad.js',
+                    buildCommand: 'npm run build', errors: [], warnings: []
+                };
+                if (staticExport) return {
+                    valid: true, kind: 'static-html', framework: 'React 已构建静态产物（按静态 HTML 注入）',
+                    siteRoot: root, deploymentRoot: root + 'out/', entryPath: staticExport.path,
+                    previewEntryPath: staticExport.path, runtimePath: root + 'out/js/ad.js', runtimeSrc: '/js/ad.js',
+                    buildCommand: '已提供 Next.js 静态导出', errors: [], warnings: []
+                };
                 return {
                     valid: false,
                     kind: 'react-unsupported',
@@ -1283,7 +1527,10 @@ const AdRestoration = (function() {
             const hasTanStackStart = packageUses(packageData, '@tanstack/react-start') || packageUses(packageData, '@tanstack/start');
             const hasTanStackRouter = hasTanStackStart || packageUses(packageData, '@tanstack/react-router') || entries.some(function(entry) { return /(?:^|\/)src\/routes\/(?:__root|root)\.(?:tsx?|jsx?)$/i.test(entry.path); });
             const hasVite = packageUses(packageData, 'vite') || entries.some(function(entry) { return /(?:^|\/)vite\.config\.[cm]?[jt]sx?$/i.test(entry.path); });
-            const hasReactSource = entries.some(function(entry) { return entry.path.indexOf(root + 'src/') === 0 && /\.(?:tsx?|jsx?)$/i.test(entry.path); });
+            const hasReactSource = entries.some(function(entry) {
+                return entry.path.indexOf(root) === 0 && /^(?:src|app|pages)\//i.test(entry.path.slice(root.length))
+                    && /\.(?:tsx?|jsx?)$/i.test(entry.path);
+            });
             const buildCommand = packageData && packageData.scripts && packageData.scripts.build ? 'npm run build' : '请按项目说明执行生产构建';
             const builtPreviewIndex = entries.filter(function(entry) {
                 return entry.path.indexOf(root) === 0 && /(?:^|\/)(?:dist|build|out|output|export|www|_site|public|\.output\/public|\.vercel\/output\/static)\/(?:client\/)?index\.html?$/i.test(entry.path);
@@ -1378,7 +1625,7 @@ const AdRestoration = (function() {
             };
         }
 
-        const metadata = inspectSiteEntries(rawEntries, archiveName);
+        const metadata = inspectSiteEntries(rawEntries, archiveName, { finishedSite: true });
         metadata.errors = metadata.errors.filter(function(error) { return error.code !== 'RESTORE_EMBEDDED_CONFIG_INCOMPLETE'; });
         metadata.valid = metadata.errors.length === 0;
         return {
@@ -1483,8 +1730,14 @@ const AdRestoration = (function() {
             const entries = root ? archiveEntries.filter(function(entry) { return entry.path.indexOf(root) === 0; }).map(function(entry) {
                 return { path: entry.path.slice(root.length), bytes: entry.bytes };
             }) : archiveEntries;
+            const previewRoot = staticGeneratorPreviewRoot(archiveEntries);
+            const previewSourceEntries = previewRoot !== null ? archiveEntries.filter(function(entry) {
+                return entry.path.indexOf(previewRoot) === 0 && !/(?:^|\/)(?:node_modules|\.git|\.tmp[^/]*|coverage)(?:\/|$)/i.test(entry.path.slice(previewRoot.length));
+            }).map(function(entry) {
+                return { path: entry.path.slice(previewRoot.length), bytes: entry.bytes };
+            }) : null;
             const name = siteFolderName(archiveBaseName(file.name), 'site-' + (index + 1));
-            sites.push({ id: 'inject-archive:' + index + ':' + name, name: name, sourceRoot: root, entries: entries, project: classifyInjectableSiteEntries(entries, name) });
+            sites.push({ id: 'inject-archive:' + index + ':' + name, name: name, sourceRoot: root, entries: entries, previewSourceEntries: previewSourceEntries, project: classifyInjectableSiteEntries(entries, name) });
         }
         onProgress(100, '成品站压缩包读取完成');
         return { sites: sites, fileCount: sites.reduce(function(sum, site) { return sum + site.entries.length; }, 0) };
@@ -1550,22 +1803,22 @@ const AdRestoration = (function() {
         return { mappings: mappings, validCount: mappings.filter(function(item) { return item.valid; }).length };
     }
 
-    function generateSpaAdRuntime(config, requestedPolicy) {
+    function generateSpaAdRuntime(config, requestedPolicy, version) {
         const paths = JSON.stringify({
             banner1: config && config.bannerPath1 || '', banner2: config && config.bannerPath2 || '', banner3: config && config.bannerPath3 || '',
             interstitial: config && config.interstitialPath || '', anchor: config && config.anchorPath || '', analytics: config && config.analyticsID || ''
         }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
         const slots = JSON.stringify(normalizePolicy(requestedPolicy).slots).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
-        return "(function(){\n" +
+        let source = "(function(){\n" +
             "'use strict';\n" +
             "var paths=" + paths + ";\n" +
             "var slots=" + slots + ";\n" +
             "var state=window.__sitefoundryAds=window.__sitefoundryAds||{route:'',slots:[],services:false,outOfPage:false,timer:0};\n" +
             "window.googletag=window.googletag||{cmd:[]};\n" +
             "function ad(n,custom){var w=document.createElement('div');w.id='adv'+n;w.setAttribute('data-sitefoundry-runtime-ad',String(n));w.style.cssText='width:100%;text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;box-sizing:border-box;';if(custom){w.className='sitefoundry-ad-custom-placement';w.style.position='relative';w.style.transform='translateX(var(--sitefoundry-ad-center-offset, 0px))';}var l=document.createElement('div');l.textContent='advertisement'+n;l.style.cssText='text-align:center;color:black;font-size:13px;';var s=document.createElement('div');s.id='div-gpt-ad-banner'+n;s.style.cssText='min-width:300px;min-height:250px;';w.appendChild(l);w.appendChild(s);return w;}\n" +
-            "function after(t,n){if(t&&t.parentNode)t.parentNode.insertBefore(n,t.nextSibling);else(document.querySelector('main')||document.body).appendChild(n);}\n" +
+            "function after(t,n){if(t&&t.parentNode)t.parentNode.insertBefore(n,t.nextSibling);}\n" +
             "function centerCustom(){document.querySelectorAll('.sitefoundry-ad-custom-placement').forEach(function(node){node.style.setProperty('--sitefoundry-ad-center-offset','0px');var rect=node.getBoundingClientRect(),offset=window.innerWidth/2-(rect.left+rect.width/2);node.style.setProperty('--sitefoundry-ad-center-offset',Math.round(offset*100)/100+'px');});}\n" +
-            "function refresh(home){googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)googletag.destroySlots(state.slots);state.slots=[];[1,2,3].forEach(function(n){var id='div-gpt-ad-banner'+n,p=paths['banner'+n];if(p&&document.getElementById(id)){var slot=googletag.defineSlot(p,[300,250],id);if(slot)state.slots.push(slot.addService(googletag.pubads()));}});if(!state.outOfPage){if(paths.interstitial&&home){var i=googletag.defineOutOfPageSlot(paths.interstitial,googletag.enums.OutOfPageFormat.INTERSTITIAL);if(i)i.addService(googletag.pubads());}if(paths.anchor){var a=googletag.defineOutOfPageSlot(paths.anchor,googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR);if(a)a.addService(googletag.pubads());}state.outOfPage=true;}if(!state.services){googletag.pubads().enableSingleRequest();googletag.enableServices();state.services=true;}[1,2,3].forEach(function(n){var id='div-gpt-ad-banner'+n;if(paths['banner'+n]&&document.getElementById(id))googletag.display(id);});});}\n" +
+            "function refresh(home){googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)googletag.destroySlots(state.slots);state.slots=[];state.outOfPage=false;[1,2,3].forEach(function(n){var id='div-gpt-ad-banner'+n,p=paths['banner'+n];if(p&&document.getElementById(id)){var slot=googletag.defineSlot(p,[300,250],id);if(slot)state.slots.push(slot.addService(googletag.pubads()));}});if(!state.outOfPage){if(paths.interstitial&&home){var i=googletag.defineOutOfPageSlot(paths.interstitial,googletag.enums.OutOfPageFormat.INTERSTITIAL);if(i)state.slots.push(i.addService(googletag.pubads()));}if(paths.anchor){var a=googletag.defineOutOfPageSlot(paths.anchor,googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR);if(a)state.slots.push(a.addService(googletag.pubads()));}state.outOfPage=true;}if(!state.services){googletag.pubads().enableSingleRequest();googletag.enableServices();state.services=true;}[1,2,3].forEach(function(n){var id='div-gpt-ad-banner'+n;if(paths['banner'+n]&&document.getElementById(id))googletag.display(id);});});}\n" +
             "function mount(force){if(!document.body)return;var route=location.pathname+location.search,complete=[1,2,3].every(function(n){return document.getElementById('div-gpt-ad-banner'+n);});if(!force&&state.route===route&&complete)return;document.querySelectorAll('[data-sitefoundry-runtime-ad]').forEach(function(n){n.remove();});var home=location.pathname==='/'||/\\/index\\.html?$/i.test(location.pathname),header=document.querySelector('header')||document.querySelector('nav'),main=document.querySelector('main')||document.querySelector('[role=main]')||document.getElementById('root')||document.body,footer=document.querySelector('footer'),sections=main.querySelectorAll('section:not([data-sitefoundry-runtime-ad])'),detail=document.querySelector('article')||document.querySelector('.detail-content')||document.querySelector('[class*=article-content]');function kids(t){return Array.prototype.filter.call((t||main).children||[],function(n){return !n.hasAttribute('data-sitefoundry-runtime-ad')&&!/^(?:SCRIPT|STYLE|TEMPLATE|HEADER|NAV|FOOTER|ASIDE)$/.test(n.tagName||'')&&!/(?:^|\\s)related(?:-|\\s|$)/i.test(n.className||'');});}function middle(t){var c=kids(t);return c.length?c[Math.max(0,Math.ceil(c.length/2)-1)]:(t||main);}function custom(position){var m=/^custom-after-((?:\\d+)(?:-\\d+)*)$/.exec(position||''),t=main;if(!m)return null;var p=m[1].split('-').map(Number);for(var i=0;i<p.length;i++){var c=kids(t);if(!c.length)return t;t=c[Math.min(p[i],c.length-1)];}return t;}function target(position){var chosen=custom(position);if(chosen)return chosen;if(position==='after-navbar')return header||main.firstElementChild;if(position==='footer-top')return footer||main.lastElementChild;if(position==='detail-after-content')return middle(detail||main);if(position==='content-bottom'||position==='detail-before-related'||position==='detail-after-related')return detail||main.lastElementChild;if(position==='detail-before-content'||position==='detail-between-p-1'||position==='detail-between-p-2'||position==='detail-between-p-3')return detail||main.firstElementChild;if(position==='after-hero'||position==='content-top')return main.firstElementChild;var m=/after-section-(\\d+)/.exec(position||'');return m&&sections[Number(m[1])]||main.firstElementChild;}(home?slots.home:slots.detail).forEach(function(slot){if(!slot||slot.unit==='off')return;var n=Number(String(slot.unit).replace('banner','')),node=ad(n,/^custom-after-(?:\\d+)(?:-\\d+)*$/.test(slot.position||'')),anchor=target(slot.position);if(slot.position==='footer-top'&&footer&&footer.parentNode)footer.parentNode.insertBefore(node,footer);else after(anchor,node);});centerCustom();requestAnimationFrame(centerCustom);state.route=route;refresh(home);}\n" +
             "function schedule(force){clearTimeout(state.timer);state.timer=setTimeout(function(){mount(!!force);},160);}\n" +
             "window.refreshClarivoBanners=function(){console.log('[SiteFoundry Ads] React route refresh requested');schedule(true);};\n" +
@@ -1573,17 +1826,46 @@ const AdRestoration = (function() {
             "addEventListener('popstate',function(){schedule(true);});addEventListener('resize',function(){requestAnimationFrame(centerCustom);});if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){schedule(true);});else schedule(true);new MutationObserver(function(){schedule(false);}).observe(document.documentElement,{childList:true,subtree:true});\n" +
             "if(paths.analytics){var g=document.createElement('script');g.async=true;g.src='https://www.googletagmanager.com/gtag/js?id='+encodeURIComponent(paths.analytics);document.head.appendChild(g);window.dataLayer=window.dataLayer||[];window.gtag=window.gtag||function(){dataLayer.push(arguments);};gtag('js',new Date());gtag('config',paths.analytics);}\n" +
             "})();\n";
+        // Manual SPA sites still exclude utility routes. Unknown manual
+        // anchors are skipped rather than silently appended elsewhere.
+        source = source.replace("if(!document.body)return;var route=location.pathname+location.search,complete=", String.raw`if(!document.body)return;var route=location.pathname+location.search;if(/(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-service)?|legal|faq|404)(?:[\/.]|$)/i.test(location.pathname)){document.querySelectorAll('[data-sitefoundry-runtime-ad]').forEach(function(node){node.remove();});state.route=route;googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)googletag.destroySlots(state.slots);state.slots=[];state.outOfPage=false;});return;}var complete=`);
+        source = source.replace(
+            "header=document.querySelector('header')||document.querySelector('nav')",
+            "header=document.querySelector('nav,header,[role=banner],[role=navigation]')||Array.prototype.filter.call(document.querySelectorAll('[class*=header],[id*=header],[class*=navbar],[id*=navbar],[class*=navigation],[id*=navigation],[class~=nav],[class*=nav-],[class*=-nav]'),function(node){var name=String(node.className||'')+' '+String(node.id||'');return !/pagination|breadcrumb|social|share|footer/i.test(name)&&!/^(?:MAIN|FOOTER|ASIDE)$/.test(node.tagName||'')&&node.querySelectorAll('a[href]').length>=2;})[0]||null"
+        );
+        source = source.replace("return header||main.firstElementChild", "return header")
+            .replace("return footer||main.lastElementChild", "return footer")
+            .replace("return m&&sections[Number(m[1])]||main.firstElementChild", "return m?sections[Number(m[1])]:null")
+            .replace("if(!c.length)return t;t=c[Math.min(p[i],c.length-1)]", "if(!c[p[i]])return null;t=c[p[i]]")
+            .replace("state.outOfPage=false;[1,2,3]", "state.outOfPage=false;var outOfPage=[];[1,2,3]")
+            .replace("if(i)state.slots.push(i.addService(googletag.pubads()));", "if(i){state.slots.push(i.addService(googletag.pubads()));outOfPage.push(i);}")
+            .replace("if(a)state.slots.push(a.addService(googletag.pubads()));", "if(a){state.slots.push(a.addService(googletag.pubads()));outOfPage.push(a);}")
+            .replace("state.services=true;}[1,2,3]", "state.services=true;}outOfPage.forEach(function(slot){googletag.display(slot);});[1,2,3]");
+        // Keep the existing manual-placement runtime and vary only the ad
+        // loading behavior. Fixed mode uses the shared DOM planner instead.
+        if (version === 'initial') {
+            source = source.replace(
+                "if(paths['banner'+n]&&document.getElementById(id))googletag.display(id);",
+                "if(paths['banner'+n]&&document.getElementById(id)){var element=document.getElementById(id);if(typeof IntersectionObserver==='function'){var observer=new IntersectionObserver(function(entries){if(entries.some(function(entry){return entry.isIntersecting;})){observer.disconnect();googletag.cmd.push(function(){googletag.display(id);});}},{threshold:0.1});observer.observe(element);}else googletag.display(id);}"
+            );
+        } else {
+            source = source.replace("var slots=" + slots + ";\n", "var slots=" + slots + ";\nvar adJsVersion=" + JSON.stringify(version || 'v1.0.1') + ";\n");
+            source = source.replace("function refresh(home){googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)", "function refresh(home){googletag.cmd.push(function(){if(googletag.setConfig)googletag.setConfig({lazyLoad:{fetchMarginPercent:50,renderMarginPercent:0,mobileScaling:1},singleRequest:false});if(state.slots.length&&googletag.destroySlots)");
+            if (version === 'v1.0.2') source = source.replace('googletag.setConfig({lazyLoad:{fetchMarginPercent:50,renderMarginPercent:0,mobileScaling:1},singleRequest:false});', 'googletag.setConfig({lazyLoad:null,singleRequest:false});');
+            if (version !== 'v1.0.0' && version !== 'v1.0.2') source = source.replace("outOfPage.push(i);", "outOfPage.push(i);if(i.setConfig)i.setConfig({interstitial:{triggers:{unhideWindow:true,navBar:true,inactivity:true,endOfArticle:true,continueReading:true}}});");
+        }
+        return '/** 成品站 ad.js ' + (version || 'v1.0.1') + ' · manual SPA runtime */\n' + source;
     }
 
     // React source projects already receive <Advertisement> components from the
     // AST injector. Their runtime must consume those containers instead of
     // creating a second set of adv1/2/3 nodes. This mirrors the lazy-loading
     // implementation proven on clarivo.cc while keeping ad paths configurable.
-    function generateReactSourceAdRuntime(config) {
+    function generateReactSourceAdRuntime(config, version) {
         function literal(value) {
             return JSON.stringify(String(value || '')).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
         }
-        return [
+        let source = [
             'const bannerPath1 = ' + literal(config && config.bannerPath1) + ';',
             'const bannerPath2 = ' + literal(config && config.bannerPath2) + ';',
             'const bannerPath3 = ' + literal(config && config.bannerPath3) + ';',
@@ -1718,9 +2000,25 @@ const AdRestoration = (function() {
             '}',
             ''
         ].join('\n');
+        if (version === 'initial') return '/** 成品站 ad.js initial */\n' + source;
+        source = source.replace(/function delayLoadBanner\([\s\S]*?\n}\n\nfunction scanBannersForCurrentPage\(\)/, [
+            'function loadNativeBanner(slotName, slotPath, domId, size = [300, 250]) {',
+            '  if (!slotPath || !document.getElementById(domId)) return;',
+            '  window[slotName] = googletag.defineSlot(slotPath, size, domId).addService(googletag.pubads());',
+            '  googletag.display(domId);',
+            '}',
+            '',
+            'function scanBannersForCurrentPage()'
+        ].join('\n'));
+        source = source.replace(/delayLoadBanner\(/g, 'loadNativeBanner(');
+        source = source.replace('googletag.cmd.push(function () {\n  if (bannerPath4', 'googletag.cmd.push(function () {\n  if (googletag.setConfig) googletag.setConfig({ lazyLoad: { fetchMarginPercent: 50, renderMarginPercent: 0, mobileScaling: 1 }, singleRequest: false });\n  if (bannerPath4');
+        if (version === 'v1.0.2') source = source.replace('googletag.setConfig({ lazyLoad: { fetchMarginPercent: 50, renderMarginPercent: 0, mobileScaling: 1 }, singleRequest: false });', 'googletag.setConfig({ lazyLoad: null, singleRequest: false });');
+        if (version !== 'v1.0.0' && version !== 'v1.0.2') source = source.replace('      interstitialSlot.addService(googletag.pubads());',
+            '      interstitialSlot.addService(googletag.pubads());\n      if (interstitialSlot.setConfig) interstitialSlot.setConfig({ interstitial: { triggers: { unhideWindow: true, navBar: true, inactivity: true, endOfArticle: true, continueReading: true } } });');
+        return '/** 成品站 ad.js ' + (version || 'v1.0.1') + ' */\n' + source;
     }
 
-    function injectReactEntry(rawEntries, project, config, archiveName, requestedPolicy) {
+    function injectReactEntry(rawEntries, project, config, archiveName, requestedPolicy, settings) {
         const entries = (rawEntries || []).map(function(entry) {
             return { path: normalizePath(entry.path || entry.name), bytes: entry.bytes ? new Uint8Array(entry.bytes) : textBytes(entryText(entry)) };
         }).filter(function(entry) { return isSafePath(entry.path); });
@@ -1732,11 +2030,15 @@ const AdRestoration = (function() {
         const headEnd = html.search(/<\/head\s*>/i);
         if (headEnd === -1) return { valid: false, errors: [issue('React 入口页缺少 </head>，无法加入广告运行时。', 'AD_INJECTION_HEAD_MISSING')], warnings: [], entries: entries, project: project };
         entry.bytes = textBytes(insertAt(html, headEnd, scripts).replace(/\n{3,}/g, '\n\n'));
-        const runtimeBytes = textBytes(generateSpaAdRuntime(config, requestedPolicy));
+        const fixed = settings && settings.mode === 'fixed';
+        const runtimeBytes = textBytes(fixed && typeof FinishedSiteAds !== 'undefined'
+            ? FinishedSiteAds.dynamicRuntimeSource(config, settings.version)
+            : generateSpaAdRuntime(config, requestedPolicy, settings && settings.version));
         const existingRuntime = entries.find(function(item) { return item.path.toLowerCase() === project.runtimePath.toLowerCase(); });
         if (existingRuntime) existingRuntime.bytes = runtimeBytes;
         else entries.push({ path: project.runtimePath, bytes: runtimeBytes });
-        const manifest = { schema: 'sitefoundry-ad-injection/v1', generatedAt: new Date().toISOString(), source: archiveName || 'finished-site', framework: project.framework, host: detectedHost(config), adPaths: config, policy: normalizePolicy(requestedPolicy) };
+        const manifest = { schema: 'sitefoundry-ad-injection/v1', generatedAt: new Date().toISOString(), source: archiveName || 'finished-site', framework: project.framework, host: detectedHost(config), adPaths: config, policy: normalizePolicy(requestedPolicy),
+            placementMode: fixed ? 'fixed' : 'manual', adJsVersion: settings && settings.version || 'v1.0.1' };
         const manifestPath = (project.deploymentRoot || project.siteRoot || '') + 'ad-injection.json';
         const existingManifest = entries.find(function(item) { return item.path.toLowerCase() === manifestPath.toLowerCase(); });
         if (existingManifest) existingManifest.bytes = textBytes(JSON.stringify(manifest, null, 2) + '\n');
@@ -1744,16 +2046,89 @@ const AdRestoration = (function() {
         return { valid: true, errors: [], warnings: project.warnings || [], entries: entries, project: project, changedPages: [project.entryPath], changedScripts: [project.runtimePath], restoredConfig: config };
     }
 
-    function injectAdsIntoSiteEntries(rawEntries, config, archiveName, requestedPolicy) {
+    /**
+     * 固定模式只修改可识别的内容页。每页独立记录跳过原因，避免某个站型
+     * 的未知结构让整批站点误插到卡片中间。
+     */
+    function injectFixedSiteEntries(rawEntries, project, config, archiveName, version) {
+        if (typeof FinishedSiteAds === 'undefined' || typeof DOMParser === 'undefined') {
+            return { valid: false, errors: [issue('成品站固定广告位规划器未加载。', 'AD_FIXED_PLANNER_UNAVAILABLE')], warnings: [], entries: rawEntries };
+        }
+        if (typeof Generator === 'undefined' || typeof Generator.generateSelectedAdJs !== 'function') {
+            return { valid: false, errors: [issue('ad.js 版本模板未加载。', 'AD_VERSION_TEMPLATE_UNAVAILABLE')], warnings: [], entries: rawEntries };
+        }
+        const entries = (rawEntries || []).map(function(entry) {
+            return { path: normalizePath(entry.path || entry.name), bytes: entry.bytes ? new Uint8Array(entry.bytes) : textBytes(entryText(entry)) };
+        }).filter(function(entry) { return isSafePath(entry.path); });
+        const home = project.entryPath;
+        const root = project.siteRoot || project.deploymentRoot || '';
+        const changedPages = [];
+        const warnings = [];
+        const pagePlacements = {};
+        const htmlEntries = entries.filter(function(entry) {
+            return entry.path.indexOf(root) === 0 && /\.html?$/i.test(entry.path) && FinishedSiteAds.isContentPath(entry.path);
+        });
+        if (!htmlEntries.length) return { valid: false, errors: [issue('未找到可添加广告的内容页。', 'AD_FIXED_CONTENT_MISSING')], warnings: [], entries: entries };
+        for (const entry of htmlEntries) {
+            const source = entryText(entry);
+            if (!/<head\b[^>]*>[\s\S]*?<\/head\s*>/i.test(source) || !/<body\b/i.test(source)) {
+                warnings.push(issue(entry.path + '：缺少完整 head/body，已跳过固定广告位。', 'AD_FIXED_DOCUMENT_INCOMPLETE'));
+                continue;
+            }
+            const doc = new DOMParser().parseFromString(source, 'text/html');
+            if (doc.querySelector('[id^="div-gpt-ad-banner"], [id^="adv"]')) {
+                warnings.push(issue(entry.path + '：原站已有广告容器，已跳过自动插入以避免重复。', 'AD_FIXED_EXISTING_AD'));
+                continue;
+            }
+            const pageType = FinishedSiteAds.isHomePath(entry.path, home) ? 'home' : 'detail';
+            const result = FinishedSiteAds.place(doc, pageType, config);
+            result.skipped.forEach(function(item) {
+                warnings.push(issue(entry.path + '：' + item.unit + ' ' + item.reason + '，请切换手动放置。', 'AD_FIXED_SLOT_SKIPPED'));
+            });
+            pagePlacements[entry.path] = result;
+            if (!result.placed.length) continue;
+            const gpt = doc.createElement('script');
+            gpt.async = true;
+            gpt.src = 'https://securepubads.g.doubleclick.net/tag/js/gpt.js';
+            gpt.crossOrigin = 'anonymous';
+            const runtime = doc.createElement('script');
+            runtime.defer = true;
+            runtime.src = relativeAdScriptPath(entry.path, root) + '?v=' + encodeURIComponent(version || 'v1.0.1');
+            doc.head.append(gpt, runtime);
+            entry.bytes = textBytes(FinishedSiteAds.serialize(doc));
+            changedPages.push(entry.path);
+        }
+        const adPath = root + 'js/ad.js';
+        const adSource = Generator.generateSelectedAdJs(config, version);
+        const oldRuntime = entries.find(function(entry) { return entry.path.toLowerCase() === adPath.toLowerCase(); });
+        if (oldRuntime) oldRuntime.bytes = textBytes(adSource);
+        else entries.push({ path: adPath, bytes: textBytes(adSource) });
+        const manifestPath = root + 'ad-injection.json';
+        const manifest = {
+            schema: 'sitefoundry-ad-injection/v3', generatedAt: new Date().toISOString(),
+            source: archiveName || 'finished-site', adPaths: config, adJsVersion: version || 'v1.0.1',
+            placementMode: 'fixed', pagePlacements: pagePlacements
+        };
+        const oldManifest = entries.find(function(entry) { return entry.path.toLowerCase() === manifestPath.toLowerCase(); });
+        if (oldManifest) oldManifest.bytes = textBytes(JSON.stringify(manifest, null, 2) + '\n');
+        else entries.push({ path: manifestPath, bytes: textBytes(JSON.stringify(manifest, null, 2) + '\n') });
+        return { valid: true, errors: [], warnings: warnings, entries: entries, project: project,
+            changedPages: changedPages, changedScripts: [adPath], pagePlacements: pagePlacements };
+    }
+
+    function injectAdsIntoSiteEntries(rawEntries, config, archiveName, requestedPolicy, settings) {
         const project = classifyInjectableSiteEntries(rawEntries, archiveName);
         if (!project.valid) return { valid: false, errors: project.errors, warnings: project.warnings || [], entries: rawEntries, project: project };
         if (!hasExternalBannerConfig(config)) return { valid: false, errors: [issue('广告代码至少需要一个 banner1、banner2 或 banner3。', 'AD_INJECTION_CODE_INCOMPLETE')], warnings: [], entries: rawEntries, project: project };
+        if (project.kind === 'static-html' && settings && settings.mode === 'fixed' && !/React 已构建静态产物/.test(project.framework || '')) {
+            return injectFixedSiteEntries(rawEntries, project, config, archiveName, settings.version);
+        }
         if (project.kind === 'static-html' && !/React 已构建静态产物/.test(project.framework || '')) {
-            const restored = restoreEntries(rawEntries, config, archiveName, requestedPolicy || createPolicy());
+            const restored = restoreEntries(rawEntries, config, archiveName, requestedPolicy || createPolicy(), { finishedSite: true, adJsVersion: settings && settings.version });
             restored.project = project;
             return restored;
         }
-        return injectReactEntry(rawEntries, project, config, archiveName, requestedPolicy || createPolicy());
+        return injectReactEntry(rawEntries, project, config, archiveName, requestedPolicy || createPolicy(), settings);
     }
 
     function entryByPath(entries, path) {
@@ -1782,9 +2157,70 @@ const AdRestoration = (function() {
         return Object.assign({}, project, { siteRoot: '', deploymentRoot: '', entryPath: relative(project && project.entryPath), runtimePath: relative(project && project.runtimePath) });
     }
 
+    function verifyFixedInjectedOutput(entries, project, config, settings, changedPages) {
+        const errors = [];
+        const warnings = [];
+        const checkedPages = [];
+        const output = outputProject(project || {});
+        const manifestEntry = entryByPath(entries, 'ad-injection.json');
+        let manifest = null;
+        try { manifest = manifestEntry ? JSON.parse(entryText(manifestEntry)) : null; }
+        catch (error) { errors.push(issue('成品站固定模式清单不是有效 JSON。', 'AD_FIXED_MANIFEST_INVALID')); }
+        const expectedMode = settings.mode === 'fixed' ? 'fixed' : 'manual';
+        if (!manifest || manifest.placementMode !== expectedMode || manifest.adJsVersion !== settings.version) {
+            errors.push(issue('成品站固定模式或 ad.js 版本未写入导出清单。', 'AD_FIXED_MANIFEST_MISMATCH'));
+        }
+        ['bannerPath1', 'bannerPath2', 'bannerPath3', 'interstitialPath', 'anchorPath', 'analyticsID'].forEach(function(key) {
+            if (manifest && String((manifest.adPaths || {})[key] || '') !== String((config || {})[key] || '')) {
+                errors.push(issue('成品站固定模式广告路径 ' + key + ' 与确认代码不一致。', 'AD_FIXED_PATH_MISMATCH'));
+            }
+        });
+        const runtimePath = output.kind === 'react-source' ? 'public/js/ad.js' : 'js/ad.js';
+        const runtime = entryByPath(entries, runtimePath);
+        if (!runtime) errors.push(issue('导出内容缺少 ' + runtimePath + '。', 'AD_FIXED_RUNTIME_MISSING'));
+        else if (output.kind === 'react-source' || /React 已构建静态产物/.test(output.framework || '')) {
+            const runtimeMarker = settings.mode === 'fixed' ? 'responsive runtime' : 'manual SPA runtime';
+            if (entryText(runtime).indexOf(runtimeMarker) === -1) errors.push(issue('React 广告模式缺少匹配的广告运行时。', 'AD_FIXED_RUNTIME_MODE'));
+        } else if (settings.version === 'initial' && entryText(runtime).indexOf('IntersectionObserver') === -1) {
+            errors.push(issue('初版 ad.js 未包含 IntersectionObserver。', 'AD_FIXED_VERSION_MISMATCH'));
+        } else if (settings.version !== 'initial' && entryText(runtime).indexOf('ad.js ' + settings.version) === -1) {
+            errors.push(issue('导出 ad.js 版本与选项不一致。', 'AD_FIXED_VERSION_MISMATCH'));
+        }
+        if (output.kind === 'react-source') {
+            const source = entries.map(function(entry) { return entryText(entry); }).join('\n');
+            if (!/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js/.test(source) || !/["']\/js\/ad\.js["']/.test(source)) {
+                errors.push(issue('React 源码未加载 GPT 或固定广告运行时。', 'AD_FIXED_REACT_HEAD_MISSING'));
+            }
+        } else if (/React 已构建静态产物/.test(output.framework || '')) {
+            const entry = entryByPath(entries, output.entryPath || 'index.html');
+            if (!entry || !/js\/ad\.js/.test(entryText(entry))) errors.push(issue('React 构建产物入口未引用固定广告运行时。', 'AD_FIXED_BUILD_HEAD_MISSING'));
+        } else if (typeof DOMParser !== 'undefined') {
+            (changedPages || []).forEach(function(path) {
+                const deploymentRoot = normalizePath(project && (project.deploymentRoot || project.siteRoot) || '');
+                const relative = deploymentRoot && path.indexOf(deploymentRoot) === 0 ? path.slice(deploymentRoot.length) : path;
+                const entry = entryByPath(entries, relative) || entryByPath(entries, path);
+                if (!entry) { errors.push(issue('导出内容缺少页面 ' + path + '。', 'AD_FIXED_PAGE_MISSING')); return; }
+                checkedPages.push(entry.path);
+                const doc = new DOMParser().parseFromString(entryText(entry), 'text/html');
+                const plan = manifest && manifest.pagePlacements && (manifest.pagePlacements[path] || manifest.pagePlacements[relative]);
+                if (!plan) { errors.push(issue(path + '：缺少固定广告位清单。', 'AD_FIXED_PAGE_PLAN_MISSING')); return; }
+                (plan.placed || []).forEach(function(unit) {
+                    const count = doc.querySelectorAll('#div-gpt-ad-' + unit).length;
+                    if (count !== 1) errors.push(issue(path + '：' + unit + ' 容器数量应为 1，实际为 ' + count + '。', 'AD_FIXED_SLOT_COUNT'));
+                });
+                if (!doc.querySelector('script[src*="js/ad.js"]')) errors.push(issue(path + '：未引用 ad.js。', 'AD_FIXED_SCRIPT_MISSING'));
+            });
+            entries.filter(function(entry) { return /\.html?$/i.test(entry.path) && typeof FinishedSiteAds !== 'undefined' && !FinishedSiteAds.isContentPath(entry.path); }).forEach(function(entry) {
+                if (/data-sitefoundry-fixed-ad=/i.test(entryText(entry))) errors.push(issue(entry.path + '：法律或联系页面出现广告位。', 'AD_FIXED_UTILITY_AD'));
+            });
+        }
+        return { valid: errors.length === 0, errors: errors, warnings: warnings, checkedPages: checkedPages,
+            manifestPath: 'ad-injection.json', exportScope: output.kind === 'react-source' ? '完整 React 源码' : '站点部署产物' };
+    }
+
     // This checks the exact bytes that will be written/downloaded.  Do not turn
     // it into a best-effort warning: callers use its failure to block export.
-    function verifyInjectedOutput(entries, project, config, requestedPolicy, changedPages) {
+    function verifyInjectedOutput(entries, project, config, requestedPolicy, changedPages, settings) {
         const errors = [];
         const warnings = [];
         const checkedPages = [];
@@ -1808,6 +2244,12 @@ const AdRestoration = (function() {
         });
         if (manifest && JSON.stringify(normalizePolicy(manifest.policy)) !== JSON.stringify(policy)) {
             errors.push(issue(manifestPath + ' 中的位置策略与预览确认结果不一致。', 'AD_EXPORT_POLICY_MISMATCH'));
+        }
+        if (settings && settings.version && manifest && manifest.adJsVersion !== settings.version) {
+            errors.push(issue(manifestPath + ' 中的 ad.js 版本与选项不一致。', 'AD_EXPORT_VERSION_MISMATCH'));
+        }
+        if (settings && settings.mode && manifest && manifest.placementMode !== settings.mode) {
+            errors.push(issue(manifestPath + ' 中的放置模式与选项不一致。', 'AD_EXPORT_MODE_MISMATCH'));
         }
         const policyErrors = validatePolicy(policy);
         if (policyErrors.length) errors.push.apply(errors, policyErrors);
@@ -1850,7 +2292,10 @@ const AdRestoration = (function() {
             if (!runtime) errors.push(issue('React 源码缺少广告运行时 public/js/ad.js。', 'AD_EXPORT_RUNTIME_MISSING'));
             else {
                 const runtimeText = entryText(runtime);
-                ['div-gpt-ad-banner', 'refreshClarivoBanners', 'function delayLoadBanner', 'new IntersectionObserver', 'googletag.destroySlots(previousSlots)', '[LazyLoad] 初始化监控:', '[Init] Interstitial 已定义', '[Init] Anchor 已定义'].forEach(function(token) {
+                const runtimeTokens = settings && settings.version && settings.version !== 'initial'
+                    ? ['div-gpt-ad-banner', 'refreshClarivoBanners', 'function loadNativeBanner', 'googletag.setConfig', 'googletag.destroySlots(previousSlots)', '[Init] Interstitial 已定义', '[Init] Anchor 已定义']
+                    : ['div-gpt-ad-banner', 'refreshClarivoBanners', 'function delayLoadBanner', 'new IntersectionObserver', 'googletag.destroySlots(previousSlots)', '[LazyLoad] 初始化监控:', '[Init] Interstitial 已定义', '[Init] Anchor 已定义'];
+                runtimeTokens.forEach(function(token) {
                     if (runtimeText.indexOf(token) === -1) errors.push(issue(runtime.path + ' 缺少 ' + token + '，SPA 广告重扫不完整。', 'AD_EXPORT_SPA_RUNTIME_INCOMPLETE'));
                 });
                 ['data-sitefoundry-runtime-ad', 'new MutationObserver'].forEach(function(token) {
@@ -1918,7 +2363,11 @@ const AdRestoration = (function() {
                 results.push({ valid: false, siteName: mapping.siteName, framework: mapping.framework, host: mapping.host, errors: mapping.errors, warnings: mapping.warnings });
                 continue;
             }
-            const effectivePolicy = normalizePolicy(requestedPolicy);
+            const batchSettings = requestedPolicy && requestedPolicy.mode
+                ? requestedPolicy : { mode: 'manual', version: 'initial', policy: requestedPolicy };
+            const override = batchSettings.overrides && batchSettings.overrides[mapping.site.id];
+            const settings = override || batchSettings;
+            const effectivePolicy = normalizePolicy(settings.policy);
             ['banner1', 'banner2', 'banner3'].forEach(function(unit) {
                 if (mapping.code.config[unit.replace('banner', 'bannerPath')]) return;
                 ['home', 'detail'].forEach(function(page) { effectivePolicy.slots[page].forEach(function(slot) { if (slot.unit === unit) { slot.unit = 'off'; slot.position = 'off'; } }); });
@@ -1931,15 +2380,23 @@ const AdRestoration = (function() {
                 });
                 continue;
             }
+            const dynamicManual = settings.mode === 'manual' && mapping.project.kind === 'react-source'
+                && !mapping.project.entryPath;
+            const fixedRuntime = settings.mode === 'fixed' && typeof FinishedSiteAds !== 'undefined'
+                ? FinishedSiteAds.dynamicRuntimeSource(mapping.code.config, settings.version) : '';
+            const manualRuntime = dynamicManual ? generateSpaAdRuntime(mapping.code.config, effectivePolicy, settings.version) : '';
             const injected = mapping.project.kind === 'react-source'
-                ? reactSourceInjector(mapping.site.entries, mapping.project, mapping.code.config, effectivePolicy, mapping.siteName, generateReactSourceAdRuntime(mapping.code.config))
-                : injectAdsIntoSiteEntries(mapping.site.entries, mapping.code.config, mapping.siteName, effectivePolicy);
+                ? reactSourceInjector(mapping.site.entries, mapping.project, mapping.code.config, effectivePolicy, mapping.siteName,
+                    fixedRuntime || manualRuntime || generateReactSourceAdRuntime(mapping.code.config, settings.version), settings)
+                : injectAdsIntoSiteEntries(mapping.site.entries, mapping.code.config, mapping.siteName, effectivePolicy, settings);
             if (!injected.valid) {
                 results.push({ valid: false, siteName: mapping.siteName, framework: mapping.framework, host: mapping.host, errors: injected.errors, warnings: mapping.warnings.concat(injected.warnings || []) });
                 continue;
             }
             const exportedEntries = deploymentEntries(injected.entries, mapping.project);
-            const verification = verifyInjectedOutput(exportedEntries, mapping.project, mapping.code.config, effectivePolicy, injected.changedPages || []);
+            const verification = settings.mode === 'fixed' || dynamicManual
+                ? verifyFixedInjectedOutput(exportedEntries, mapping.project, mapping.code.config, settings, injected.changedPages || [])
+                : verifyInjectedOutput(exportedEntries, mapping.project, mapping.code.config, effectivePolicy, injected.changedPages || [], settings);
             if (!verification.valid) {
                 results.push({
                     valid: false, siteName: mapping.siteName, framework: mapping.framework, host: mapping.host,
@@ -2031,7 +2488,7 @@ const AdRestoration = (function() {
         const lines = [
             '批量广告策略处理报告',
             '生成时间：' + new Date().toISOString(),
-            '输出规则：新建站点总目录，不覆盖源文件；广告路径保留在 js/ad.js 与 ad-policy.json。',
+            '输出规则：新建站点总目录，不覆盖源文件；每站按识别到的 ad.js 版本重建；关闭的广告路径保留在 ad-policy.json，启用源码注释时也保留在 js/ad.js 的注释中。',
             '全局首页：' + summary.home,
             '全局详情：' + summary.detail,
             '全局插屏：' + summary.interstitial,
@@ -2041,6 +2498,7 @@ const AdRestoration = (function() {
         results.forEach(function(result) {
             lines.push((result.valid ? '[成功] ' : '[失败] ') + result.siteName + (result.overridden ? '（单站覆盖）' : '（全局方案）'));
             if (result.host) lines.push('  广告域名：' + result.host);
+            if (result.adJsVersion) lines.push('  ad.js 版本：' + result.adJsVersion);
             if (result.changedPages != null) lines.push('  修改页面：' + result.changedPages + ' 个');
             (result.errors || []).forEach(function(error) { lines.push('  错误：' + error.message); });
             (result.warnings || []).forEach(function(warning) { lines.push('  提示：' + warning.message); });
@@ -2075,9 +2533,21 @@ const AdRestoration = (function() {
                 results.push({ valid: false, siteName: site.name, host: metadata.detectedHost, overridden: !!override, errors: metadata.errors, warnings: metadata.warnings });
                 continue;
             }
-            const restored = restoreEntries(site.entries, metadata.embeddedConfig, site.name, policy);
+            if (!metadata.adJsVersion) {
+                results.push({
+                    valid: false,
+                    siteName: site.name,
+                    host: metadata.detectedHost,
+                    overridden: !!override,
+                    adJsVersion: '',
+                    errors: [issue('无法可靠识别该站点的 js/ad.js 版本；为避免恢复或限流时替换成错误模板，已阻止导出。', 'RESTORE_AD_VERSION_UNKNOWN')],
+                    warnings: metadata.warnings
+                });
+                continue;
+            }
+            const restored = restoreEntries(site.entries, metadata.embeddedConfig, site.name, policy, { batchPolicy: true });
             if (!restored.valid) {
-                results.push({ valid: false, siteName: site.name, host: metadata.detectedHost, overridden: !!override, errors: restored.errors, warnings: restored.warnings });
+                results.push({ valid: false, siteName: site.name, host: metadata.detectedHost, overridden: !!override, adJsVersion: metadata.adJsVersion, errors: restored.errors, warnings: restored.warnings });
                 continue;
             }
             const baseName = siteFolderName(site.name, metadata.detectedHost || 'site');
@@ -2091,6 +2561,7 @@ const AdRestoration = (function() {
                 siteName: site.name,
                 outputName: outputName,
                 host: metadata.detectedHost,
+                adJsVersion: metadata.adJsVersion,
                 overridden: !!override,
                 changedPages: restored.changedPages.length,
                 errors: [],

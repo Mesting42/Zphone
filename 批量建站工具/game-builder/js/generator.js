@@ -55,6 +55,10 @@ const Generator = (function() {
     }
 
     function hasConfiguredAds(config) {
+        return !!(config && (config.adRuntimeEnabled || (config.adMigration && config.adMigration.valid)));
+    }
+
+    function hasValidatedAdConfig(config) {
         return !!(config && config.adMigration && config.adMigration.valid);
     }
 
@@ -272,20 +276,57 @@ body > * { position: relative; z-index: 1; }
         adv3: '<div id="adv3" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:var(--color-text,#111);font-size:13px;">advertisement</div><div id="div-gpt-ad-banner3" style="min-width:300px;min-height:250px;"></div></div>'
     };
 
-    const AD_RUNTIME_CACHE_VERSION = '20260919-ad-runtime-init-1';
+    // "全部游戏"没有文章段落或相关推荐，但使用与详情页相同的广告配置。
+    function getAllGamesDetailAds(adPlacements, positions) {
+        let code = '';
+        for (const [adId, pages] of Object.entries(adPlacements || {})) {
+            const position = pages && pages.detail;
+            if (position && (positions.includes(position) || (positions.includes('detail-between-p-*') && /^detail-between-p-\d+$/.test(position)))) {
+                code += AD_TEMPLATES[adId] || '';
+            }
+        }
+        return code;
+    }
 
-    function getAdRuntimeVersion(adPaths) {
-        const source = JSON.stringify(adPaths || {});
+    function getAllGamesMiddleRowEnd(cardCount, columns) {
+        const fullRowsBeforeEnd = Math.floor((cardCount - 1) / columns);
+        if (fullRowsBeforeEnd < 1) return cardCount;
+        return Math.max(1, Math.min(fullRowsBeforeEnd, Math.round(cardCount / (2 * columns)))) * columns;
+    }
+
+    function buildAllGamesCardGrid(adPlacements, cards) {
+        const middleAds = getAllGamesDetailAds(adPlacements, ['detail-between-p-*', 'detail-after-content', 'detail-before-related']);
+        if (!middleAds) return '<div class="items-grid">' + cards.join('') + '</div>';
+        const desktopEnd = getAllGamesMiddleRowEnd(cards.length, 3);
+        const mobileEnd = getAllGamesMiddleRowEnd(cards.length, 2);
+        const orderedCards = cards.map(function(card, index) {
+            return card.replace('class="item-card"', 'class="item-card" style="order:' + (index * 2) + '"');
+        });
+        orderedCards.splice(desktopEnd, 0,
+            '<div class="all-games-middle-ads" style="--desktop-ad-order:' + (desktopEnd * 2 - 1) + ';--mobile-ad-order:' + (mobileEnd * 2 - 1) + '">' + middleAds + '</div>');
+        return '<div class="items-grid">' + orderedCards.join('') + '</div>';
+    }
+
+    const AD_RUNTIME_CACHE_VERSION = '20260923-ad-runtime-v101';
+
+    function normalizeAdJsVersion(version) {
+        return version === 'initial' || version === 'v1.0.0' || version === 'v1.0.2' ? version : 'v1.0.1';
+    }
+
+    function getAdRuntimeVersion(adPaths, version) {
+        const selectedVersion = normalizeAdJsVersion(version);
+        const source = JSON.stringify({ paths: adPaths || {}, version: selectedVersion });
         let hash = 2166136261;
         for (let index = 0; index < source.length; index += 1) {
             hash ^= source.charCodeAt(index);
             hash = Math.imul(hash, 16777619);
         }
-        return AD_RUNTIME_CACHE_VERSION + '-' + (hash >>> 0).toString(36);
+        const cacheVersion = selectedVersion === 'v1.0.1' ? AD_RUNTIME_CACHE_VERSION : '20260924-ad-runtime-' + selectedVersion.replace(/[^a-z0-9]/gi, '');
+        return cacheVersion + '-' + (hash >>> 0).toString(36);
     }
 
     // ========== 生成 ad.js ==========
-    function generateAdJs(adPaths) {
+    function generateLegacyAdJs(adPaths) {
         var p = adPaths || {};
         return `const bannerPath1 = ${serializeForScript(p.bannerPath1 || '')};
 const bannerPath2 = ${serializeForScript(p.bannerPath2 || '')};
@@ -429,6 +470,192 @@ if (analyticsID) {
 } else {
     console.warn('Analytics ID is empty. Skipping Google Analytics initialization.');
 }`;
+    }
+
+    // 游戏建站与游戏广告移植按版本选择输出；这里保留 v1.0.1 作为兼容底稿。
+    function generateAdJs(adPaths) {
+        var p = adPaths || {};
+        return `/**
+ * ad.js v1.0.1
+ * Updated: 2026-09-23
+ */
+
+/* ========================================= */
+// 广告单元
+const adUnitBanner1 = ${serializeForScript(p.bannerPath1 || '')};
+const adUnitBanner2 = ${serializeForScript(p.bannerPath2 || '')};
+const adUnitBanner3 = ${serializeForScript(p.bannerPath3 || '')};
+const adUnitInterstitial = ${serializeForScript(p.interstitialPath || '')};
+const adUnitAnchor = ${serializeForScript(p.anchorPath || '')};
+
+// Google Analytics
+const gaMeasurementId = ${serializeForScript(p.analyticsID || '')};
+/* ========================================= */
+
+const isIndex = window.location.pathname === "/" || window.location.pathname === "/index.html";
+window.googletag = window.googletag || { cmd: [] };
+
+let bannerSlot1 = null;
+let bannerSlot2 = null;
+let bannerSlot3 = null;
+let interstitialSlot = null;
+let anchorSlot = null;
+
+document.addEventListener("DOMContentLoaded",
+    function () {
+        googletag.cmd.push(function () {
+
+            // GPT 原生 Lazy Load
+            googletag.setConfig({
+                lazyLoad: {
+                    fetchMarginPercent: 50,
+                    renderMarginPercent: 0,
+                    mobileScaling: 1
+                },
+                singleRequest: false
+            });
+
+            // Banner
+            if (adUnitBanner1 && document.getElementById("div-gpt-ad-banner1")) {
+                bannerSlot1 = googletag.defineSlot(adUnitBanner1, [300, 250], "div-gpt-ad-banner1").addService(googletag.pubads());
+            }
+            if (adUnitBanner2 && document.getElementById("div-gpt-ad-banner2")) {
+                bannerSlot2 = googletag.defineSlot(adUnitBanner2, [300, 250], "div-gpt-ad-banner2").addService(googletag.pubads());
+            }
+            if (adUnitBanner3 && document.getElementById("div-gpt-ad-banner3")) {
+                bannerSlot3 = googletag.defineSlot(adUnitBanner3, [300, 250], "div-gpt-ad-banner3").addService(googletag.pubads());
+            }
+
+            // Interstitial 仅首页
+            if (isIndex && adUnitInterstitial) {
+                interstitialSlot = googletag.defineOutOfPageSlot(adUnitInterstitial, googletag.enums.OutOfPageFormat.INTERSTITIAL);
+                if (interstitialSlot) {
+                    interstitialSlot.addService(googletag.pubads());
+
+                    // 触发器
+                    interstitialSlot.setConfig({
+                        interstitial: {
+                            triggers: {
+                                unhideWindow: true,
+                                navBar: true,
+                                inactivity: true,
+                                endOfArticle: true,
+                                continueReading: true
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Bottom Anchor
+            if (adUnitAnchor) {
+                anchorSlot = googletag.defineOutOfPageSlot(adUnitAnchor, googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR);
+                if (anchorSlot) {
+                    anchorSlot.addService(googletag.pubads());
+                }
+            }
+
+            // 启动 GPT
+            googletag.enableServices();
+
+            // Banner display
+            if (bannerSlot1) {
+                googletag.display("div-gpt-ad-banner1");
+            }
+            if (bannerSlot2) {
+                googletag.display("div-gpt-ad-banner2");
+            }
+            if (bannerSlot3) {
+                googletag.display("div-gpt-ad-banner3");
+            }
+
+            // Out-of-page display
+            if (interstitialSlot) {
+                googletag.display(interstitialSlot);
+            }
+            if (anchorSlot) {
+                googletag.display(anchorSlot);
+            }
+        });
+    });
+
+// Google Analytics
+if (gaMeasurementId) {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () {
+        dataLayer.push(arguments);
+    };
+
+    gtag("js", new Date());
+    gtag("config", gaMeasurementId);
+    const gtagScript = document.createElement("script");
+    gtagScript.async = true;
+    gtagScript.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(gaMeasurementId);
+    document.head.appendChild(gtagScript);
+} else {
+    console.warn("GA ID is empty.");
+}`;
+    }
+
+    // Keep this version configurable per generated site while disabling both
+    // native lazy loading and the optional interstitial triggers by default.
+    function generateV102AdJs(baseSource) {
+        let source = baseSource
+            .replace('ad.js v1.0.1', 'ad.js v1.0.2')
+            .replace('Updated: 2026-09-23', 'Updated: 2026-09-24');
+        const lazyLoadBlock = /\/\/ GPT 原生 Lazy Load\s+googletag\.setConfig\(\{[\s\S]*?singleRequest: false\s*\}\);/;
+        const analyticsBlock = /const gaMeasurementId = ([^\r\n]+);\r?\n\/\* ========================================= \*\//;
+        if (!lazyLoadBlock.test(source) || !analyticsBlock.test(source)) {
+            throw new Error('v1.0.2 广告模板生成失败：缺少懒加载或 GA 配置段。');
+        }
+        source = source.replace(lazyLoadBlock, `// GPT 设置：可通过开关控制原生懒加载
+            if (enableLazyLoad) {
+                googletag.setConfig({
+                    lazyLoad: {
+                        fetchMarginPercent: 50,
+                        renderMarginPercent: 0,
+                        mobileScaling: 1
+                    },
+                    singleRequest: false
+                });
+            } else {
+                googletag.setConfig({
+                    lazyLoad: null,
+                    singleRequest: false
+                });
+            }`);
+        source = source.replace(analyticsBlock, function(match, analyticsId) {
+            return 'const gaMeasurementId = ' + analyticsId + ';\n\n' +
+                '// 选项\n' +
+                'const enableLazyLoad = false;              // 关闭广告延迟加载\n' +
+                'const enableInterstitialTriggers = false;  // 关闭插屏广告额外触发器\n' +
+                '/* ========================================= */';
+        });
+        let triggerCount = 0;
+        source = source.replace(/(unhideWindow|navBar|inactivity|endOfArticle|continueReading): true/g, function(match, trigger) {
+            triggerCount += 1;
+            return trigger + ': enableInterstitialTriggers';
+        });
+        if (triggerCount !== 5) throw new Error('v1.0.2 广告模板生成失败：插屏触发器配置不完整。');
+        return source;
+    }
+
+    function generateSelectedAdJs(adPaths, version) {
+        const selectedVersion = normalizeAdJsVersion(version);
+        if (selectedVersion === 'initial') {
+            const source = typeof window !== 'undefined' && window.AD_JS_SOURCE;
+            if (!source) throw new Error('初版 ad.js 模板未加载。');
+            const paths = adPaths || {};
+            return source.replace(/^const (bannerPath[1-4]|interstitialPath|anchorPath|analyticsID) = "";$/gm, function(line, key) {
+                return 'const ' + key + ' = ' + serializeForScript(paths[key] || '') + ';';
+            });
+        }
+        const latest = generateAdJs(adPaths);
+        if (selectedVersion === 'v1.0.1') return latest;
+        if (selectedVersion === 'v1.0.2') return generateV102AdJs(latest);
+        const triggerBlock = /\n\s*\/\/ 触发器\n\s*interstitialSlot\.setConfig\(\{[\s\S]*?\n\s*\}\);/;
+        if (!triggerBlock.test(latest)) throw new Error('v1.0.0 广告模板生成失败：找不到插页广告触发器。');
+        return latest.replace('ad.js v1.0.1', 'ad.js v1.0.0').replace(triggerBlock, '');
     }
 
     // ========== 生成CSS ==========
@@ -1086,6 +1313,12 @@ ${style.categoryTitleStyle === 'gradient' ? `.category-title::after { content: '
         `grid-template-columns: repeat(${config.structure.cardColumns}, 1fr);`
     }
     gap: var(--grid-gap);
+}
+
+/* 全部游戏页的广告独占一整行；宽屏按三列、窄屏按两列计算中段位置。 */
+#all-games .all-games-middle-ads { grid-column: 1 / -1; order: var(--desktop-ad-order); }
+@media (max-width: 819px) {
+    #all-games .all-games-middle-ads { order: var(--mobile-ad-order); }
 }
 
 /* 卡片样式 */
@@ -2319,7 +2552,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const navbar = generateNavbar(config, 'home');
         const footer = generateFooter(config);
         const adPlacements = config.adPlacements || {};
-        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths);
+        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
         const adScripts = hasConfiguredAds(config)
             ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
             : '';
@@ -2414,9 +2647,15 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const siteName = escapeHtml(theme.siteTitle);
         const navbar = generateNavbar(config, 'all');
         const footer = generateFooter(config);
-        const cardsHtml = data.map(function(item, index) {
+        const adPlacements = config.adPlacements || {};
+        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
+        const adScripts = hasConfiguredAds(config)
+            ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
+            : '';
+        const getAllGamesAd = function() { return getAllGamesDetailAds(adPlacements, Array.from(arguments)); };
+        const cards = data.map(function(item, index) {
             return generateHomeCardHtml(item, index, config);
-        }).join('');
+        });
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -2426,19 +2665,23 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>All Games | ${siteName}</title>
     <meta name="description" content="Browse all ${data.length} games on ${siteName}.">
     <script defer src="js/script.js"></script>
+    ${adScripts}
     ${_googleFontLink}
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="${layoutClass}">
     ${navbar}
+    ${getAllGamesAd('after-navbar')}
     <main class="main-content" data-static-rendered="true">
         <div class="container">
+            ${getAllGamesAd('detail-before-content')}
             <section id="all-games" class="category-section">
                 <h1 class="category-title">All Games</h1>
-                <div class="items-grid">${cardsHtml}</div>
+                ${buildAllGamesCardGrid(adPlacements, cards)}
             </section>
         </div>
     </main>
+    ${getAllGamesAd('detail-after-related', 'footer-top')}
     ${footer}
 </body>
 </html>`;
@@ -2708,7 +2951,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const mapping = config.fieldMapping;
         const itemId = getItemId(item, index);
         const siteName = escapeHtml(theme.siteTitle);
-        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths);
+        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
         const adScripts = hasConfiguredAds(config)
             ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="../js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
             : '';
@@ -3090,14 +3333,19 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
         // index.html
         const homeHtml = generateIndexHtml(config, data);
-        if (hasConfiguredAds(config)) {
+        if (hasValidatedAdConfig(config)) {
             const errors = validateMigratedPage(homeHtml, 'home');
             if (errors.length) throw new Error('广告移植首页校验失败：' + errors.map(item => item.message).join(' '));
         }
         siteFolder.file('index.html', homeHtml);
 
         if (config.structure.hasAllItemsPage) {
-            siteFolder.file('all-games.html', generateAllGamesHtml(config, data));
+            const allGamesHtml = generateAllGamesHtml(config, data);
+            if (hasValidatedAdConfig(config)) {
+                const errors = validateMigratedPage(allGamesHtml, 'all');
+                if (errors.length) throw new Error('广告移植全部游戏页校验失败：' + errors.map(item => item.message).join(' '));
+            }
+            siteFolder.file('all-games.html', allGamesHtml);
         }
 
         onProgress(25, '正在生成script.js...');
@@ -3107,7 +3355,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
         // 仅在已配置广告代码且放置了广告位时生成广告脚本
         if (hasConfiguredAds(config)) {
-            siteFolder.folder('js').file('ad.js', generateAdJs(config.adPaths));
+            siteFolder.folder('js').file('ad.js', generateSelectedAdJs(config.adPaths, config.adJsVersion));
         }
 
         // data.json - 处理本地图片路径
@@ -3140,7 +3388,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
         for (let i = 0; i < total; i++) {
             const detailHtml = generateDetailHtml(data[i], i, data, config);
-            if (hasConfiguredAds(config)) {
+            if (hasValidatedAdConfig(config)) {
                 const errors = validateMigratedPage(detailHtml, 'detail');
                 if (errors.length) throw new Error('广告移植详情页校验失败（第 ' + (i + 1) + ' 页）：' + errors.map(item => item.message).join(' '));
             }
@@ -3153,6 +3401,10 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 // 让UI有时间更新
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
+        }
+
+        if (hasConfiguredAds(config) && !hasValidatedAdConfig(config)) {
+            siteFolder.file('AD_PLACEHOLDER_SETUP.txt', '本网站已预留广告容器，并生成路径为空的 js/ad.js。拿到运营广告代码后，请填写 adUnitBanner1、adUnitBanner2、adUnitBanner3、adUnitInterstitial、adUnitAnchor 与 gaMeasurementId；不需要重新生成页面。\n');
         }
 
         // 本地图片
@@ -3211,7 +3463,6 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
     // ========== 构建配置对象 ==========
     function buildConfig(appState, options) {
-        const previewManualAds = !!(options && options.previewManualAds);
         const baseTheme = THEMES[appState.selectedTheme];
         const mapping = appState.fieldMapping;
         const siteTitle = String(appState.config.siteTitle || baseTheme.siteTitle).trim() || baseTheme.siteTitle;
@@ -3242,14 +3493,17 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const migration = appState.siteBuildMode === 'ad-migration' && appState.legacyAdMigration && appState.legacyAdMigration.valid
             ? appState.legacyAdMigration
             : null;
-        const directAdCode = appState.siteBuildMode === 'normal' && appState.adCodeMigration && appState.adCodeMigration.valid
+        const reserveAds = appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
+        const directAdCode = appState.siteBuildMode === 'normal' && !reserveAds && appState.adCodeMigration && appState.adCodeMigration.valid
             ? appState.adCodeMigration
             : null;
         const activeAdCode = migration || directAdCode;
-        // TXT 广告代码与资讯站采用同一套经过验证的固定广告位置，避免只读取路径却没有实际容器。
-        // 未上传广告代码时，手动位置只用于实时预览，不能随导出站点生成空白广告区域。
-        const automaticAdPlacements = activeAdCode && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
-        const previewAdPlacements = !activeAdCode && previewManualAds ? (appState.config.adPlacements || {}) : {};
+        const fixedReserveAds = reserveAds && appState.reservePlacementMode === 'fixed';
+        const automaticAdPlacements = (activeAdCode || fixedReserveAds) && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+        const homeCategoryCount = (appState.config.categories || theme.categories).length;
+        if (fixedReserveAds && automaticAdPlacements.adv2 && homeCategoryCount < 2) automaticAdPlacements.adv2.home = 'content-bottom';
+        if (fixedReserveAds && automaticAdPlacements.adv3 && homeCategoryCount < 2) automaticAdPlacements.adv3.home = 'footer-top';
+        const exportedAdPlacements = activeAdCode || fixedReserveAds ? automaticAdPlacements : (reserveAds ? (appState.config.adPlacements || {}) : {});
         const categories = (appState.config.categories || theme.categories).map(function(category, index) {
             return { ...category, icon: normalizeCategoryEmoji(category, index), count: index === 0 ? 2 : 6 };
         });
@@ -3314,10 +3568,12 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 cardDescLines: appState.config.cardDescLines || '2',
                 layoutTemplate: appState.config.layoutTemplate || 'classic'
             },
-            siteBuildMode: migration ? 'ad-migration' : 'normal',
+            siteBuildMode: migration ? 'ad-migration' : (reserveAds ? 'ad-placeholder' : 'normal'),
             adMigration: activeAdCode,
-            adPlacements: activeAdCode ? automaticAdPlacements : previewAdPlacements,
+            adRuntimeEnabled: !!activeAdCode || reserveAds,
+            adPlacements: exportedAdPlacements,
             adPaths: activeAdCode ? activeAdCode.config : {},
+            adJsVersion: normalizeAdJsVersion(appState.adJsVersion),
             adPlacementMode: appState.adPlacementMode || null,
             isLocalImages: appState.isLocalImages || false
         };
@@ -3510,12 +3766,15 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             bodyContent += generateFooter(config);
 
         } else if (pageType === 'all') {
+            const getAllGamesPreviewAd = function() { return getAllGamesDetailAds(adPlacements, Array.from(arguments)); };
             bodyContent = generateNavbar(config, 'all');
-            bodyContent += '<main class="main-content"><div class="container"><section id="all-games" class="category-section"><h1 class="category-title">All Games</h1><div class="items-grid">';
-            data.forEach(function(item, index) {
+            bodyContent += getAllGamesPreviewAd('after-navbar');
+            bodyContent += '<main class="main-content"><div class="container">';
+            bodyContent += getAllGamesPreviewAd('detail-before-content');
+            const allGamesCards = data.map(function(item, index) {
                 const title = escapeHtml(item[mapping.title] || 'Untitled');
                 const image = escapeHtml(safeUrl(getPreviewImageSrc(item), true));
-                bodyContent += `<a class="item-card" href="#" data-preview-game-index="${index}" aria-label="Preview ${title} details">
+                let cardHtml = `<a class="item-card" href="#" data-preview-game-index="${index}" aria-label="Preview ${title} details">
                     ${image ? `<img class="card-image" src="${image}"${getImageFallbackAttr(item)} alt="${title}">` : ''}
                     <div class="card-body"><div class="card-title">${title}</div>`;
                 config.structure.cardFields.forEach(function(field) {
@@ -3525,11 +3784,15 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                     const isFreePrice = field === 'price' && String(value).toLowerCase() === 'free';
                     const cssClass = field === 'content' || field === 'excerpt' ? 'card-desc' : ('card-' + field);
                     const tag = field === 'content' || field === 'excerpt' ? 'p' : 'div';
-                    bodyContent += `<${tag} class="${cssClass}${isFreePrice ? ' price-free' : ''}">${escapeHtml(value)}</${tag}>`;
+                    cardHtml += `<${tag} class="${cssClass}${isFreePrice ? ' price-free' : ''}">${escapeHtml(value)}</${tag}>`;
                 });
-                bodyContent += '</div></a>';
+                return cardHtml + '</div></a>';
             });
-            bodyContent += '</div></section></div></main>';
+            bodyContent += '<section id="all-games" class="category-section"><h1 class="category-title">All Games</h1>';
+            bodyContent += buildAllGamesCardGrid(adPlacements, allGamesCards);
+            bodyContent += '</section>';
+            bodyContent += '</div></main>';
+            bodyContent += getAllGamesPreviewAd('detail-after-related', 'footer-top');
             bodyContent += generateFooter(config);
 
         } else if (pageType === 'detail') {
@@ -3756,6 +4019,7 @@ ${generateNavbarInteractionScript()}
     return {
         exportWebsite: exportWebsite,
         generatePreviewHtml: generatePreviewHtml,
-        buildConfig: buildConfig
+        buildConfig: buildConfig,
+        generateSelectedAdJs: generateSelectedAdJs
     };
 })();

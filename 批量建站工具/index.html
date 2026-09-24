@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20260922-normal-ad-reserve-1">
+    <link rel="stylesheet" href="css/tool.css?v=20260924-ad-version-wrap-2">
   <link rel="stylesheet" href="css/liquid-glass.css?v=20260918-liquid-glass-17">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
@@ -141,7 +141,7 @@
                     </article>
                 </div>
                 <div class="injection-progress" id="injection-scan-progress" hidden><div><span id="injection-scan-progress-fill"></span></div><p id="injection-scan-progress-text">正在识别…</p></div>
-                <p class="injection-action-help">识别完成后点击“进入配置网站”，在原站实时预览旁上传广告代码并手动设置广告位。</p>
+                <p class="injection-action-help">识别完成后点击“进入配置网站”，在原站实时预览旁上传广告代码并确认自动广告位；需要时可切换为手动放置。</p>
             </section>
 
             <section class="ad-restoration-setup" id="ad-restoration-setup" hidden aria-labelledby="ad-restoration-title">
@@ -149,7 +149,7 @@
                     <div><span class="section-kicker">不覆盖源文件</span><h3 id="ad-restoration-title">批量广告策略编辑器</h3></div>
                     <span class="restoration-local-badge">仅浏览器本地处理</span>
                 </div>
-                <p class="ad-restoration-intro">直接选择包含多个站点的总目录。工具从源站已有及注释代码识别 <code>banner1/2/3</code>、插屏和锚点，先套用一套全局方案，再按需覆盖个别站点；广告路径始终保留，无需上传额外 TXT。</p>
+                <p class="ad-restoration-intro">直接选择包含多个站点的总目录。工具从源站已有及注释代码识别 <code>banner1/2/3</code>、插屏和锚点，逐站识别并保留原 ad.js 版本，再套用一套全局方案并按需覆盖个别站点；广告路径始终保留，无需上传额外 TXT。无法可靠识别版本的站点会被阻止处理，避免静默替换成其他模板。</p>
                 <div class="restoration-file-grid">
                     <article class="restoration-file-card">
                         <span class="restoration-step" aria-hidden="true">1</span>
@@ -318,30 +318,30 @@
             <div class="config-layout">
                 <!-- 左侧：配置面板 -->
                 <aside class="config-panel ad-injection-config-panel" id="ad-injection-config-panel" hidden aria-labelledby="ad-injection-config-title">
-                    <p class="section-kicker">第二步 · 仅修改广告</p>
-                    <h2 class="panel-title" id="ad-injection-config-title">配置网站</h2>
-                    <p class="panel-desc">右侧显示上传的原站。为保留已过审站的内容与视觉，结构和样式仅供核查；广告代码和广告位在此步骤配置。</p>
-                    <div class="config-tabs injection-config-tabs" role="tablist" aria-label="成品站广告配置">
-                        <button type="button" class="injection-config-tab active" data-injection-tab="structure" role="tab" aria-selected="true">结构配置</button>
-                        <button type="button" class="injection-config-tab" data-injection-tab="style" role="tab" aria-selected="false">样式配置</button>
-                        <button type="button" class="injection-config-tab" data-injection-tab="ads" role="tab" aria-selected="false">广告配置</button>
-                    </div>
-                    <section class="injection-config-section active" data-injection-section="structure">
-                        <div class="config-group">
-                            <h4 class="group-title">原站结构核查</h4>
-                            <p class="group-hint">原站页面、路由和内容不会被重排或替换；导出时只增加广告运行时代码与广告容器。</p>
+                    <h2 class="panel-title" id="ad-injection-config-title">配置广告</h2>
+                    <p class="panel-desc">只添加广告代码与广告位；原站页面、路由和样式保持不变。</p>
+                    <div class="injection-site-context">
+                        <label class="injection-site-label" for="injection-preview-site">实时预览站点</label>
+                        <div class="injection-site-select"><select id="injection-preview-site" disabled><option>等待上传站点</option></select></div>
+                        <details class="injection-source-details">
+                            <summary>查看原站识别信息</summary>
                             <div class="injection-source-summary" id="injection-structure-summary" aria-live="polite">请先上传已过审网站压缩包。</div>
-                            <label class="config-item"><span>实时预览站点</span><select id="injection-preview-site" disabled><option>等待上传站点</option></select></label>
-                        </div>
-                    </section>
-                    <section class="injection-config-section" data-injection-section="style" hidden>
+                        </details>
+                        <label class="injection-override-toggle"><input type="checkbox" id="injection-site-override"> 此站单独配置放置模式、位置和 ad.js 版本</label>
+                        <p class="group-hint" id="injection-settings-scope">当前使用整批站点的共用设置。</p>
+                    </div>
+                    <section class="injection-ad-settings" aria-label="广告配置">
+                        <!-- 共用设置可被当前站点覆盖；版本和放置模式只作用于成品站。 -->
                         <div class="config-group">
-                            <h4 class="group-title">原站样式核查</h4>
-                            <p class="group-hint">为了避免影响已审核页面的设计和内容价值，本工作流不替换主题、字体、配色或卡片布局。广告容器使用站点现有 CSS 变量，并在导出前单独注入。</p>
-                            <div class="injection-source-summary" id="injection-style-summary" aria-live="polite">等待读取原站样式资源。</div>
+                            <h4 class="group-title">ad.js 模板版本</h4>
+                            <p class="group-hint">整批默认使用最新版；勾选上方单站配置后可分别选择。</p>
+                            <div class="normal-ad-mode-grid ad-js-version-grid" role="radiogroup" aria-label="成品站 ad.js 模板版本">
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="v1.0.2" checked><span><strong>最新版 v1.0.2（默认）</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="v1.0.1"><span><strong>旧版 v1.0.1</strong><small>GPT 原生懒加载，含首页插页广告触发器。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="v1.0.0"><span><strong>旧版 v1.0.0</strong><small>GPT 原生懒加载，无插页广告触发器。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="initial"><span><strong>初版</strong><small>IntersectionObserver 延迟加载 banner1–3；支持 banner4。</small></span></label>
+                            </div>
                         </div>
-                    </section>
-                    <section class="injection-config-section" data-injection-section="ads" hidden>
                         <div class="config-group">
                             <h4 class="group-title">上传广告代码</h4>
                             <p class="group-hint">选择广告商提供的 TXT。一站一份时系统按广告单元域名自动配对；单站单代码会直接使用。</p>
@@ -355,9 +355,17 @@
                             <div class="injection-mapping-list" id="injection-mapping-list"></div>
                         </section>
                         <div class="config-group injection-policy-group">
-                            <h4 class="group-title">手动放置广告位</h4>
-                            <p class="group-hint">操作方式与普通建站一致：选择广告后，既可点击带名称的常用广告位，也可点击任意内容区块之间的“自定义位置”。切换“首页/详情页”可分别放置；静态站会直接写入页面，React 源码会插入可复用组件。</p>
-                            <div class="injection-policy-grid" id="injection-policy-grid"></div>
+                            <h4 class="group-title">广告位放置方式</h4>
+                            <div class="normal-ad-mode-grid" role="radiogroup" aria-label="成品站广告位放置方式">
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-placement-mode" value="fixed" checked><span><strong>固定位置（默认）</strong><small>按首页和详情页规则自动寻找完整内容区块与卡片行。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-placement-mode" value="manual"><span><strong>手动放置</strong><small>在预览中选择常用位置，或点击上下内容之间的留白。</small></span></label>
+                            </div>
+                            <p class="group-hint" id="injection-fixed-note">首页：导航后、第一分类后、第二分类后。详情与列表页：导航后、内容中段完整卡片行之间、页脚前。无法安全定位时跳过并提示手动放置。</p>
+                            <div class="injection-fixed-warnings" id="injection-fixed-warnings" role="status" aria-live="polite"></div>
+                            <div id="injection-manual-controls" hidden>
+                                <p class="group-hint">切换“首页/详情页”可分别放置。隐私、条款、关于和联系页不会加入广告。</p>
+                                <div class="injection-policy-grid" id="injection-policy-grid"></div>
+                            </div>
                         </div>
                         <div class="injection-rule-note"><strong>React 处理规则</strong><span>React 源码会导出加入广告后的完整工程，浏览器不会执行依赖安装或生产构建。请在项目环境自行执行 npm install 和 npm run build，再部署新生成的 dist、build 或框架输出目录。若上传的是纯静态站，则加入广告后可直接部署。</span></div>
                     </section>
@@ -369,7 +377,7 @@
                     <div class="config-tabs">
                         <button class="config-tab active" data-tab="structure">结构配置</button>
                         <button class="config-tab" data-tab="style">样式配置</button>
-                        <button class="config-tab" data-tab="ads" hidden>广告代码</button>
+                        <button class="config-tab" data-tab="ads" hidden>广告配置</button>
                         <button id="random-assemble-btn" title="随机应用一套领域专属模板与配色主题，并微调细节" style="margin-left:auto;padding:6px 16px;border-radius:6px;border:1px solid #ff9800;background:transparent;color:#ff9800;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:all 0.2s;">🎲 随机换模板</button>
                     </div>
 
@@ -423,6 +431,16 @@
                                 </div>
                             </div>
                             <p class="group-hint" id="hero-enabled-help">开启后会显示首页标题与副标题；关闭后，实时预览和导出站点都会直接从内容区开始。</p>
+                            <div id="all-articles-settings">
+                                <div class="config-item">
+                                    <label for="all-articles-enabled">全部文章页面</label>
+                                    <div class="toggle-switch">
+                                        <input type="checkbox" id="all-articles-enabled" checked aria-describedby="all-articles-help">
+                                        <span class="toggle-slider" aria-hidden="true"></span>
+                                    </div>
+                                </div>
+                                <p class="group-hint" id="all-articles-help">开启后生成展示全部导入文章的页面，并在导航中提供入口；该页沿用详情页广告位。关闭后不导出此页面。</p>
+                            </div>
                             <div id="hero-config" style="display:none;">
                                 <div class="config-item">
                                     <label for="hero-title">Hero 标题</label>
@@ -900,6 +918,16 @@
 
                     <!-- 广告配置 -->
             <div class="config-section" id="tab-ads" hidden>
+                        <section class="config-group" id="ad-js-version-group" aria-labelledby="ad-js-version-title">
+                            <h4 class="group-title" id="ad-js-version-title">ad.js 模板版本</h4>
+                            <p class="group-hint">导出时使用所选版本；预留广告位也会导出对应版本的空配置脚本。</p>
+                            <div class="normal-ad-mode-grid ad-js-version-grid" role="radiogroup" aria-label="ad.js 模板版本">
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.2" checked><span><strong>最新版 v1.0.2（默认）</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.1"><span><strong>旧版 v1.0.1</strong><small>GPT 原生懒加载，含首页插页广告触发器。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.0"><span><strong>旧版 v1.0.0</strong><small>GPT 原生懒加载，无插页广告触发器。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="initial"><span><strong>初版</strong><small>IntersectionObserver 延迟加载 banner1–3；支持 banner4。</small></span></label>
+                            </div>
+                        </section>
                         <section class="batch-ad-code-workspace" id="batch-ad-code-workspace" hidden aria-labelledby="batch-ad-code-title">
                             <div class="batch-ad-code-heading"><div><span class="section-kicker">独占广告代码</span><h4 id="batch-ad-code-title">给每个站点分配不同的 TXT</h4></div><span id="batch-ad-code-summary">尚未上传</span></div>
                             <p>上传与数据源数量相同的广告代码 TXT。系统只解析经验证的广告路径；同一个广告单元或同一 TXT 被复用时，导出会被阻止。</p>
@@ -912,7 +940,7 @@
                             <div class="normal-ad-mode-grid" role="radiogroup" aria-label="普通建站广告接入方式">
                                 <label class="normal-ad-mode-card">
                                     <input type="radio" name="normal-ad-mode" value="reserve">
-                                    <span><strong>先预留广告位</strong><small>无需广告代码。手动设置首页和详情页位置，导出空配置的 <code>js/ad.js</code>，以后直接填写 ID。</small></span>
+                                    <span><strong>先预留广告位</strong><small>无需广告代码。可选固定位置或手动放置，导出空配置的 <code>js/ad.js</code>，以后直接填写 ID。</small></span>
                                 </label>
                                 <label class="normal-ad-mode-card">
                                     <input type="radio" name="normal-ad-mode" value="code" checked>
@@ -929,16 +957,23 @@
                                     <span id="ad-code-status" style="font-size:11px;color:#888;">未上传（将生成无广告的普通站）</span>
                                     <input type="file" id="ad-code-upload" accept=".txt,text/plain" style="display:none;">
                                 </div>
-                                <p style="font-size:11px;color:#888;margin-top:4px;">模板选定后上传对应 TXT。工具只提取 banner1/2/3、INT、ANC 与 GA ID，并自动放到首页和详情页的固定位置；不会直接执行上传文件中的脚本。</p>
+                                <p style="font-size:11px;color:#888;margin-top:4px;">模板选定后上传对应 TXT。工具只提取 banner1/2/3、INT、ANC 与 GA ID，并自动放到首页、详情页及已开启的“全部文章”页；不会直接执行上传文件中的脚本。</p>
                                 <div id="ad-code-preview" style="display:none;margin-top:8px;font-size:11px;background:var(--bg-secondary,#1e1e1e);border-radius:6px;padding:10px;line-height:2;word-break:break-all;"></div>
                                 <div id="ad-auto-placement-note" hidden style="margin-top:10px;border:1px solid rgba(76,175,80,.35);border-radius:6px;padding:9px 10px;font-size:11px;line-height:1.65;color:#66d38b;background:rgba(76,175,80,.08);">
-                                    已自动绑定广告位置：首页导航下方、前两个分类区块后；详情页也会同步放置。预览仅显示 “advertisement” 占位，导出并部署后才会请求实际广告。
+                                    已自动绑定广告位置：首页导航下方、前两个分类区块后；详情页与已开启的“全部文章”页也会同步放置。预览仅显示 “advertisement” 占位，导出并部署后才会请求实际广告。
                                 </div>
                             </div>
                         </div>
                         <div class="config-group" id="ad-placement-group">
                             <h4 class="group-title">📢 广告容器</h4>
-                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择广告容器后，切换首页或详情页，再点击预览中的常用广告位或自定义位置。导出会保留这些容器、GPT 引用和空配置的 <code>js/ad.js</code>；以后只需填写广告单元路径与 GA ID。</p>
+                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择预留位置方式。导出会保留广告容器、GPT 引用和空配置的 <code>js/ad.js</code>；以后只需填写广告单元路径与 GA ID。</p>
+                            <div class="normal-ad-mode-grid" role="radiogroup" aria-label="预留广告位定位方式">
+                                <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="fixed"><span><strong>固定位置</strong><small>自动放在首页导航下方、分类间和页面底部；分类不足时自动调整。详情页与“全部文章”页同步放置。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="manual" checked><span><strong>手动放置</strong><small>自行选择每个广告容器在首页和详情页的位置。</small></span></label>
+                            </div>
+                            <p id="ad-fixed-placement-note" class="group-hint" hidden>固定位置已生效，预览会显示三个广告容器；切回手动放置后，原有手动位置仍会保留。</p>
+                            <div id="ad-manual-placement-controls">
+                            <p class="group-desc" style="font-size:12px;color:#888;margin:12px 0;">选择广告容器后，切换首页或详情页，再点击预览中的常用广告位或自定义位置；“全部文章”页沿用详情页位置。</p>
 
                             <!-- 广告1 -->
                             <div class="ad-container-config">
@@ -978,6 +1013,7 @@
 
                             <div class="ad-placement-hint" id="ad-placement-hint" style="display:none;background:rgba(74,158,255,0.1);border:1px dashed var(--color-primary,#4a9eff);border-radius:6px;padding:10px;margin-top:8px;font-size:12px;color:var(--color-primary,#4a9eff);text-align:center;">
                                 已选择广告，请点击预览区中带名称的常用广告位进行放置
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -1089,12 +1125,17 @@
                             </div>
                             <div class="preview-tabs">
                             <button class="preview-tab active" data-page="home">首页</button>
+                            <button class="preview-tab" data-page="all" hidden>全部文章</button>
                             <button class="preview-tab" data-page="detail">详情页</button>
                             <button class="preview-tab" data-page="about">关于</button>
                             <button class="preview-tab" data-page="contact">联系</button>
                             <button class="preview-tab" data-page="privacy">隐私</button>
                             <button class="preview-tab" data-page="terms">条款</button>
                             </div>
+                            <button type="button" class="preview-effects-toggle" id="preview-effects-toggle" aria-label="打开 3D 与外部效果预览" aria-pressed="false" title="打开 3D、WebGL 与外部资源效果" hidden>
+                                <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.4 7.7 7.6 4.2 7.6-4.2M12 12v9"/></svg>
+                                <span class="preview-effects-label">3D 关闭</span>
+                            </button>
                             <div class="preview-sizes">
                             <button class="size-btn active" data-size="desktop" title="桌面">🖥️</button>
                             <button class="size-btn" data-size="tablet" title="平板" aria-label="平板预览">📟</button>
@@ -1107,6 +1148,7 @@
                             </div>
                         </div>
                         <span class="preview-fullscreen-status" id="preview-fullscreen-status" aria-live="polite"></span>
+                        <span class="preview-effects-status" id="preview-effects-status" aria-live="polite"></span>
                     </div>
                     <div class="preview-frame-wrapper">
                         <iframe id="preview-frame" class="preview-frame desktop" aria-label="当前站点实时预览"></iframe>
@@ -1129,12 +1171,13 @@
                     <div><span class="section-kicker">第三步 · 导出新副本</span><h3 id="ad-injection-export-title">加入广告并导出网站</h3></div>
                     <span class="injection-local-badge">源压缩包保持不变</span>
                 </div>
-                <p class="ad-injection-intro">系统会重新校验每个站点与广告 TXT 的域名配对、广告路径、DOM ID 和位置策略。纯静态站加入广告后可直接导出部署；React 源码站则导出加入广告后的完整工程，由你在项目环境完成安装依赖与生产构建。选择输出目录时生成新目录；取消目录选择则下载 ZIP。</p>
+                <p class="ad-injection-intro">系统会重新校验每个站点与广告 TXT 的域名配对、广告路径、DOM ID 和位置策略。纯静态站加入广告后可直接导出部署；React 源码站则导出加入广告后的完整工程，由你在项目环境完成安装依赖与生产构建。</p>
                 <div class="injection-actions">
-                    <button type="button" class="injection-run-button" id="injection-run" disabled>加入广告并导出新副本</button>
+                    <button type="button" class="injection-run-button" id="injection-run" disabled>下载加广告 ZIP</button>
+                    <button type="button" class="injection-run-button" id="injection-run-directory" disabled>写入新目录</button>
                     <div class="injection-progress" id="injection-progress" hidden><div><span id="injection-progress-fill"></span></div><p id="injection-progress-text">准备中…</p></div>
                 </div>
-                <p class="injection-action-help">默认包含 banner1/2/3，以及广告代码中存在的插屏与锚点。缺失字段、重复广告、位置不一致或源码无法安全定位广告插入点时，整个导出会被阻止并在报告中列出原因。</p>
+                <p class="injection-action-help">默认包含 banner1/2/3，以及广告代码中存在的插屏与锚点。固定位置无法安全识别时会跳过该广告位并提示手动放置；广告代码或导出核验失败时会停止导出。</p>
                 <div class="injection-result" id="injection-result" hidden aria-live="polite"></div>
             </section>
 
@@ -1227,12 +1270,14 @@
     <!-- JS脚本（顺序加载） -->
     <script src="js/data.js?v=20260920-emoji-portal-2"></script>
     <script src="js/domain.js?v=20260921-tag-array-recognition-1"></script>
-    <script src="js/ad-migration.js?v=20260921-finished-site-parser-2"></script>
+    <script src="js/ad-migration.js?v=20260924-all-articles-1"></script>
+    <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
+    <script src="js/finished-site-ads.js?v=20260924-fixed-3"></script>
     <script type="module" src="js/rar-import.js?v=20260921-rar5-fallback-1"></script>
-    <script src="js/generator.js?v=20260922-normal-ad-reserve-1"></script>
-    <script src="js/ad-restoration.js?v=20260922-generic-preview-5"></script>
-    <script src="js/batch-ad-builder.js?v=20260920-batch-ad-build-1"></script>
-    <script type="module" src="js/app.js?v=20260922-normal-ad-reserve-1"></script>
+    <script src="js/generator.js?v=20260924-finished-fixed-1"></script>
+    <script src="js/ad-restoration.js?v=20260924-policy-version-detect-1"></script>
+    <script src="js/batch-ad-builder.js?v=20260924-all-articles-1"></script>
+    <script type="module" src="js/app.js?v=20260924-policy-version-ui-1"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
     <script src="js/liquid-glass.js?v=20260918-liquid-glass-1"></script>
 </body>

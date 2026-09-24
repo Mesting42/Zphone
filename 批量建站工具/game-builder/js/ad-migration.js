@@ -9,6 +9,10 @@ const AdMigration = (function() {
         'bannerPath1', 'bannerPath2', 'bannerPath3', 'bannerPath4',
         'interstitialPath', 'anchorPath', 'analyticsID'
     ];
+    const CONFIG_ALIASES = {
+        bannerPath1: 'adUnitBanner1', bannerPath2: 'adUnitBanner2', bannerPath3: 'adUnitBanner3',
+        interstitialPath: 'adUnitInterstitial', anchorPath: 'adUnitAnchor', analyticsID: 'gaMeasurementId'
+    };
     const REQUIRED_BANNER_KEYS = ['bannerPath1', 'bannerPath2', 'bannerPath3'];
     const CONTAINER_IDS = ['div-gpt-ad-banner1', 'div-gpt-ad-banner2', 'div-gpt-ad-banner3'];
 
@@ -29,10 +33,22 @@ const AdMigration = (function() {
     }
 
     function extractAssignment(source, key) {
-        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const pattern = new RegExp('(?:\\b(?:const|let|var)\\s+)?\\b' + escapedKey + "\\s*=\\s*(['\\\"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1", 'm');
-        const match = pattern.exec(String(source || ''));
-        return match ? { found: true, value: decodeJavaScriptString(match[2]) } : { found: false, value: '' };
+        const names = [key, CONFIG_ALIASES[key]].filter(Boolean);
+        const text = String(source || '');
+        const active = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        let found = false;
+        for (const candidate of [active, text]) {
+            for (const name of names) {
+                const escapedKey = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const pattern = new RegExp('(?:\\b(?:const|let|var)\\s+)?\\b' + escapedKey + "\\s*=\\s*(['\\\"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1", 'm');
+                const match = pattern.exec(candidate);
+                if (!match) continue;
+                found = true;
+                const value = decodeJavaScriptString(match[2]);
+                if (value) return { found: true, value: value };
+            }
+        }
+        return { found: found, value: '' };
     }
 
     function countContainer(html, id) {
@@ -126,11 +142,16 @@ const AdMigration = (function() {
         const errors = [];
         const warnings = [];
         const units = {};
-        const slotPattern = /googletag\.defineSlot\s*\(\s*['\"]([^'\"]+)['\"]/gi;
+        const slotPattern = /googletag\.(?:defineSlot|defineOutOfPageSlot)\s*\(\s*['\"]([^'\"]+)['\"]/gi;
+        const pathPattern = /(?:^|[^A-Za-z0-9_./-])(\/\d{4,}(?:\/[A-Za-z0-9_.-]+)+)(?=$|[^A-Za-z0-9_./-])/g;
+        const paths = [];
         let match;
         while ((match = slotPattern.exec(source)) !== null) {
-            const path = String(match[1] || '').trim();
-            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) continue;
+            paths.push(String(match[1] || '').trim());
+        }
+        while ((match = pathPattern.exec(source)) !== null) paths.push(match[1].trim());
+        paths.forEach(function(path) {
+            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) return;
             const lowerPath = path.toLowerCase();
             if (/-banner1$/.test(lowerPath)) config.bannerPath1 = path;
             if (/-banner2$/.test(lowerPath)) config.bannerPath2 = path;
@@ -138,8 +159,8 @@ const AdMigration = (function() {
             if (/-banner4$/.test(lowerPath)) config.bannerPath4 = path;
             if (/-int$/.test(lowerPath)) config.interstitialPath = path;
             if (/-anc$/.test(lowerPath)) config.anchorPath = path;
-        }
-        const analytics = source.match(/gtag\s*\(\s*['\"]config['\"]\s*,\s*['\"](G-[A-Z0-9]+)['\"]\s*\)/i);
+        });
+        const analytics = source.match(/(?:gtag\s*\(\s*['\"]config['\"]\s*,\s*['\"]|\b(?:gaMeasurementId|analyticsID)\s*=\s*['\"])(G-[A-Z0-9]+)/i);
         config.analyticsID = analytics ? String(analytics[1] || '').trim() : '';
 
         REQUIRED_BANNER_KEYS.forEach(function(key) {
@@ -279,14 +300,15 @@ const AdMigration = (function() {
 
     function validateGeneratedPage(html, pageType) {
         const errors = [];
-        const expectedAdPath = pageType === 'home' ? 'js/ad.js' : '../js/ad.js';
+        const expectedAdPath = pageType === 'detail' ? '../js/ad.js' : 'js/ad.js';
+        const pageLabel = pageType === 'home' ? '首页' : pageType === 'all' ? '全部游戏页' : '详情页';
         const gptCount = countMatch(html, /<script\b[^>]*\bsrc=["']https:\/\/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js["'][^>]*>/gi);
         const adCount = countMatch(html, new RegExp('<script\\b[^>]*\\bsrc=["\\\']' + expectedAdPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\?v=[a-z0-9-]+)?["\\\'][^>]*>', 'gi'));
-        if (gptCount !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'GPT_COUNT_INVALID'));
-        if (adCount !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' ad.js 数量为 ' + adCount + '，应为 1。', 'AD_JS_COUNT_INVALID'));
+        if (gptCount !== 1) errors.push(makeIssue(pageLabel + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'GPT_COUNT_INVALID'));
+        if (adCount !== 1) errors.push(makeIssue(pageLabel + ' ad.js 数量为 ' + adCount + '，应为 1。', 'AD_JS_COUNT_INVALID'));
         CONTAINER_IDS.forEach(function(id) {
             const count = countContainer(html, id);
-            if (count !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' ' + id + ' 数量为 ' + count + '，应为 1。', 'CONTAINER_COUNT_INVALID'));
+            if (count !== 1) errors.push(makeIssue(pageLabel + ' ' + id + ' 数量为 ' + count + '，应为 1。', 'CONTAINER_COUNT_INVALID'));
         });
         return errors;
     }

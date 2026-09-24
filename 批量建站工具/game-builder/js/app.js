@@ -39,6 +39,9 @@
         },
         config: {},
         adPlacementMode: null,
+        normalAdMode: 'code',
+        adJsVersion: 'v1.0.2',
+        reservePlacementMode: 'manual',
         siteBuildMode: 'normal',
         legacyAdMigration: null,
         adCodeMigration: null,
@@ -187,8 +190,10 @@
         // 普通站可上传经过校验的广告 TXT；移植站只使用固定且可校验的旧站广告位置。
         var adsTab = document.querySelector('.config-tab[data-tab="ads"]');
         var adsSection = document.getElementById('tab-ads');
-        if (adsTab) adsTab.hidden = isMigration;
-        if (adsSection) adsSection.hidden = isMigration;
+        if (adsTab) adsTab.hidden = false;
+        if (adsSection) adsSection.hidden = false;
+        var adJsVersionGroup = document.getElementById('ad-js-version-group');
+        if (adJsVersionGroup) adJsVersionGroup.hidden = isDifferentiated;
         var legacyExport = document.getElementById('legacy-export-options');
         var differentiatedExport = document.getElementById('differentiated-export-options');
         var defaultExportButton = document.getElementById('btn-export');
@@ -2376,17 +2381,47 @@
     }
 
     function hasValidatedDirectAdCode() {
-        return appState.siteBuildMode !== 'ad-migration' && !!(appState.adCodeMigration && appState.adCodeMigration.valid);
+        return appState.siteBuildMode === 'normal' && appState.normalAdMode !== 'reserve' && !!(appState.adCodeMigration && appState.adCodeMigration.valid);
     }
 
-    // 已验证的 TXT 统一使用资讯工具的固定广告位，确保导入后立即有可见广告容器。
+    function isReservedDirectAdMode() {
+        return appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
+    }
+
+    function reservedAdPlacementCount() {
+        if (appState.reservePlacementMode === 'fixed') return 6;
+        var placements = appState.config && appState.config.adPlacements || {};
+        return Object.keys(placements).reduce(function(total, adId) {
+            var pages = placements[adId] || {};
+            return total + (pages.home ? 1 : 0) + (pages.detail ? 1 : 0);
+        }, 0);
+    }
+
     function syncDirectAdPlacementUI() {
         var automatic = hasValidatedDirectAdCode();
+        var reserved = isReservedDirectAdMode();
         var manualGroup = document.getElementById('ad-placement-group');
+        var modeGroup = document.getElementById('normal-ad-mode-group');
+        var codePanel = document.getElementById('ad-code-mode-panel');
+        var manualControls = document.getElementById('ad-manual-placement-controls');
+        var fixedNote = document.getElementById('ad-fixed-placement-note');
         var automaticNote = document.getElementById('ad-auto-placement-note');
-        if (manualGroup) manualGroup.hidden = automatic;
+        if (modeGroup) modeGroup.hidden = appState.siteBuildMode !== 'normal';
+        if (manualGroup) manualGroup.hidden = !reserved;
+        if (codePanel) codePanel.hidden = reserved || appState.siteBuildMode !== 'normal';
+        if (manualControls) manualControls.hidden = appState.reservePlacementMode === 'fixed';
+        if (fixedNote) fixedNote.hidden = appState.reservePlacementMode !== 'fixed';
         if (automaticNote) automaticNote.hidden = !automatic;
-        if (automatic) appState.adPlacementMode = null;
+        document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
+            input.checked = input.value === appState.normalAdMode;
+        });
+        document.querySelectorAll('input[name="ad-js-version"]').forEach(function(input) {
+            input.checked = input.value === appState.adJsVersion;
+        });
+        document.querySelectorAll('input[name="reserve-placement-mode"]').forEach(function(input) {
+            input.checked = input.value === appState.reservePlacementMode;
+        });
+        if (!reserved || appState.reservePlacementMode === 'fixed') appState.adPlacementMode = null;
     }
 
     // ========== 广告放置模式 ==========
@@ -2395,6 +2430,35 @@
         var adCodeBtn = document.getElementById('ad-code-btn');
         var adCodeStatus = document.getElementById('ad-code-status');
         var adCodePreview = document.getElementById('ad-code-preview');
+
+        document.querySelectorAll('input[name="ad-js-version"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                appState.adJsVersion = this.value;
+                updatePreview();
+            });
+        });
+
+        document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                exitAdPlacementMode();
+                appState.normalAdMode = this.value === 'reserve' ? 'reserve' : 'code';
+                syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
+        });
+        document.querySelectorAll('input[name="reserve-placement-mode"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                exitAdPlacementMode();
+                appState.reservePlacementMode = this.value === 'fixed' ? 'fixed' : 'manual';
+                syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
+        });
 
         if (adCodeBtn && adCodeUpload) {
             adCodeBtn.addEventListener('click', function() {
@@ -2476,9 +2540,16 @@
                 }
             });
         });
+        syncDirectAdPlacementUI();
+        updateAdPlacementUI();
     }
 
     function enterAdPlacementMode(adId) {
+        if (!isReservedDirectAdMode()) {
+            showNotice('请先选择“先预留广告位”模式，再手动设置首页和详情页的位置。', '请选择广告接入方式');
+            return;
+        }
+        if (appState.reservePlacementMode === 'fixed') return;
         if (hasValidatedDirectAdCode()) {
             showNotice('广告 TXT 已通过校验，系统会自动插入三个广告位，无需手动选择位置。', '已自动放置广告');
             return;
@@ -2689,15 +2760,19 @@
         summaryHtml += makeSummaryItem('分类数量', config.categories.length + '个');
         summaryHtml += makeSummaryItem('操作按钮', config.actionButtonEnabled ? config.actionButtonText : '关闭');
         summaryHtml += makeSummaryItem('相关推荐', config.relatedCount + '条');
-        summaryHtml += makeSummaryItem('建站方式', appState.siteBuildMode === 'ad-migration' ? '广告移植建站' : '普通建站');
+        summaryHtml += makeSummaryItem('建站方式', appState.siteBuildMode === 'ad-migration' ? '广告移植建站' : '游戏建站');
         summaryHtml += '</div>';
 
         var migration = appState.legacyAdMigration;
         var isMigration = appState.siteBuildMode === 'ad-migration';
         var adCode = appState.adCodeMigration;
+        var isReservedAds = isReservedDirectAdMode();
+        var reservedCount = isReservedAds ? reservedAdPlacementCount() : 0;
         var directAdValid = !adCode || adCode.valid;
         if (isMigration) {
             summaryHtml += '<section class="migration-validation ' + (migration && migration.valid ? '' : 'invalid') + '"><h5>广告移植导出前校验</h5>' + migrationResultHtml(migration) + '</section>';
+        } else if (isReservedAds) {
+            summaryHtml += '<section class="migration-validation ' + (reservedCount ? '' : 'invalid') + '"><h5>' + (reservedCount ? '广告位预留配置完成' : '尚未放置广告位') + '</h5><p>' + (reservedCount ? '将导出 ' + reservedCount + ' 个首页/详情页广告位置，并生成路径为空的 js/ad.js。' : '请返回“广告代码”标签，至少在首页或详情页放置一个广告容器后再导出。') + '</p></section>';
         } else if (adCode) {
             var adMessages = (adCode.valid ? ['广告 TXT 已通过校验，将自动生成 ad.js，并在首页和详情页插入三个固定广告位置。'] : []).concat((adCode.errors || []).map(function(item) { return item.message; }));
             var adWarnings = (adCode.warnings || []).map(function(item) { return item.message; });
@@ -2709,7 +2784,7 @@
         }
 
         document.getElementById('export-summary').innerHTML = summaryHtml;
-        document.getElementById('btn-export').disabled = (isMigration && !(migration && migration.valid)) || (!isMigration && !directAdValid);
+        document.getElementById('btn-export').disabled = (isMigration && !(migration && migration.valid)) || (!isMigration && !isReservedAds && !directAdValid) || (isReservedAds && !reservedCount);
     }
 
     function makeSummaryItem(label, value) {
@@ -2722,7 +2797,11 @@
             showNotice('广告移植校验尚未通过，不能导出不完整站点。', '暂时不能导出');
             return;
         }
-        if (appState.siteBuildMode === 'normal' && appState.adCodeMigration && !appState.adCodeMigration.valid) {
+        if (isReservedDirectAdMode() && !reservedAdPlacementCount()) {
+            showNotice('请先在首页或详情页至少放置一个广告容器，或选择固定位置。', '尚未放置广告位');
+            return;
+        }
+        if (appState.siteBuildMode === 'normal' && appState.normalAdMode !== 'reserve' && appState.adCodeMigration && !appState.adCodeMigration.valid) {
             showNotice('广告代码尚未通过校验。请重新上传对应子域名的广告代码 TXT 文件。', '暂时不能导出');
             return;
         }

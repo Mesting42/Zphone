@@ -12,6 +12,8 @@ class ZipMock {
 
 const context = { JSZip: ZipMock, Blob, Response, DecompressionStream, TextDecoder, setTimeout: (callback) => callback() };
 const source = (name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8');
+context.window = {};
+vm.runInNewContext(source('ad.js'), context);
 vm.runInNewContext(source('data.js') + '\nthis.__themes = THEMES;', context);
 vm.runInNewContext(source('domain.js'), context);
 vm.runInNewContext(source('ad-migration.js') + '\nthis.__migration = AdMigration;', context);
@@ -76,6 +78,95 @@ function createState(mode = 'normal', migration = null) {
 function count(source, pattern) { return (source.match(new RegExp(pattern, 'g')) || []).length; }
 
 describe('legacy ad migration', () => {
+  it('uses the selected ad.js version for migration and reserved ordinary exports', async () => {
+    const migration = context.__migration.inspectEntries(legacyEntries);
+    const oldState = { ...createState('ad-migration', migration), adJsVersion: 'v1.0.0' };
+    await context.__generator.exportWebsite(oldState, () => {});
+    expect(globalThis.__legacyGeneratedFiles['website/js/ad.js']).toContain('ad.js v1.0.0');
+    expect(globalThis.__legacyGeneratedFiles['website/js/ad.js']).not.toContain('interstitialSlot.setConfig({');
+    expect(globalThis.__legacyGeneratedFiles['website/index.html']).toMatch(/ad-runtime-v100-[a-z0-9]+/);
+
+    const initialState = { ...createState('ad-migration', migration), adJsVersion: 'initial' };
+    await context.__generator.exportWebsite(initialState, () => {});
+    expect(globalThis.__legacyGeneratedFiles['website/js/ad.js']).toContain('const bannerPath1 = "/100/banner-1";');
+    expect(globalThis.__legacyGeneratedFiles['website/js/ad.js']).toContain('new IntersectionObserver(');
+    expect(globalThis.__legacyGeneratedFiles['website/index.html']).toMatch(/ad-runtime-initial-[a-z0-9]+/);
+
+    const reserveState = { ...createState(), normalAdMode: 'reserve', adJsVersion: 'initial' };
+    await context.__generator.exportWebsite(reserveState, () => {});
+    expect(globalThis.__legacyGeneratedFiles['website/js/ad.js']).toContain('const bannerPath1 = "";');
+  });
+
+  it('exports an optional all-articles page with every article and the detail ad placements in normal mode', async () => {
+    const state = createState();
+    state.config.allArticlesEnabled = true;
+    state.config.categories = state.config.categories.slice(0, 3);
+    state.data.push({ id: 4, title: 'Fourth full-catalog article', description: 'A fourth article beyond the home page capacity.', image: 'https://images.example.com/four.jpg' });
+    await context.__generator.exportWebsite(state, () => {});
+    const plain = globalThis.__legacyGeneratedFiles;
+    const plainAll = plain['website/all-articles.html'];
+    expect(plain['website/css/style.css']).toContain('#all-articles .items-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }');
+    expect(plainAll).toContain('<h1 class="category-title">All Articles</h1>');
+    expect(count(plainAll, 'class="item-card"')).toBe(state.data.length);
+    expect(plainAll).toContain('href="details/article1.html"');
+    expect(plain['website/index.html']).toContain('href="all-articles.html">All Articles</a>');
+    expect(plain['website/index.html']).toContain('href="all-articles.html">View All 4 Articles</a>');
+    expect(plain['website/details/article1.html']).toContain('href="../all-articles.html">All Articles</a>');
+    expect(plainAll).not.toContain('securepubads.g.doubleclick.net');
+    expect(count(context.__generator.generatePreviewHtml(state, 'all'), 'class="item-card"')).toBe(state.data.length);
+    expect(context.__generator.generatePreviewHtml(state, 'home')).toContain('data-preview-page="all">View All 4 Articles</a>');
+
+    const migration = context.__migration.inspectEntries(legacyEntries);
+    const adState = { ...state, adCodeMigration: migration };
+    await context.__generator.exportWebsite(adState, () => {});
+    const withAds = globalThis.__legacyGeneratedFiles['website/all-articles.html'];
+    expect(count(withAds, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js')).toBe(1);
+    expect(count(withAds, 'src="js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"')).toBe(1);
+    for (const banner of [1, 2, 3]) expect(count(withAds, 'id="div-gpt-ad-banner' + banner + '"')).toBe(1);
+    expect(withAds.indexOf('div-gpt-ad-banner1')).toBeLessThan(withAds.indexOf('id="all-articles"'));
+    expect(withAds.indexOf('div-gpt-ad-banner2')).toBeGreaterThan(withAds.indexOf('class="item-card" href="details/article2.html"'));
+    expect(withAds.indexOf('div-gpt-ad-banner2')).toBeLessThan(withAds.indexOf('class="item-card" href="details/article3.html"'));
+    expect(withAds.indexOf('div-gpt-ad-banner3')).toBeGreaterThan(withAds.indexOf('class="item-card" href="details/article4.html"'));
+    expect(context.__migration.validateGeneratedPage(withAds, 'all')).toEqual([]);
+    const adPreview = context.__generator.generatePreviewHtml(adState, 'all');
+    for (const banner of [1, 2, 3]) expect(count(adPreview, 'id="div-gpt-ad-banner' + banner + '"')).toBe(1);
+    expect(adPreview.indexOf('div-gpt-ad-banner2')).toBeGreaterThan(adPreview.indexOf('data-preview-item="1"'));
+    expect(adPreview.indexOf('div-gpt-ad-banner2')).toBeLessThan(adPreview.indexOf('data-preview-item="2"'));
+    expect(adPreview.indexOf('div-gpt-ad-banner3')).toBeGreaterThan(adPreview.indexOf('data-preview-item="3"'));
+
+    state.config.allArticlesEnabled = false;
+    await context.__generator.exportWebsite(state, () => {});
+    const withoutAll = globalThis.__legacyGeneratedFiles;
+    expect(withoutAll['website/all-articles.html']).toBeUndefined();
+    expect(withoutAll['website/index.html']).not.toContain('all-articles.html');
+    expect(withoutAll['website/details/article1.html']).not.toContain('all-articles.html');
+  });
+
+  it.each([
+    { columns: '2', count: 3, lastBeforeAd: 2 },
+    { columns: '3', count: 4, lastBeforeAd: 3 }
+  ])('places the all-articles middle ad after a full $columns-column row', async ({ columns, count: articleCount, lastBeforeAd }) => {
+    const state = createState();
+    state.config.cardColumns = columns;
+    state.config.allArticlesEnabled = true;
+    while (state.data.length < articleCount) {
+      const id = state.data.length + 1;
+      state.data.push({ id, title: 'Article ' + id, description: 'Article body ' + id, image: 'https://images.example.com/' + id + '.jpg' });
+    }
+    state.adCodeMigration = context.__migration.inspectEntries(legacyEntries);
+    await context.__generator.exportWebsite(state, () => {});
+    const exported = globalThis.__legacyGeneratedFiles['website/all-articles.html'];
+    const preview = context.__generator.generatePreviewHtml(state, 'all');
+    const beforeHref = 'class="item-card" href="details/article' + lastBeforeAd + '.html"';
+    const afterHref = 'class="item-card" href="details/article' + (lastBeforeAd + 1) + '.html"';
+    expect(exported.indexOf(beforeHref)).toBeLessThan(exported.indexOf('div-gpt-ad-banner2'));
+    expect(exported.indexOf('div-gpt-ad-banner2')).toBeLessThan(exported.indexOf(afterHref));
+    expect(preview.indexOf('data-preview-item="' + (lastBeforeAd - 1) + '"')).toBeLessThan(preview.indexOf('div-gpt-ad-banner2'));
+    expect(preview.indexOf('div-gpt-ad-banner2')).toBeLessThan(preview.indexOf('data-preview-item="' + lastBeforeAd + '"'));
+    expect(count(exported, 'id="div-gpt-ad-banner2"')).toBe(1);
+    expect(count(preview, 'id="div-gpt-ad-banner2"')).toBe(1);
+  });
+
   it('uses the configured excerpt line limit in home-card CSS and supports full text', () => {
     const state = createState();
     state.fieldMapping.excerpt = 'description';
@@ -148,6 +239,44 @@ describe('legacy ad migration', () => {
     expect(config.adPaths.analyticsID).toBe('G-Z5JQ643FJG');
   });
 
+  it('accepts v1.0.1 variable names in an old site and replaces its runtime on export', async () => {
+    const updatedEntries = legacyEntries.map((entry) => entry.path.endsWith('/js/ad.js') ? {
+      ...entry,
+      text: [
+        'const adUnitBanner1 = "/100/banner-1";', 'const adUnitBanner2 = "/100/banner-2";',
+        'const adUnitBanner3 = "/100/banner-3";', 'const adUnitInterstitial = "/100/interstitial";',
+        'const adUnitAnchor = "/100/anchor";', 'const gaMeasurementId = "G-NEWS123";'
+      ].join('\n')
+    } : entry);
+    const migration = context.__migration.inspectEntries(updatedEntries);
+    expect(migration.valid).toBe(true);
+    expect(migration.config.analyticsID).toBe('G-NEWS123');
+    await context.__generator.exportWebsite(createState('ad-migration', migration), () => {});
+    const runtime = globalThis.__legacyGeneratedFiles['website/js/ad.js'];
+    expect(runtime).toContain('ad.js v1.0.1');
+    expect(runtime).toContain('const adUnitInterstitial = "/100/interstitial";');
+    expect(runtime).toContain('const gaMeasurementId = "G-NEWS123";');
+    expect(runtime).toContain('interstitialSlot.setConfig({');
+    expect(runtime).toContain('continueReading: true');
+    expect(() => new Function(runtime)).not.toThrow();
+  });
+
+  it('prefers an active new ad unit over an older commented or empty assignment', () => {
+    const entries = legacyEntries.map((entry) => entry.path.endsWith('/js/ad.js') ? {
+      ...entry,
+      text: [
+        '// const bannerPath1 = "/100/obsolete-banner1";',
+        'const bannerPath1 = "";',
+        'const adUnitBanner1 = "/100/current-banner1";',
+        'const adUnitBanner2 = "/100/current-banner2";',
+        'const adUnitBanner3 = "/100/current-banner3";'
+      ].join('\n')
+    } : entry);
+    const result = context.__migration.inspectEntries(entries);
+    expect(result.valid).toBe(true);
+    expect(result.config.bannerPath1).toBe('/100/current-banner1');
+  });
+
   it('classifies out-of-page slots, commented GAM paths and gtag URLs by their names instead of source order', () => {
     const result = context.__migration.inspectAdCodeText(`
       // /23362639143/example.com-banner3
@@ -179,14 +308,14 @@ describe('legacy ad migration', () => {
 
     await context.__generator.exportWebsite(createState('ad-migration', migration), () => {});
     const runtime = globalThis.__legacyGeneratedFiles['website/js/ad.js'];
-    expect(runtime).toContain('const bannerPath4 = "";');
-    expect(runtime).not.toContain('const bannerPath4 = "/100/banner-3";');
+    expect(runtime).toContain('const adUnitBanner3 = "/100/banner-3";');
+    expect(runtime).not.toContain('bannerPath4');
   });
 
-  it('uses manual ad placements in the normal-mode preview only', async () => {
+  it('keeps saved manual placements out of code-mode preview and export', async () => {
     const state = createState();
     const preview = context.__generator.generatePreviewHtml(state, 'home');
-    expect(preview).toContain('div-gpt-ad-banner1');
+    expect(preview).not.toContain('div-gpt-ad-banner1');
 
     const exportConfig = context.__generator.buildConfig(state);
     expect(exportConfig.adPlacements).toEqual({});
@@ -215,16 +344,42 @@ describe('legacy ad migration', () => {
     expect(files['website/index.html']).toContain('div-gpt-ad-banner2');
     expect(files['website/details/article1.html']).toContain('div-gpt-ad-banner1');
     expect(files['website/details/article1.html']).toContain('div-gpt-ad-banner3');
+    expect(files['website/all-articles.html']).toContain('div-gpt-ad-banner1');
+    expect(files['website/all-articles.html']).toContain('div-gpt-ad-banner3');
+    expect(files['website/all-articles.html']).not.toContain('div-gpt-ad-banner2');
+    expect(files['website/all-articles.html']).toContain('src="js/ad.js?v=');
     expect(files['website/index.html']).toContain('src="js/ad.js?v=');
     expect(files['website/details/article1.html']).toContain('src="../js/ad.js?v=');
-    expect(files['website/js/ad.js']).toContain('const bannerPath1 = "";');
-    expect(files['website/js/ad.js']).toContain('const bannerPath2 = "";');
-    expect(files['website/js/ad.js']).toContain('const bannerPath3 = "";');
-    expect(files['website/js/ad.js']).toContain('const interstitialPath = "";');
-    expect(files['website/js/ad.js']).toContain('const anchorPath = "";');
-    expect(files['website/js/ad.js']).toContain('const analyticsID = "";');
+    expect(files['website/js/ad.js']).toContain('const adUnitBanner1 = "";');
+    expect(files['website/js/ad.js']).toContain('const adUnitBanner2 = "";');
+    expect(files['website/js/ad.js']).toContain('const adUnitBanner3 = "";');
+    expect(files['website/js/ad.js']).toContain('const adUnitInterstitial = "";');
+    expect(files['website/js/ad.js']).toContain('const adUnitAnchor = "";');
+    expect(files['website/js/ad.js']).toContain('const gaMeasurementId = "";');
+    expect(files['website/js/ad.js']).toContain('adUnitBanner1 && document.getElementById');
+    expect(files['website/js/ad.js']).toContain('ad.js v1.0.1');
+    expect(files['website/js/ad.js']).toContain('interstitialSlot.setConfig({');
     expect(files['website/AD_PLACEHOLDER_SETUP.txt']).toContain('不需要重新生成页面');
     expect(files['website/generate_details.py']).toBeUndefined();
+  });
+
+  it('uses fixed reserve positions without overwriting saved manual positions', async () => {
+    const state = createState();
+    state.normalAdMode = 'reserve';
+    state.reservePlacementMode = 'fixed';
+    const savedManualPositions = JSON.stringify(state.config.adPlacements);
+    const fixed = context.__generator.buildConfig(state);
+    expect(fixed.adPlacements).toEqual(context.__migration.fixedPlacements());
+    expect(context.__generator.generatePreviewHtml(state, 'home')).toContain('div-gpt-ad-banner3');
+    await context.__generator.exportWebsite(state, () => {});
+    const files = globalThis.__legacyGeneratedFiles;
+    expect(count(files['website/index.html'], 'id="div-gpt-ad-banner[123]"')).toBe(3);
+    expect(count(files['website/details/article1.html'], 'id="div-gpt-ad-banner[123]"')).toBe(3);
+    expect(count(files['website/all-articles.html'], 'id="div-gpt-ad-banner[123]"')).toBe(3);
+    expect(files['website/js/ad.js']).toContain('const adUnitBanner1 = "";');
+    expect(JSON.stringify(state.config.adPlacements)).toBe(savedManualPositions);
+    state.reservePlacementMode = 'manual';
+    expect(context.__generator.buildConfig(state).adPlacements).toEqual(state.config.adPlacements);
   });
 
   it('uses the in-app notice dialog instead of browser alert prompts', () => {
@@ -308,8 +463,9 @@ describe('legacy ad migration', () => {
     expect(ordinary['website/css/style.css']).toContain('--color-bg:');
     const ordinaryNav = ordinary['website/index.html'].slice(ordinary['website/index.html'].indexOf('<nav'), ordinary['website/index.html'].indexOf('</nav>') + 6);
     const ordinaryFooter = ordinary['website/index.html'].slice(ordinary['website/index.html'].indexOf('<footer'));
-    expect((ordinaryNav.match(/<li>/g) || []).length).toBe(Math.min(ordinaryState.config.categories.length, 3) + 1);
+    expect((ordinaryNav.match(/<li>/g) || []).length).toBe(Math.min(ordinaryState.config.categories.length, 3) + 2);
     expect(ordinaryNav).toContain('>Home</a>');
+    expect(ordinaryNav).toContain('href="all-articles.html">All Articles</a>');
     expect(ordinaryNav).not.toContain('Privacy Policy');
     expect(ordinaryNav).toMatch(/href="#category-[a-z0-9-]+"/);
     expect(ordinary['website/index.html']).toMatch(/<section id="category-[a-z0-9-]+" class="category-section">/);
@@ -330,15 +486,17 @@ describe('legacy ad migration', () => {
     const migrated = globalThis.__legacyGeneratedFiles;
     const home = migrated['website/index.html'];
     const detail = migrated['website/details/article1.html'];
+    expect(migrated['website/js/ad.js']).toContain('const adUnitBanner1 = "/100/banner-1";');
+    expect(migrated['website/js/ad.js']).toContain('interstitialSlot.setConfig({');
     const migratedNav = home.slice(home.indexOf('<nav'), home.indexOf('</nav>') + 6);
     expect((migratedNav.match(/<li>/g) || []).length).toBe(Math.min(ordinaryState.config.categories.length, 3) + 1);
     expect(migratedNav).toContain('>Home</a>');
     expect(migratedNav).not.toContain('Contact Us');
     expect(detail).toMatch(/href="\.\.\/index\.html#category-[a-z0-9-]+"/);
     expect(count(home, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js')).toBe(1);
-    expect(count(home, 'src="js/ad\\.js\\?v=20260919-ad-runtime-init-1-[a-z0-9]+"')).toBe(1);
+    expect(count(home, 'src="js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"')).toBe(1);
     expect(count(detail, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js')).toBe(1);
-    expect(count(detail, 'src="\\.\\./js/ad\\.js\\?v=20260919-ad-runtime-init-1-[a-z0-9]+"')).toBe(1);
+    expect(count(detail, 'src="\\.\\./js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"')).toBe(1);
     ['advertisement1', 'advertisement2', 'advertisement3'].forEach((label) => {
       expect(count(home, '>' + label + '</div>')).toBe(1);
       expect(count(detail, '>' + label + '</div>')).toBe(1);
@@ -356,10 +514,9 @@ describe('legacy ad migration', () => {
     expect(detail.indexOf('div-gpt-ad-banner3')).toBeGreaterThan(detail.indexOf('class="related-section"'));
     const generatedAdRuntime = migrated['website/js/ad.js'];
     expect(generatedAdRuntime).toContain('"/100/banner-1"');
-    expect(generatedAdRuntime).toContain("var detailPathSegments = window.location.pathname.toLowerCase().split('/');");
-    expect(generatedAdRuntime).not.toContain('var isDetail = //');
-    expect(generatedAdRuntime).toContain('function initializeBannerObservers()');
-    expect(generatedAdRuntime).toContain("document.addEventListener('DOMContentLoaded', initializeBannerObservers, { once: true });");
+    expect(generatedAdRuntime).toContain('const isIndex = window.location.pathname === "/"');
+    expect(generatedAdRuntime).toContain('document.addEventListener("DOMContentLoaded",');
+    expect(generatedAdRuntime).toContain('interstitialSlot.setConfig({');
     expect(generatedAdRuntime).not.toContain("window.addEventListener('load'");
     expect(() => new Function(generatedAdRuntime)).not.toThrow();
     expect(migrated['website/generate_details.py']).toBeUndefined();

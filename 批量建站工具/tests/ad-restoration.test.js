@@ -4,12 +4,14 @@ import vm from 'node:vm';
 import JSZip from 'jszip';
 import { injectReactSource } from '../js/react-source-ad-injector.js';
 
-const context = { TextEncoder, TextDecoder, Blob, Response, DecompressionStream, JSZip };
+const context = { TextEncoder, TextDecoder, Blob, Response, DecompressionStream, JSZip, window: {} };
 const source = (name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8');
 vm.runInNewContext(source('data.js') + '\nthis.__themes = THEMES;', context);
 vm.runInNewContext(source('domain.js'), context);
 vm.runInNewContext(source('ad-migration.js') + '\nthis.__migration = AdMigration;', context);
+vm.runInNewContext(source('ad.js'), context);
 vm.runInNewContext(source('generator.js') + '\nthis.__generator = Generator;', context);
+vm.runInNewContext(source('finished-site-ads.js') + '\nthis.__fixed = FinishedSiteAds;', context);
 vm.runInNewContext(source('ad-restoration.js') + '\nthis.__restoration = AdRestoration;', context);
 
 const oldAdJs = `
@@ -20,6 +22,28 @@ const bannerPath2 = "/23334460889/zp0903a.example.pro-banner2";
 // const interstitialPath = "/23334460889/zp0903a.example.pro-INT";
 // const anchorPath = "/23334460889/zp0903a.example.pro-ANC";
 const analyticsID = "G-RESTORE123";`;
+
+const numericSuffixAdJs = `/**
+ * ad.js v1.0.1
+ */
+const adUnitBanner1 = '/23343622020/fixture.example-banner11';
+const adUnitBanner2 = '/23343622020/fixture.example-banner22';
+const adUnitBanner3 = '/23343622020/fixture.example-banner33';
+const adUnitInterstitial = '/23343622020/fixture.example-INT1';
+const adUnitAnchor = '/23343622020/fixture.example-ANC1';`;
+
+function versionedAdJs(host, version) {
+  const root = '/23334460889/' + host + '-';
+  return context.__generator.generateSelectedAdJs({
+    bannerPath1: root + 'banner1',
+    bannerPath2: root + 'banner2',
+    bannerPath3: root + 'banner3',
+    bannerPath4: root + 'banner4',
+    interstitialPath: root + 'INT',
+    anchorPath: root + 'ANC',
+    analyticsID: 'G-RESTORE123'
+  }, version);
+}
 
 const wrongAd = '<div id="adv2"><div>advertisement</div><div id="div-gpt-ad-banner2"></div></div>';
 const homeHtml = `<!doctype html><html><head>
@@ -73,6 +97,311 @@ async function siteArchive(name, adSource = oldAdJs) {
 }
 
 describe('batch ad restoration', () => {
+  it('detects the adUnit template and closes then restores its units without reverting to the legacy runtime', async () => {
+    const config = {
+      bannerPath1: '/23334460889/new.example.pro-banner1',
+      bannerPath2: '/23334460889/new.example.pro-banner2',
+      bannerPath3: '/23334460889/new.example.pro-banner3',
+      interstitialPath: '/23334460889/new.example.pro-INT',
+      anchorPath: '/23334460889/new.example.pro-ANC',
+      analyticsID: 'G-NEW123'
+    };
+    const entries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'details/article1.html', text: detailHtml },
+      { path: 'js/ad.js', text: context.__generator.generateNormalAdJs(config) }
+    ];
+    const initial = context.__restoration.inspectSiteEntries(entries, 'new-site');
+    expect(initial.valid).toBe(true);
+    expect(initial.adRuntimeFormat).toBe('ad-unit');
+    expect(initial.embeddedConfig).toMatchObject(config);
+
+    const closedPolicy = context.__restoration.createPolicy('traffic-limit');
+    const closed = await context.__restoration.applyPolicyBatch([
+      { id: 'new-site', name: 'new-site', entries, metadata: initial }
+    ], closedPolicy, {});
+    expect(closed.results[0].valid).toBe(true);
+    const closedEntries = closed.sites[0].entries;
+    const closedFiles = Object.fromEntries(closedEntries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    const closedAd = closedFiles['js/ad.js'];
+    expect(closedAd).toContain('ad.js v1.0.1');
+    expect(closedAd).toContain('continueReading: true');
+    expect(closedAd).toContain('if (adUnitInterstitial && (isIndex ? false : false))');
+    expect(closedAd).toContain('if (adUnitAnchor && (isIndex ? false : false))');
+    expect(closedAd).toContain('// const adUnitBanner1 = "' + config.bannerPath1 + '";');
+    expect(closedAd).toMatch(/^const adUnitBanner1 = "";/m);
+    expect(closedAd).not.toContain('const bannerPath1 =');
+    expect(JSON.parse(closedFiles['ad-policy.json']).adRuntimeFormat).toBe('ad-unit');
+    expect(() => new Function(closedAd)).not.toThrow();
+
+    const reimport = context.__restoration.inspectSiteEntries(closedEntries, 'new-site-closed');
+    expect(reimport.valid).toBe(true);
+    expect(reimport.adRuntimeFormat).toBe('ad-unit');
+    expect(reimport.embeddedConfig).toMatchObject(config);
+    const restored = await context.__restoration.applyPolicyBatch([
+      { id: 'new-site-closed', name: 'new-site-closed', entries: closedEntries, metadata: reimport }
+    ], context.__restoration.createPolicy(), {});
+    expect(restored.results[0].valid).toBe(true);
+    const restoredFiles = Object.fromEntries(restored.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(restoredFiles['js/ad.js']).toContain('const adUnitBanner1 = "' + config.bannerPath1 + '";');
+    expect(restoredFiles['js/ad.js']).toContain('if (adUnitInterstitial && (isIndex ? true : false))');
+    expect(restoredFiles['js/ad.js']).toContain('if (adUnitAnchor && (isIndex ? true : true))');
+    expect(restoredFiles['js/ad.js']).toContain('continueReading: true');
+    expect(restoredFiles['index.html'].replace(/<!--[\s\S]*?-->/g, '')).toContain('id="div-gpt-ad-banner1"');
+  });
+
+  it('detects mixed ad.js versions and applies restore or traffic policies without changing each site version', async () => {
+    const versions = ['initial', 'v1.0.0', 'v1.0.1', 'v1.0.2'];
+    const sites = versions.map((version, index) => {
+      const host = 'version-' + index + '.example';
+      const entries = [
+        { path: 'index.html', text: homeHtml },
+        { path: 'details/article1.html', text: detailHtml },
+        { path: 'js/ad.js', text: versionedAdJs(host, version) }
+      ];
+      const metadata = context.__restoration.inspectSiteEntries(entries, host);
+      expect(metadata.adJsVersion).toBe(version);
+      return { id: host, name: host, entries, metadata };
+    });
+
+    const limited = await context.__restoration.applyPolicyBatch(
+      sites,
+      context.__restoration.createPolicy('traffic-limit'),
+      {}
+    );
+    expect(limited.results.map((result) => result.adJsVersion)).toEqual(versions);
+    expect(limited.results.every((result) => result.valid)).toBe(true);
+    for (let index = 0; index < versions.length; index++) {
+      const files = Object.fromEntries(limited.sites[index].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+      const runtime = files['js/ad.js'];
+      if (versions[index] === 'initial') {
+        expect(runtime).toContain('function delayLoadBanner');
+        expect(runtime).toContain('if (interstitialPath && (isIndex ? false : false))');
+        expect(runtime).toContain('if (anchorPath && (isIndex ? false : false))');
+      } else {
+        expect(runtime).toContain('ad.js ' + versions[index]);
+        expect(runtime).toContain('if (adUnitInterstitial && (isIndex ? false : false))');
+        expect(runtime).toContain('if (adUnitAnchor && (isIndex ? false : false))');
+      }
+      expect(runtime).toContain('/23334460889/' + sites[index].name + '-banner3');
+      expect(files['ad-policy.json']).toContain('"adJsVersion": "' + versions[index] + '"');
+      expect(() => new Function(runtime)).not.toThrow();
+    }
+
+    const limitedInitialSite = limited.sites[0];
+    const reimportedInitial = context.__restoration.inspectSiteEntries(limitedInitialSite.entries, limitedInitialSite.name);
+    expect(reimportedInitial.adJsVersion).toBe('initial');
+    expect(reimportedInitial.embeddedConfig.bannerPath1).toBe('/23334460889/version-0.example-banner1');
+    const restored = await context.__restoration.applyPolicyBatch(
+      [{ ...limitedInitialSite, metadata: reimportedInitial }],
+      context.__restoration.createPolicy(),
+      {}
+    );
+    const restoredRuntime = new TextDecoder().decode(restored.sites[0].entries.find((entry) => entry.path === 'js/ad.js').bytes);
+    expect(restored.results[0].adJsVersion).toBe('initial');
+    expect(restoredRuntime).toContain('function delayLoadBanner');
+    expect(restoredRuntime).toMatch(/^const bannerPath1 = "\/23334460889\/version-0\.example-banner1";/m);
+    expect(() => new Function(restoredRuntime)).not.toThrow();
+  });
+
+  it('blocks a batch policy export when the ad.js version cannot be identified', async () => {
+    const entries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'details/article1.html', text: detailHtml },
+      { path: 'js/ad.js', text: oldAdJs }
+    ];
+    const metadata = context.__restoration.inspectSiteEntries(entries, 'unknown-version');
+    expect(metadata.valid).toBe(true);
+    expect(metadata.adJsVersion).toBe('');
+
+    const validEntries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'details/article1.html', text: detailHtml },
+      { path: 'js/ad.js', text: versionedAdJs('known-version.example', 'v1.0.2') }
+    ];
+    const mixedOutput = await context.__restoration.applyPolicyBatch(
+      [
+        { id: 'known-version', name: 'known-version', entries: validEntries, metadata: context.__restoration.inspectSiteEntries(validEntries, 'known-version') },
+        { id: 'unknown-version', name: 'unknown-version', entries, metadata }
+      ],
+      context.__restoration.createPolicy('traffic-limit'),
+      {}
+    );
+    expect(mixedOutput.sites).toHaveLength(1);
+    expect(mixedOutput.results.map((result) => result.valid)).toEqual([true, false]);
+    expect(mixedOutput.results[1].errors[0].code).toBe('RESTORE_AD_VERSION_UNKNOWN');
+    expect(mixedOutput.report).toContain('[失败] unknown-version');
+
+    await expect(context.__restoration.applyPolicyBatch(
+      [{ id: 'unknown-version', name: 'unknown-version', entries, metadata }],
+      context.__restoration.createPolicy('traffic-limit'),
+      {}
+    )).rejects.toMatchObject({
+      results: [expect.objectContaining({
+        valid: false,
+        errors: [expect.objectContaining({ code: 'RESTORE_AD_VERSION_UNKNOWN' })]
+      })]
+    });
+  });
+
+  it('recognizes the initial runtime even when stale ad-unit declarations remain commented', () => {
+    const entries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'details/article1.html', text: detailHtml },
+      { path: 'js/ad.js', text: versionedAdJs('initial-comments.example', 'initial') + '\n// const adUnitBanner1 = "/stale/banner1";' }
+    ];
+    const metadata = context.__restoration.inspectSiteEntries(entries, 'initial-comments');
+    expect(metadata.adRuntimeFormat).toBe('ad-unit');
+    expect(metadata.adJsVersion).toBe('initial');
+
+    const result = context.__restoration.restoreEntries(
+      entries,
+      metadata.embeddedConfig,
+      'initial-comments',
+      context.__restoration.createPolicy('traffic-limit'),
+      { batchPolicy: true }
+    );
+    expect(result.valid).toBe(true);
+    const runtime = new TextDecoder().decode(result.entries.find((entry) => entry.path === 'js/ad.js').bytes);
+    expect(runtime).toContain('// const bannerPath1 = "/23334460889/initial-comments.example-banner1";');
+    expect(runtime).toMatch(/^const bannerPath1 = "";/m);
+  });
+
+  it('enforces page-specific out-of-page policy on the adUnit runtime without literal disabled comments', () => {
+    const config = {
+      bannerPath1: '/23334460889/new.example.pro-banner1',
+      bannerPath2: '/23334460889/new.example.pro-banner2',
+      bannerPath3: '/23334460889/new.example.pro-banner3',
+      interstitialPath: '/23334460889/new.example.pro-INT',
+      anchorPath: '/23334460889/new.example.pro-ANC'
+    };
+    const entries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'details/article1.html', text: detailHtml },
+      { path: 'js/ad.js', text: context.__generator.generateNormalAdJs(config) }
+    ];
+    const policy = context.__restoration.createPolicy();
+    policy.writeDisabledComments = false;
+    policy.outOfPage.interstitial = { home: false, detail: true };
+    policy.outOfPage.anchor = { home: true, detail: false };
+    const result = context.__restoration.restoreEntries(entries, config, 'new-site', policy, { batchPolicy: true });
+    expect(result.valid).toBe(true);
+    const ad = new TextDecoder().decode(result.entries.find((entry) => entry.path === 'js/ad.js').bytes);
+    expect(ad).toContain('if (adUnitInterstitial && (isIndex ? false : true))');
+    expect(ad).toContain('if (adUnitAnchor && (isIndex ? true : false))');
+    expect(ad).toContain('const adUnitInterstitial = "' + config.interstitialPath + '";');
+    expect(ad).not.toContain('// const adUnitInterstitial');
+
+    const finished = context.__restoration.restoreEntries(entries, config, 'new-site', policy, { finishedSite: true });
+    expect(finished.valid).toBe(true);
+    const finishedAd = new TextDecoder().decode(finished.entries.find((entry) => entry.path === 'js/ad.js').bytes);
+    expect(finishedAd).toContain('const bannerPath1 =');
+    expect(finishedAd).not.toContain('ad.js v1.0.1');
+  });
+
+  it('prefers active ad.js assignments over earlier empty comments regardless of unit suffix', () => {
+    const result = context.__restoration.inspectSiteEntries([
+      { path: 'website/index.html', text: homeHtml },
+      { path: 'website/details/article1.html', text: detailHtml },
+      { path: 'website/js/ad.js', text: numericSuffixAdJs }
+    ], 'nonstandard-units.zip');
+    expect(result.valid).toBe(true);
+    expect(result.embeddedConfig).toMatchObject({
+      bannerPath1: '/23343622020/fixture.example-banner11',
+      bannerPath2: '/23343622020/fixture.example-banner22',
+      bannerPath3: '/23343622020/fixture.example-banner33',
+      interstitialPath: '/23343622020/fixture.example-INT1',
+      anchorPath: '/23343622020/fixture.example-ANC1'
+    });
+  });
+
+  it('keeps banner1 and disables other ads on semantic-nav detail pages without a legacy wrapper', () => {
+    const plainDetail = '<!doctype html><html><head></head><body><nav>Navigation</nav><article><h1>Story</h1><p>Text</p></article><footer>Footer</footer></body></html>';
+    const entries = [
+      { path: 'website/index.html', text: homeHtml },
+      { path: 'website/details/article1.html', text: plainDetail },
+      { path: 'website/js/ad.js', text: numericSuffixAdJs }
+    ];
+    const metadata = context.__restoration.inspectSiteEntries(entries, 'numeric-units.zip');
+    const policy = context.__restoration.createPolicy();
+    for (const page of ['home', 'detail']) {
+      for (const slot of policy.slots[page]) if (slot.unit === 'banner2' || slot.unit === 'banner3') slot.unit = 'off';
+    }
+    for (const kind of ['interstitial', 'anchor']) policy.outOfPage[kind] = { home: false, detail: false };
+    const result = context.__restoration.restoreEntries(entries, metadata.embeddedConfig, 'numeric-units.zip', policy, { batchPolicy: true });
+    expect(result.valid).toBe(true);
+    const files = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    for (const page of ['website/index.html', 'website/details/article1.html']) {
+      const visible = files[page].replace(/<!--[\s\S]*?-->/g, '');
+      expect(visible).toContain('id="div-gpt-ad-banner1"');
+      expect(visible).not.toContain('id="div-gpt-ad-banner2"');
+      expect(visible).not.toContain('id="div-gpt-ad-banner3"');
+    }
+    const detail = files['website/details/article1.html'];
+    expect(detail.indexOf('div-gpt-ad-banner1')).toBeGreaterThan(detail.indexOf('</nav>'));
+    expect(detail.indexOf('div-gpt-ad-banner1')).toBeLessThan(detail.indexOf('<article>'));
+    expect(files['website/js/ad.js']).toContain('if (adUnitInterstitial && (isIndex ? false : false))');
+    expect(files['website/js/ad.js']).toContain('if (adUnitAnchor && (isIndex ? false : false))');
+    for (const [key, suffix] of [
+      ['bannerPath2', 'banner22'], ['bannerPath3', 'banner33'],
+      ['interstitialPath', 'INT1'], ['anchorPath', 'ANC1']
+    ]) {
+      const adUnitKey = { bannerPath2: 'adUnitBanner2', bannerPath3: 'adUnitBanner3', interstitialPath: 'adUnitInterstitial', anchorPath: 'adUnitAnchor' }[key];
+      expect(files['website/js/ad.js']).toContain('// const ' + adUnitKey + ' = "/23343622020/fixture.example-' + suffix + '";');
+      expect(files['website/js/ad.js']).toMatch(new RegExp('^const ' + adUnitKey + ' = "";', 'm'));
+    }
+    expect(files['website/js/ad.js']).toMatch(/^const adUnitBanner1 = "\/23343622020\/fixture\.example-banner11";/m);
+    expect(() => new Function(files['website/js/ad.js'])).not.toThrow();
+    const reimport = context.__restoration.inspectSiteEntries(result.entries, 'numeric-units-reimport.zip');
+    expect(reimport.valid).toBe(true);
+    expect(reimport.embeddedConfig.bannerPath2).toBe('/23343622020/fixture.example-banner22');
+    expect(reimport.embeddedConfig.interstitialPath).toBe('/23343622020/fixture.example-INT1');
+  });
+
+  it('restores a batch-policy export with grid ad slots and semantic article pages', async () => {
+    const gridHome = '<!doctype html><html><head></head><body><nav>Navigation</nav>' +
+      '<section class="hero"><div class="grid"><div class="card">First</div>' +
+      '<div class="ad-slot"></div><div class="card">Second</div><div class="ad-slot"></div></div></section>' +
+      '<footer>Footer</footer></body></html>';
+    const articleDetail = '<!doctype html><html><head></head><body><nav>Navigation</nav>' +
+      '<article class="article"><div><h1>Story</h1><p>Summary</p><p>Body</p></div></article>' +
+      '<section class="related">Related</section><footer>Footer</footer></body></html>';
+    const sourceEntries = [
+      { path: 'index.html', text: gridHome },
+      { path: 'details/item-1.html', text: articleDetail },
+      { path: 'js/ad.js', text: numericSuffixAdJs }
+    ];
+    const sourceMetadata = context.__restoration.inspectSiteEntries(sourceEntries, 'grid-site');
+    const closedPolicy = context.__restoration.createPolicy();
+    for (const page of ['home', 'detail']) {
+      for (const slot of closedPolicy.slots[page]) if (slot.unit === 'banner2' || slot.unit === 'banner3') slot.unit = 'off';
+    }
+    for (const kind of ['interstitial', 'anchor']) closedPolicy.outOfPage[kind] = { home: false, detail: false };
+    const closed = await context.__restoration.applyPolicyBatch([
+      { id: 'grid-site', name: 'grid-site', entries: sourceEntries, metadata: sourceMetadata }
+    ], closedPolicy, {});
+    const closedEntries = closed.sites[0].entries;
+    const closedMetadata = context.__restoration.inspectSiteEntries(closedEntries, 'grid-site-closed');
+    expect(closedMetadata.valid).toBe(true);
+
+    const restored = await context.__restoration.applyPolicyBatch([
+      { id: 'grid-site-closed', name: 'grid-site-closed', entries: closedEntries, metadata: closedMetadata }
+    ], context.__restoration.createPolicy(), {});
+    expect(restored.results[0].valid).toBe(true);
+    const files = Object.fromEntries(restored.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    const visibleHome = files['index.html'].replace(/<!--[\s\S]*?-->/g, '');
+    const visibleDetail = files['details/item-1.html'].replace(/<!--[\s\S]*?-->/g, '');
+    for (const banner of [1, 2, 3]) {
+      expect(visibleHome).toContain('id="div-gpt-ad-banner' + banner + '"');
+      expect(visibleDetail).toContain('id="div-gpt-ad-banner' + banner + '"');
+    }
+    expect(visibleHome).toMatch(/class="ad-slot"[^>]*>[\s\S]*?div-gpt-ad-banner2/);
+    expect(visibleHome).toMatch(/class="ad-slot"[^>]*>[\s\S]*?div-gpt-ad-banner3/);
+    expect(visibleDetail.indexOf('div-gpt-ad-banner2')).toBeLessThan(visibleDetail.indexOf('class="related"'));
+    expect(files['js/ad.js']).toMatch(/^const adUnitInterstitial = "\/23343622020\/fixture\.example-INT1";/m);
+    expect(files['js/ad.js']).toMatch(/^const adUnitAnchor = "\/23343622020\/fixture\.example-ANC1";/m);
+  });
+
   it('reads the original ad units directly from commented source code', () => {
     const result = context.__restoration.inspectSiteEntries([
       { path: 'website/index.html', text: homeHtml },
@@ -214,6 +543,33 @@ describe('batch ad restoration', () => {
     expect(result.html).toContain('--sitefoundry-ad-center-offset');
     expect(context.__restoration.generateSpaAdRuntime({}, normalized)).toContain('function centerCustom()');
     expect(context.__generator.generateAdJs({})).toContain('function centerCustomAdPlacements()');
+  });
+
+  it('exports a manually chosen gap after the sole child of a section', () => {
+    const page = '<!doctype html><html><head></head><body><main>' +
+      '<section class="tools"><div class="tool-grid">Tools</div></section>' +
+      '<section class="categories">Categories</section></main><footer></footer></body></html>';
+    const policy = context.__restoration.createPolicy();
+    policy.slots.home = [
+      { position: 'off', unit: 'off' },
+      { position: 'custom-after-0-0', unit: 'banner2' },
+      { position: 'off', unit: 'off' }
+    ];
+    policy.slots.detail = [
+      { position: 'off', unit: 'off' },
+      { position: 'off', unit: 'off' },
+      { position: 'off', unit: 'off' }
+    ];
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const output = context.__restoration.injectAdsIntoSiteEntries([
+      { path: 'index.html', text: page },
+      { path: 'details/post.html', text: '<!doctype html><html><head></head><body><main><article><p>Detail</p></article></main></body></html>' }
+    ], config, 'gap-site', policy);
+    expect(output.valid, JSON.stringify(output.errors)).toBe(true);
+    const html = new TextDecoder().decode(output.entries.find((entry) => entry.path === 'index.html').bytes);
+    expect(html.indexOf('div-gpt-ad-banner2')).toBeGreaterThan(html.indexOf('class="tool-grid"'));
+    expect(html.indexOf('div-gpt-ad-banner2')).toBeLessThan(html.indexOf('class="categories"'));
+    expect(html).toContain('sitefoundry-ad-custom-placement');
   });
 
   it('is idempotent and does not stack scripts or containers on a second pass', () => {
@@ -425,12 +781,12 @@ describe('batch ad restoration', () => {
     const entries = [
       { path: 'index.html', text: homeHtml },
       { path: 'details/article1.html', text: detailHtml },
-      { path: 'js/ad.js', text: oldAdJs },
+      { path: 'js/ad.js', text: versionedAdJs('zp0903a.example.pro', 'initial') },
       { path: 'js/script.js', text: legacyDynamicHomeScript }
     ];
     const metadata = context.__restoration.inspectSiteEntries(entries, 'site-a');
     const policy = context.__restoration.createPolicy('traffic-limit');
-    const result = context.__restoration.restoreEntries(entries, metadata.embeddedConfig, 'site-a', policy);
+    const result = context.__restoration.restoreEntries(entries, metadata.embeddedConfig, 'site-a', policy, { batchPolicy: true });
 
     expect(result.valid).toBe(true);
     const files = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
@@ -446,8 +802,11 @@ describe('batch ad restoration', () => {
     expect(files['index.html']).toContain('AD_POLICY_DISABLED_START banner1 page=home');
     expect(files['details/article1.html']).toContain('AD_POLICY_DISABLED_START banner3 page=detail');
     expect(files['js/ad.js']).toContain('const bannerPath1 = "/23334460889/zp0903a.example.pro-banner1";');
-    expect(files['js/ad.js']).toContain('// AD_POLICY_DISABLED interstitial page=home (广告路径保留)');
-    expect(files['js/ad.js']).toContain('// AD_POLICY_DISABLED anchor page=detail (广告路径保留)');
+    expect(files['js/ad.js']).toContain('// const bannerPath1 = "/23334460889/zp0903a.example.pro-banner1";');
+    expect(files['js/ad.js']).toMatch(/^const bannerPath1 = "";/m);
+    expect(files['js/ad.js']).toMatch(/^const bannerPath3 = "\/23334460889\/zp0903a\.example\.pro-banner3";/m);
+    expect(files['js/ad.js']).toContain('if (interstitialPath && (isIndex ? false : false))');
+    expect(files['js/ad.js']).toContain('if (anchorPath && (isIndex ? false : false))');
     expect(JSON.parse(files['ad-policy.json']).policy).toMatchObject(policy);
     expect(files['js/script.js']).toContain('div-gpt-ad-banner3');
     expect(files['js/script.js']).not.toContain('div-gpt-ad-banner1');
@@ -457,12 +816,12 @@ describe('batch ad restoration', () => {
     const entries = [
       { path: 'index.html', text: homeHtml },
       { path: 'details/article1.html', text: detailHtml },
-      { path: 'js/ad.js', text: oldAdJs }
+      { path: 'js/ad.js', text: versionedAdJs('zp0903a.example.pro', 'initial') }
     ];
     const metadata = context.__restoration.inspectSiteEntries(entries, 'site-a');
     const policy = context.__restoration.createPolicy('traffic-limit');
     policy.writeDisabledComments = false;
-    const result = context.__restoration.restoreEntries(entries, metadata.embeddedConfig, 'site-a', policy);
+    const result = context.__restoration.restoreEntries(entries, metadata.embeddedConfig, 'site-a', policy, { batchPolicy: true });
     const files = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
     expect(result.valid).toBe(true);
     expect(files['index.html']).not.toContain('AD_POLICY_DISABLED_START');
@@ -471,9 +830,24 @@ describe('batch ad restoration', () => {
     expect(JSON.parse(files['ad-policy.json']).policy.writeDisabledComments).toBe(false);
   });
 
+  it('does not comment ad paths in the separate finished-site workflow', () => {
+    const entries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'details/article1.html', text: detailHtml },
+      { path: 'js/ad.js', text: versionedAdJs('zp0903a.example.pro', 'initial') }
+    ];
+    const metadata = context.__restoration.inspectSiteEntries(entries, 'finished-site');
+    const policy = context.__restoration.createPolicy('traffic-limit');
+    const result = context.__restoration.restoreEntries(entries, metadata.embeddedConfig, 'finished-site', policy, { finishedSite: true });
+    expect(result.valid).toBe(true);
+    const adSource = new TextDecoder().decode(result.entries.find((entry) => entry.path === 'js/ad.js').bytes);
+    expect(adSource).toMatch(/^const bannerPath1 = "\/23334460889\/zp0903a\.example\.pro-banner1";/m);
+    expect(adSource).not.toContain('// const bannerPath1 =');
+  });
+
   it('supports a global policy with one independent site override', async () => {
     function group(name, host) {
-      const adSource = oldAdJs.replaceAll('zp0903a.example.pro', host);
+      const adSource = versionedAdJs(host, 'initial');
       const entries = [
         { path: 'index.html', text: homeHtml },
         { path: 'details/article1.html', text: detailHtml },
@@ -638,6 +1012,27 @@ describe('batch ad restoration', () => {
     expect(files['js/ad.js']).toContain('zp0903a.example.pro-ANC');
   });
 
+  it('recognizes and injects common news routes only through the finished-site workflow', () => {
+    const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
+    const newsDetail = '<!doctype html><html><head></head><body><nav class="navbar"></nav><main><article><h1>News story</h1><div class="detail-content"><p>Body copy.</p></div></article><section class="related-articles"></section></main><footer></footer></body></html>';
+    const entries = [
+      { path: 'index.html', text: cleanHome },
+      { path: 'news/healthy-preview/index.html', text: newsDetail }
+    ];
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+
+    expect(context.__restoration.inspectSiteEntries(entries, 'news-site').valid).toBe(false);
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'news-site');
+    expect(project).toMatchObject({ valid: true, kind: 'static-html' });
+    expect(project.metadata.detailPaths).toEqual(['news/healthy-preview/index.html']);
+
+    const output = context.__restoration.injectAdsIntoSiteEntries(entries, config, 'news-site');
+    expect(output.valid).toBe(true);
+    const files = Object.fromEntries(output.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(files['news/healthy-preview/index.html']).toContain('src="../../js/ad.js?v=ad-policy-1"');
+    expect(files['news/healthy-preview/index.html']).toContain('div-gpt-ad-banner1');
+  });
+
   it('treats a built React bundle as a static artifact without attempting TSX edits', () => {
     const reactIndex = '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div><script type="module" src="/assets/index-AbC123.js"></script></body></html>';
     const config = context.__restoration.readExistingConfig(oldAdJs);
@@ -702,6 +1097,12 @@ describe('batch ad restoration', () => {
     ], 'next-source');
     expect(next.valid).toBe(false);
     expect(next.errors.map((item) => item.code)).toContain('AD_INJECTION_NEXT_BUILD_REQUIRED');
+
+    const exportedNext = context.__restoration.classifyInjectableSiteEntries([
+      { path: 'site/package.json', text: nextPackage },
+      { path: 'site/out/index.html', text: '<!doctype html><html><head></head><body><main>Exported</main></body></html>' }
+    ], 'next-export');
+    expect(exportedNext).toMatchObject({ valid: true, kind: 'static-html', deploymentRoot: 'site/out/' });
   });
 
   it('recognizes a TanStack Start source archive without a root index.html', () => {
@@ -769,6 +1170,110 @@ describe('batch ad restoration', () => {
     expect(files['public/js/ad.js']).not.toContain('data-sitefoundry-runtime-ad');
     expect(files['public/js/ad.js']).not.toContain('new MutationObserver');
     expect(batch.results[0]).toMatchObject({ valid: true, exportScope: '已注入广告的完整 React 源码（需要在项目环境构建）' });
+  });
+
+  it('exports fixed React source from a wrapped archive with the selected runtime', async () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const entries = [
+      { path: 'wrapped/package.json', text: JSON.stringify({ scripts: { build: 'vite build' }, dependencies: { react: '^19' }, devDependencies: { vite: '^7' } }) },
+      { path: 'wrapped/index.html', text: '<html><head></head><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>' },
+      { path: 'wrapped/src/App.jsx', text: 'export default () => <main><header><nav>Home</nav></header><section><h2>Tools</h2><article>One</article></section><footer>End</footer></main>;' }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    const batch = await context.__restoration.applyAdCodeBatch(
+      [{ id: 'source-fixed', name: 'zp0903a.example.pro', entries, project }], [code], undefined,
+      { mode: 'fixed', version: 'v1.0.0', policy: context.__restoration.createPolicy() }, injectReactSource
+    );
+    const files = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(files['index.html']).toContain('/js/ad.js');
+    expect(files['public/js/ad.js']).toContain('responsive runtime');
+    expect(() => new Function(files['public/js/ad.js'])).not.toThrow();
+    expect(files['ad-injection.json']).toContain('"adJsVersion": "v1.0.0"');
+    expect(files['src/App.jsx']).toContain('<article>One</article>');
+    expect(Object.keys(files).some((path) => path.startsWith('wrapped/'))).toBe(false);
+  });
+
+  it('exports a fixed runtime from a built React deployment directory', async () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const entries = [
+      { path: 'wrapped/package.json', text: JSON.stringify({ scripts: { build: 'vite build' }, dependencies: { react: '^19' }, devDependencies: { vite: '^7' } }) },
+      { path: 'wrapped/dist/index.html', text: '<!doctype html><html><head></head><body><div id="root"></div><script type="module" src="/assets/app.js"></script></body></html>' },
+      { path: 'wrapped/dist/assets/app.js', text: 'document.getElementById("root").innerHTML="<main><header>Home</header><article>Post</article><footer>End</footer></main>"' }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    const batch = await context.__restoration.applyAdCodeBatch(
+      [{ id: 'build-fixed', name: 'zp0903a.example.pro', entries, project }], [code], undefined,
+      { mode: 'fixed', version: 'initial', policy: context.__restoration.createPolicy() }, injectReactSource
+    );
+    const files = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(files['index.html']).toContain('js/ad.js');
+    expect(files['js/ad.js']).toContain('responsive runtime');
+    expect(() => new Function(files['js/ad.js'])).not.toThrow();
+    expect(files['ad-injection.json']).toContain('"adJsVersion": "initial"');
+    expect(Object.keys(files).some((path) => path.startsWith('wrapped/'))).toBe(false);
+  });
+
+  it('adds the fixed runtime to a Next.js App Router root layout', async () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const entries = [
+      { path: 'project/package.json', text: JSON.stringify({ scripts: { build: 'next build' }, dependencies: { react: '^19', next: '^15' } }) },
+      { path: 'project/app/layout.tsx', text: 'export default function Layout({children}: {children: React.ReactNode}) { return <html lang="en"><body>{children}</body></html>; }' },
+      { path: 'project/app/page.tsx', text: 'export default function Home() { return <main><section><h2>Tools</h2></section></main>; }' }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    expect(project).toMatchObject({ valid: true, kind: 'react-source', framework: 'Next.js React 源码工程' });
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    const batch = await context.__restoration.applyAdCodeBatch(
+      [{ id: 'next-fixed', name: 'zp0903a.example.pro', entries, project }], [code], undefined,
+      { mode: 'fixed', version: 'v1.0.1', policy: context.__restoration.createPolicy() }, injectReactSource
+    );
+    const files = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(files['app/layout.tsx']).toContain('<head>');
+    expect(files['app/layout.tsx']).toContain('/js/ad.js');
+    expect(files['public/js/ad.js']).toContain('responsive runtime');
+  });
+
+  it('uses a manual route runtime for Next.js source and excludes utility routes', async () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const entries = [
+      { path: 'package.json', text: JSON.stringify({ scripts: { build: 'next build' }, dependencies: { react: '^19', next: '^15' } }) },
+      { path: 'app/layout.jsx', text: 'export default function Layout({children}) { return <html><body>{children}</body></html>; }' },
+      { path: 'app/page.jsx', text: 'export default function Home() { return <main><h1>Home</h1></main>; }' }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    const policy = context.__restoration.createPolicy();
+    policy.slots.home[1].position = 'after-section-2';
+    const batch = await context.__restoration.applyAdCodeBatch(
+      [{ id: 'next-manual', name: 'zp0903a.example.pro', entries, project }], [code], undefined,
+      { mode: 'manual', version: 'initial', policy }, injectReactSource
+    );
+    const files = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(files['public/js/ad.js']).toContain('manual SPA runtime');
+    expect(files['public/js/ad.js']).toContain('after-section-2');
+    expect(files['public/js/ad.js']).toContain('privacy');
+    expect(files['ad-injection.json']).toContain('"placementMode": "manual"');
+    expect(() => new Function(files['public/js/ad.js'])).not.toThrow();
+  });
+
+  it('supports a React Router framework root without a static index.html', async () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const entries = [
+      { path: 'package.json', text: JSON.stringify({ scripts: { build: 'react-router build' }, dependencies: { react: '^19', 'react-router': '^7' } }) },
+      { path: 'app/root.tsx', text: 'export default function Root() { return <html><head><title>Tools</title></head><body><main>Content</main></body></html>; }' },
+      { path: 'app/routes/home.tsx', text: 'export default function Home() { return <section>Home</section>; }' }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    const batch = await context.__restoration.applyAdCodeBatch(
+      [{ id: 'router-manual', name: 'zp0903a.example.pro', entries, project }], [code], undefined,
+      { mode: 'manual', version: 'v1.0.0', policy: context.__restoration.createPolicy() }, injectReactSource
+    );
+    const files = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(files['app/root.tsx']).toContain('/js/ad.js');
+    expect(files['public/js/ad.js']).toContain('manual SPA runtime');
   });
 
   it('exports only a real React deployment directory and verifies its runtime before packaging', async () => {

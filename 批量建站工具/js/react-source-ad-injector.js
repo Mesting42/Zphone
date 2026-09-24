@@ -112,6 +112,15 @@ function jsxTagName(element) {
 }
 
 function detailContentTarget(outerTarget) {
+    // The finished-site preview treats every non-root URL as a detail-policy
+    // page. A flat directory route such as /tools can still contain multiple
+    // top-level sections; its "content middle" is the gap between those
+    // sections, not the middle of the richer heading/search section inside it.
+    const directSections = meaningfulChildIndexes(outerTarget).filter((index) => {
+        const child = outerTarget.children[index];
+        return t.isJSXElement(child) && jsxTagName(child).toLowerCase() === 'section';
+    });
+    if (directSections.length >= 2) return outerTarget;
     let best = outerTarget;
     let bestCount = meaningfulChildIndexes(outerTarget).length;
     const allowed = new Set(['main', 'article', 'div', 'section']);
@@ -298,13 +307,10 @@ function pageTypeFor(path) {
     if (/^src\/(?:App|app)\.(?:tsx|jsx)$/i.test(normalized)) return 'home';
     const stem = routeStem(normalized);
     if (!stem || isUtilityRoute(normalized)) return null;
-    const lower = stem.toLowerCase();
-    if (/\$[A-Za-z0-9_]+|\[[^\]]+\]|:[A-Za-z0-9_]+/.test(stem)) return 'detail';
-    if (/(?:^|[\/._-])(?:detail|view)(?:$|[\/._-])/.test(lower) || /(?:detail|view)$/.test(lower)) return 'detail';
-    if (/(?:^|[\/._-])(?:index|home|list|catalog|archive|directory|collection|library|feed)(?:$|[\/._-])/.test(lower)
-        || /(?:home|list|catalog|archive|directory|collection|library|feed)$/.test(lower)) return 'home';
-    if (/[\/._]/.test(stem)) return 'detail';
-    return 'home';
+    // Match the preview router: only the site's root route receives the home
+    // policy. /tools, /blog and other non-root listing routes use the detail
+    // policy the user actually saw and configured in the preview.
+    return /^(?:_?index)$/i.test(stem) ? 'home' : 'detail';
 }
 
 function choosePages(entries) {
@@ -332,13 +338,14 @@ function componentStatus(entries) {
 function scriptElement(src, asyncScript) {
     const attributes = [];
     if (asyncScript) attributes.push(t.jsxAttribute(t.jsxIdentifier('async'), null));
+    else attributes.push(t.jsxAttribute(t.jsxIdentifier('defer'), null));
     attributes.push(t.jsxAttribute(t.jsxIdentifier('src'), t.stringLiteral(src)));
     if (asyncScript) attributes.push(t.jsxAttribute(t.jsxIdentifier('crossOrigin'), t.stringLiteral('anonymous')));
     return t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier('script'), attributes, true), null, [], true);
 }
 
 function injectRootShellScripts(entries) {
-    const root = entries.find((entry) => /^src\/routes\/__root\.(?:tsx|jsx)$/i.test(pathOf(entry)));
+    const root = entries.find((entry) => /^(?:src\/)?(?:routes\/__root|app\/(?:layout|root)|pages\/_document)\.(?:tsx|jsx)$/i.test(pathOf(entry)));
     if (!root) return null;
     const source = textOf(root);
     const hasGpt = /securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js/.test(source);
@@ -351,8 +358,25 @@ function injectRootShellScripts(entries) {
         return { warning: issue(pathOf(root) + '：Babel 无法解析根布局，未注入全局广告脚本：' + error.message, 'REACT_AD_ROOT_AST_PARSE_FAILED') };
     }
     let head = null;
-    traverse(ast, { JSXElement(path) { if (!head && t.isJSXIdentifier(path.node.openingElement.name, { name: 'head' })) head = path.node; } });
-    if (!head) return { warning: issue(pathOf(root) + '：未找到 <head>，未注入全局广告脚本。', 'REACT_AD_ROOT_HEAD_MISSING') };
+    let html = null;
+    traverse(ast, { JSXElement(path) {
+        const name = path.node.openingElement.name;
+        if (!t.isJSXIdentifier(name)) return;
+        if (!head && /^(?:head|Head)$/.test(name.name)) head = path.node;
+        if (!html && /^(?:html|Html)$/.test(name.name)) html = path.node;
+    } });
+    if (!head && html && /(?:^|\/)app\/layout\./i.test(pathOf(root))) {
+        // Next App Router layouts normally have <html><body> but no explicit
+        // <head>. Add the standard head before body without moving content.
+        head = t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier('head'), [], false),
+            t.jsxClosingElement(t.jsxIdentifier('head')), [], false);
+        html.children.unshift(t.jsxText('\n      '), head);
+    }
+    if (!head) return { warning: issue(pathOf(root) + '：未找到可确认的 <head> 或根 <html>，未注入全局广告脚本。', 'REACT_AD_ROOT_HEAD_MISSING') };
+    if (head.openingElement.selfClosing) {
+        head.openingElement.selfClosing = false;
+        head.closingElement = t.jsxClosingElement(t.cloneNode(head.openingElement.name));
+    }
     if (!hasGpt) head.children.push(t.jsxText('\n        '), scriptElement('https://securepubads.g.doubleclick.net/tag/js/gpt.js', true));
     if (!hasRuntime) head.children.push(t.jsxText('\n        '), scriptElement('/js/ad.js', false));
     head.children.push(t.jsxText('\n      '));
@@ -379,8 +403,37 @@ function injectIndexScripts(entries, project) {
     return { changed: pathOf(index) };
 }
 
-export function injectReactSource(entriesInput, project, config, policy, archiveName, runtimeSource) {
-    const entries = entriesInput.map((entry) => ({ path: pathOf(entry), bytes: entry.bytes ? new Uint8Array(entry.bytes) : bytes(entry.text || '') }));
+export function injectReactSource(entriesInput, project, config, policy, archiveName, runtimeSource, settings) {
+    // ZIPs commonly wrap a project in one directory. Emit a deployable project
+    // root so the injected public/js/ad.js lands beside its actual index.html.
+    const sourceRoot = String(project && project.siteRoot || '').replace(/\\/g, '/');
+    const entries = entriesInput.filter((entry) => !sourceRoot || pathOf(entry).startsWith(sourceRoot)).map((entry) => ({
+        path: sourceRoot ? pathOf(entry).slice(sourceRoot.length) : pathOf(entry),
+        bytes: entry.bytes ? new Uint8Array(entry.bytes) : bytes(entry.text || '')
+    }));
+    const dynamicPlacement = settings && (settings.mode === 'fixed' || !project.entryPath);
+    if (dynamicPlacement) {
+        // Fixed placement is resolved against the rendered DOM on each route.
+        // Next.js manual placement also runs after hydration so the policy can
+        // be applied without mutating server route components by guesswork.
+        if (!runtimeSource) return { valid: false, entries, errors: [issue('固定广告运行时未生成。', 'REACT_AD_RUNTIME_UNAVAILABLE')], warnings: [] };
+        const head = injectIndexScripts(entries, project);
+        if (head.warning) return { valid: false, entries, errors: [head.warning], warnings: [] };
+        function upsert(path, source) {
+            const old = entries.find((entry) => pathOf(entry).toLowerCase() === path.toLowerCase());
+            if (old) old.bytes = bytes(source);
+            else entries.push({ path, bytes: bytes(source) });
+        }
+        upsert('public/js/ad.js', runtimeSource);
+        upsert('ad-injection.json', JSON.stringify({
+            schema: 'sitefoundry-ad-injection/v3', generatedAt: new Date().toISOString(),
+            source: archiveName || 'finished-site', framework: project.framework, adPaths: config,
+            placementMode: settings.mode, adJsVersion: settings.version, policy,
+            build: 'React 源码已注入广告位运行时；安装依赖并生产构建后部署。'
+        }, null, 2) + '\n');
+        return { valid: true, entries, errors: [], warnings: [],
+            changedPages: [head.changed || head.verified], changedScripts: ['public/js/ad.js'], framework: project.framework };
+    }
     const pages = choosePages(entries);
     if (!pages.length) return { valid: false, entries, errors: [issue('未找到 src/routes、src/pages 或 App.tsx 中可安全修改的 React 页面。', 'REACT_AD_PAGE_NOT_FOUND')], warnings: [] };
     const changedPages = [];
@@ -413,6 +466,6 @@ export function injectReactSource(entriesInput, project, config, policy, archive
     const runtime = String(runtimeSource || '');
     if (!runtime) return { valid: false, entries, errors: [issue('内置广告运行时不可用，未导出 React 源码。', 'REACT_AD_RUNTIME_UNAVAILABLE')], warnings };
     upsert('public/js/ad.js', runtime);
-    upsert('ad-injection.json', JSON.stringify({ schema: 'sitefoundry-ad-injection/v2', generatedAt: new Date().toISOString(), source: archiveName || 'finished-site', framework: project.framework, adPaths: config, policy, build: 'React 源码已修改：执行 npm install 后 npm run build；node_modules 不会被处理。' }, null, 2) + '\n');
+    upsert('ad-injection.json', JSON.stringify({ schema: 'sitefoundry-ad-injection/v2', generatedAt: new Date().toISOString(), source: archiveName || 'finished-site', framework: project.framework, adPaths: config, policy, placementMode: 'manual', adJsVersion: settings && settings.version || 'v1.0.1', build: 'React 源码已修改：执行 npm install 后 npm run build；node_modules 不会被处理。' }, null, 2) + '\n');
     return { valid: true, entries, errors: [], warnings, changedPages, verifiedPages, changedScripts: ['public/js/ad.js'], framework: project.framework };
 }

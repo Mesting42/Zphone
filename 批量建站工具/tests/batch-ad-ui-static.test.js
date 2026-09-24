@@ -4,9 +4,22 @@ import { readFileSync } from 'node:fs';
 const app = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const builder = readFileSync(new URL('../js/batch-ad-builder.js', import.meta.url), 'utf8');
+const adRestoration = readFileSync(new URL('../js/ad-restoration.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../css/tool.css', import.meta.url), 'utf8');
 
 describe('batch ad upload formats', () => {
+  it('offers a labeled, normal-mode-only all-articles toggle and preview tab', () => {
+    expect(html).toContain('<label for="all-articles-enabled">全部文章页面</label>');
+    expect(html).toContain('id="all-articles-enabled" checked aria-describedby="all-articles-help"');
+    expect(html).toContain('class="preview-tab" data-page="all" hidden>全部文章</button>');
+    expect(app).toContain("var normalMode = appState.siteBuildMode === 'normal';");
+    expect(app).toContain("tab.hidden = !enabled;");
+    expect(app).toContain("appState.config.allArticlesEnabled = this.checked;");
+    expect(app).toContain("if (currentPage === 'all') currentPage = 'detail';");
+    expect(app).toContain("var detailTab = document.querySelector('.preview-tab[data-page=\"detail\"]');");
+    expect(builder).toContain('config.allArticlesEnabled = false;');
+  });
+
   it('always includes the complete color-theme library when randomizing a template', () => {
     const randomConfig = app.slice(app.indexOf('function generateRandomConfig()'), app.indexOf('function applyConfigToUI()'));
 
@@ -124,7 +137,8 @@ describe('batch ad upload formats', () => {
     expect(app).toContain("previewFrame.setAttribute('sandbox', 'allow-scripts')");
     expect(app).toContain('getAdInjectionPolicy()');
     expect(app).toContain('applyAdCodeBatch(appState.adInjectionSites, appState.adInjectionCodes');
-    expect(app).toContain('getAdInjectionPolicy(), injectReactSource);');
+    expect(app).toContain('overrides: appState.adInjectionSiteOverrides');
+    expect(app).toContain('}, injectReactSource);');
     expect(injectionControls).toContain('if (pasteButton && pastePanel)');
     expect(injectionControls).toContain("if (parsePaste) parsePaste.addEventListener('click'");
     expect(injectionControls).toContain("if (allowPartial) allowPartial.addEventListener('change'");
@@ -135,8 +149,40 @@ describe('batch ad upload formats', () => {
     expect(app).toContain('function renderAdInjectionPlacementControls(grid)');
     expect(app).toContain("event.data.type !== 'ad-injection-place'");
     expect(app).toContain('function mountAdInjectionPlacementOverlay');
-    expect(html).toContain('操作方式与普通建站一致');
+    expect(html).toContain('name="injection-placement-mode"');
+    expect(html).toContain('id="injection-fixed-warnings"');
     expect(css).toContain('.injection-ad-select-btn.is-active');
+  });
+
+  it('keeps finished-site configuration focused on ads without changing other workflows tabs', () => {
+    const injectionPanel = html.slice(html.indexOf('<aside class="config-panel ad-injection-config-panel"'), html.indexOf('<div class="config-panel">', html.indexOf('<aside class="config-panel ad-injection-config-panel"')));
+    const configInitialization = app.slice(app.indexOf('function initAdInjectionConfig()'), app.indexOf('function renderAdInjectionResult'));
+
+    expect(injectionPanel).toContain('id="ad-injection-config-title">配置广告</h2>');
+    expect(injectionPanel).toContain('for="injection-preview-site"');
+    expect(injectionPanel).toContain('<details class="injection-source-details">');
+    expect(injectionPanel).toContain('id="injection-policy-grid"');
+    expect(injectionPanel).not.toContain('injection-config-tab');
+    expect(injectionPanel).not.toContain('样式配置');
+    expect(configInitialization).not.toContain('injection-config-tab');
+    expect(app).toContain('rebuildStyledSelect(select);');
+    expect(app).toContain("trigger.setAttribute('aria-label', '实时预览站点');");
+    expect(html).toContain('class="config-tab active" data-tab="structure"');
+    expect(html).toContain('class="diff-config-tab active" data-diff-tab="identity"');
+    expect(css).toContain('.injection-site-select select {');
+    expect(css).toContain('.injection-site-select select:focus-visible {');
+  });
+
+  it('keeps the finished-site selector above following cards and wraps narrow mapping results', () => {
+    expect(css).toContain('.ad-injection-config-panel > .injection-site-context { position:relative;z-index:2;');
+    expect(css).toContain('.ad-injection-config-panel .injection-mapping-item { grid-template-columns:minmax(0,1fr);');
+    expect(css).toContain('.ad-injection-config-panel .injection-mapping-item > * { min-width:0;overflow-wrap:anywhere; }');
+    expect(css).toContain('.ad-injection-config-panel .injection-mapping-item strong { overflow:visible;white-space:normal;');
+  });
+
+  it('loads the current finished-site React injector through a versioned browser module', () => {
+    expect(html).toMatch(/js\/app\.js\?v=[^"']+/);
+    expect(app).toContain("./react-source-ad-injector.js?v=20260923-export-parity-2");
   });
 
   it('allows React source export while clearly separating it from a browser build', () => {
@@ -157,6 +203,36 @@ describe('batch ad upload formats', () => {
     expect(previewPipeline).not.toContain('style-src blob:');
   });
 
+  it('builds Node-authored static sources only inside the finished-site preview path', () => {
+    expect(app).toContain("import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-builder.js?v=20260923-artifact-first-1';");
+    expect(app).toContain('function ensureAdInjectionPreviewBuild(site)');
+    expect(app).toContain('function adInjectionPreviewSourceEntries(site)');
+    expect(app).toContain('site._previewBuild');
+    expect(app).toContain('正在准备完整预览');
+    expect(app).toContain('源压缩包和导出内容不会被修改');
+    expect(adRestoration).toContain('function staticGeneratorPreviewRoot(rawEntries)');
+    expect(adRestoration).toContain('previewRoot !== null');
+  });
+
+  it('prefers uploaded dist/build output before attempting a finished-site source rebuild', () => {
+    expect(app).toContain('function adInjectionUploadedPreviewArtifact(site, entries)');
+    expect(app).toContain('uploadedArtifact: true');
+    expect(app).toContain("if (!site._previewBuild) {\n            site._previewBuild = adInjectionUploadedPreviewArtifact(site, previewSourceEntries);");
+    expect(app).toContain('hasDedicatedPreviewSource && !hasUploadedArtifact');
+    expect(app).toContain('dist|build|out|output|export|www|_site|public');
+    expect(app).toContain('details?|articles?|news|posts?|stories?|guides?|blog|tools');
+  });
+
+  it('rewrites image paths created dynamically by finished-site JavaScript', () => {
+    const previewPipeline = app.slice(app.indexOf('function rewriteAdInjectionPreviewModule'), app.indexOf('function isAdInjectionPreviewSourceShell'));
+
+    expect(previewPipeline).toContain('Plain HTML sites often create cards and images from JavaScript data.');
+    expect(previewPipeline).toContain('avif|gif|ico|jpe?g|png|svg|webp');
+    expect(previewPipeline).toContain("assetUrls[resolved.toLowerCase()]");
+    expect(previewPipeline).toContain('sitefoundry-preview-asset-request');
+    expect(previewPipeline).toContain('installMemoryStorage("localStorage")');
+  });
+
   it('keeps local static and compiled framework scripts executable in the isolated preview', () => {
     const previewPipeline = app.slice(app.indexOf('function resolveAdInjectionPreviewAsset'), app.indexOf('function currentAdInjectionPreviewPage'));
 
@@ -165,6 +241,25 @@ describe('batch ad upload formats', () => {
     expect(previewPipeline).toContain("doc.querySelectorAll('script[src]')");
     expect(previewPipeline).toContain("node.setAttribute('src', assetUrls[resolved.toLowerCase()])");
     expect(previewPipeline).not.toContain("doc.querySelectorAll('script, link[rel=\"modulepreload\"], link[rel=\"preload\"][as=\"script\"]')");
+  });
+
+  it('offers an opt-in Three.js and WebGL effect preview only for finished-site ad injection', () => {
+    const previewPipeline = app.slice(app.indexOf('function rewriteAdInjectionPreviewModule'), app.indexOf('function currentAdInjectionPreviewPage'));
+    const effectControl = app.slice(app.indexOf('function syncAdInjectionPreviewEffectsControl'), app.indexOf('function renderAdInjectionConfig'));
+
+    expect(html).toContain('id="preview-effects-toggle"');
+    expect(html).toContain('3D 关闭');
+    expect(app).toContain('adInjectionPreviewEffectsEnabled: false');
+    expect(effectControl).toContain("isAdInjectionWorkflow() && appState.currentStep === 4");
+    expect(previewPipeline).toContain("'wasm-unsafe-eval'");
+    expect(previewPipeline).toContain('connect-src data: blob: https: http: ws: wss:');
+    expect(previewPipeline).toContain('frame-src data: blob: https: http:');
+    expect(previewPipeline).toContain('buildAdInjectionEmbeddedPreviewDocument');
+    expect(previewPipeline).toContain("String(node.tagName || '').toLowerCase() === 'iframe'");
+    expect(previewPipeline).toContain('3D / 嵌套效果预览已关闭');
+    expect(previewPipeline).toContain('已阻止它回退到建站工具地址');
+    expect(previewPipeline).toContain('glb|gltf|bin|hdr|exr|ktx2?');
+    expect(css).toContain('.preview-effects-toggle.is-active');
   });
 
   it('binds finished-site preview tabs and forwards the selected page to the renderer', () => {
@@ -222,13 +317,13 @@ describe('batch ad upload formats', () => {
     expect(previewPipeline).toContain('position:fixed');
     expect(previewPipeline).toContain('requestAnimationFrame(render)');
     expect(previewPipeline).toContain("document.addEventListener('pointermove',pointerMove,true)");
-    expect(previewPipeline).toContain("customButton.textContent='＋ 点击放置广告'");
+    expect(previewPipeline).toContain("customLabel.textContent='＋ 点击放置广告'");
     expect(previewPipeline).toContain('customButton.hidden=true');
     expect(previewPipeline).toContain("type:'ad-injection-place'");
     expect(previewPipeline).toContain("/^custom-after-(?:\\d+)(?:-\\d+)*$/");
     expect(previewPipeline).toContain('insertAfter(adInjectionResolveCustomTarget(main, slot.position), node)');
     expect(previewPipeline).not.toContain('parentNode.insertBefore(marker');
-    expect(app).toContain('也可将鼠标移动到内容空隙');
+    expect(app).toContain('上下内容之间的留白');
   });
 
   it('keeps common placement previews visible while only hiding the active custom placement', () => {
@@ -241,7 +336,7 @@ describe('batch ad upload formats', () => {
     expect(previewPipeline).toContain("node.textContent='＋ '+candidate.label");
     expect(previewPipeline).toContain("slot.unit === appState.adInjectionPlacementMode && /^custom-after-");
     expect(previewPipeline).toContain('adInjectionOccupiedPositions(page, appState.adInjectionPlacementMode)');
-    expect(app).toContain('右侧会直接显示常用广告位');
+    expect(app).toContain('右侧仍显示常用广告位');
     expect(app).toContain('重新放置时仅隐藏当前自定义广告');
   });
 

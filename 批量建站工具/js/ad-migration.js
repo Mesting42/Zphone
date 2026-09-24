@@ -9,6 +9,10 @@ const AdMigration = (function() {
         'bannerPath1', 'bannerPath2', 'bannerPath3', 'bannerPath4',
         'interstitialPath', 'anchorPath', 'analyticsID'
     ];
+    const CONFIG_ALIASES = {
+        bannerPath1: 'adUnitBanner1', bannerPath2: 'adUnitBanner2', bannerPath3: 'adUnitBanner3',
+        interstitialPath: 'adUnitInterstitial', anchorPath: 'adUnitAnchor', analyticsID: 'gaMeasurementId'
+    };
     const REQUIRED_BANNER_KEYS = ['bannerPath1', 'bannerPath2', 'bannerPath3'];
     const CONTAINER_IDS = ['div-gpt-ad-banner1', 'div-gpt-ad-banner2', 'div-gpt-ad-banner3'];
 
@@ -29,10 +33,22 @@ const AdMigration = (function() {
     }
 
     function extractAssignment(source, key) {
-        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const pattern = new RegExp('(?:\\b(?:const|let|var)\\s+)?\\b' + escapedKey + "\\s*=\\s*(['\\\"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1", 'm');
-        const match = pattern.exec(String(source || ''));
-        return match ? { found: true, value: decodeJavaScriptString(match[2]) } : { found: false, value: '' };
+        const names = [key, CONFIG_ALIASES[key]].filter(Boolean);
+        const text = String(source || '');
+        const active = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        let found = false;
+        for (const candidate of [active, text]) {
+            for (const name of names) {
+                const escapedKey = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const pattern = new RegExp('(?:\\b(?:const|let|var)\\s+)?\\b' + escapedKey + "\\s*=\\s*(['\\\"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1", 'm');
+                const match = pattern.exec(candidate);
+                if (!match) continue;
+                found = true;
+                const value = decodeJavaScriptString(match[2]);
+                if (value) return { found: true, value: value };
+            }
+        }
+        return { found: found, value: '' };
     }
 
     function countContainer(html, id) {
@@ -149,7 +165,7 @@ const AdMigration = (function() {
             else if (/(?:-|_|\/)(?:anc|anchor)$/.test(lower)) config.anchorPath = path;
         });
 
-        const gaMatch = source.match(/(?:gtag\(\s*['"]config['"]\s*,\s*['"]|[?&]id=)(G-[A-Z0-9]+)(?:['"]\s*\)|\b)/i);
+        const gaMatch = source.match(/(?:gtag\(\s*['"]config['"]\s*,\s*['"]|[?&]id=|\b(?:gaMeasurementId|analyticsID)\s*=\s*['"])(G-[A-Z0-9]+)(?:['"]\s*\)|\b)/i);
         if (gaMatch) config.analyticsID = gaMatch[1].toUpperCase();
 
         ['bannerPath1', 'bannerPath2', 'bannerPath3'].forEach(function(key) {
@@ -292,14 +308,15 @@ const AdMigration = (function() {
 
     function validateGeneratedPage(html, pageType) {
         const errors = [];
-        const expectedAdPath = pageType === 'home' ? 'js/ad.js' : '../js/ad.js';
+        const expectedAdPath = pageType === 'detail' ? '../js/ad.js' : 'js/ad.js';
+        const pageLabel = pageType === 'home' ? '首页' : pageType === 'all' ? '全部文章页' : '详情页';
         const gptCount = countMatch(html, /<script\b[^>]*\bsrc=["']https:\/\/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js["'][^>]*>/gi);
         const adCount = countMatch(html, new RegExp('<script\\b[^>]*\\bsrc=["\\\']' + expectedAdPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\?v=[a-z0-9-]+)?["\\\'][^>]*>', 'gi'));
-        if (gptCount !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'GPT_COUNT_INVALID'));
-        if (adCount !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' ad.js 数量为 ' + adCount + '，应为 1。', 'AD_JS_COUNT_INVALID'));
+        if (gptCount !== 1) errors.push(makeIssue(pageLabel + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'GPT_COUNT_INVALID'));
+        if (adCount !== 1) errors.push(makeIssue(pageLabel + ' ad.js 数量为 ' + adCount + '，应为 1。', 'AD_JS_COUNT_INVALID'));
         CONTAINER_IDS.forEach(function(id) {
             const count = countContainer(html, id);
-            if (count !== 1) errors.push(makeIssue((pageType === 'home' ? '首页' : '详情页') + ' ' + id + ' 数量为 ' + count + '，应为 1。', 'CONTAINER_COUNT_INVALID'));
+            if (count !== 1) errors.push(makeIssue(pageLabel + ' ' + id + ' 数量为 ' + count + '，应为 1。', 'CONTAINER_COUNT_INVALID'));
         });
         return errors;
     }

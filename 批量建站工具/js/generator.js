@@ -96,16 +96,53 @@ const Generator = (function() {
         adv3: '<div id="adv3" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:black;font-size:13px;">advertisement3</div><div id="div-gpt-ad-banner3" style="min-width:300px;min-height:250px;"></div></div>'
     };
 
-    const AD_RUNTIME_CACHE_VERSION = '20260919-ad-runtime-init-1';
+    // 全部文章页沿用详情页广告配置；正文相关广告位在文章列表中段展示。
+    function getAllArticlesDetailAds(config, positions) {
+        let code = '';
+        for (const [adId, pages] of Object.entries(config.adPlacements || {})) {
+            const position = pages && pages.detail;
+            if (position && (positions.includes(position) || (positions.includes('detail-between-p-*') && /^detail-between-p-\d+$/.test(position)))) {
+                code += AD_TEMPLATES[adId] || '';
+            }
+        }
+        return positions.includes('after-navbar') && code
+            ? '<div class="ad-region ad-after-navbar ad-nav-' + config.style.navbarStyle + '">' + code + '</div>'
+            : code;
+    }
 
-    function getAdRuntimeVersion(adPaths) {
-        const source = JSON.stringify(adPaths || {});
+    function buildAllArticlesCardGrid(config, cards) {
+        const middleAds = getAllArticlesDetailAds(config, ['detail-between-p-*', 'detail-after-content', 'detail-before-related']);
+        if (!middleAds) return '<div class="items-grid">' + cards.join('') + '</div>';
+        const requestedColumns = Number(config.structure.cardColumns);
+        const columns = config.style.cardViewMode === 'list' ? 1 :
+            (Number.isInteger(requestedColumns) && requestedColumns >= 2 && requestedColumns <= 4 ? requestedColumns : 2);
+        const completeRowsBeforeEnd = Math.floor((cards.length - 1) / columns);
+        // 广告必须接在完整卡片行之后；不能按文章数一半截断网格，留下孤立卡片。
+        const middleRow = completeRowsBeforeEnd > 0
+            ? Math.max(1, Math.min(completeRowsBeforeEnd, Math.round(cards.length / (2 * columns))))
+            : 0;
+        const middleIndex = middleRow ? middleRow * columns : cards.length;
+        const firstGrid = middleIndex ? '<div class="items-grid">' + cards.slice(0, middleIndex).join('') + '</div>' : '';
+        const lastGrid = middleIndex < cards.length ? '<div class="items-grid">' + cards.slice(middleIndex).join('') + '</div>' : '';
+        return firstGrid + middleAds + lastGrid;
+    }
+
+    const AD_RUNTIME_CACHE_VERSION = '20260923-ad-runtime-v101';
+
+    function normalizeAdJsVersion(version) {
+        return version === 'initial' || version === 'v1.0.0' || version === 'v1.0.2' ? version : 'v1.0.1';
+    }
+
+    function getAdRuntimeVersion(adPaths, version) {
+        const selectedVersion = normalizeAdJsVersion(version);
+        const source = JSON.stringify({ paths: adPaths || {}, version: selectedVersion });
         let hash = 2166136261;
         for (let index = 0; index < source.length; index += 1) {
             hash ^= source.charCodeAt(index);
             hash = Math.imul(hash, 16777619);
         }
-        return AD_RUNTIME_CACHE_VERSION + '-' + (hash >>> 0).toString(36);
+        const cacheVersion = selectedVersion === 'v1.0.1' ? AD_RUNTIME_CACHE_VERSION : '20260924-ad-runtime-' + selectedVersion.replace(/[^a-z0-9]/gi, '');
+        return cacheVersion + '-' + (hash >>> 0).toString(36);
     }
 
     // ========== 生成 ad.js ==========
@@ -310,6 +347,192 @@ if (analyticsID) {
 } else {
     console.warn('Analytics ID is empty. Skipping Google Analytics initialization.');
 }`;
+    }
+
+    // 普通建站、广告移植与批量建站按所选版本输出；这里保留 v1.0.1 模板作为兼容底稿。
+    // 广告恢复的策略运行时仍由 generateAdJs 单独生成。
+    function generateNormalAdJs(adPaths) {
+        var p = adPaths || {};
+        return `/**
+ * ad.js v1.0.1
+ * Updated: 2026-09-23
+ */
+
+/* ========================================= */
+// 广告单元
+const adUnitBanner1 = ${serializeForScript(p.bannerPath1 || '')};
+const adUnitBanner2 = ${serializeForScript(p.bannerPath2 || '')};
+const adUnitBanner3 = ${serializeForScript(p.bannerPath3 || '')};
+const adUnitInterstitial = ${serializeForScript(p.interstitialPath || '')};
+const adUnitAnchor = ${serializeForScript(p.anchorPath || '')};
+
+// Google Analytics
+const gaMeasurementId = ${serializeForScript(p.analyticsID || '')};
+/* ========================================= */
+
+const isIndex = window.location.pathname === "/" || window.location.pathname === "/index.html";
+window.googletag = window.googletag || { cmd: [] };
+
+let bannerSlot1 = null;
+let bannerSlot2 = null;
+let bannerSlot3 = null;
+let interstitialSlot = null;
+let anchorSlot = null;
+
+document.addEventListener("DOMContentLoaded",
+    function () {
+        googletag.cmd.push(function () {
+
+            // GPT 原生 Lazy Load
+            googletag.setConfig({
+                lazyLoad: {
+                    fetchMarginPercent: 50,
+                    renderMarginPercent: 0,
+                    mobileScaling: 1
+                },
+                singleRequest: false
+            });
+
+            // Banner
+            if (adUnitBanner1 && document.getElementById("div-gpt-ad-banner1")) {
+                bannerSlot1 = googletag.defineSlot(adUnitBanner1, [300, 250], "div-gpt-ad-banner1").addService(googletag.pubads());
+            }
+            if (adUnitBanner2 && document.getElementById("div-gpt-ad-banner2")) {
+                bannerSlot2 = googletag.defineSlot(adUnitBanner2, [300, 250], "div-gpt-ad-banner2").addService(googletag.pubads());
+            }
+            if (adUnitBanner3 && document.getElementById("div-gpt-ad-banner3")) {
+                bannerSlot3 = googletag.defineSlot(adUnitBanner3, [300, 250], "div-gpt-ad-banner3").addService(googletag.pubads());
+            }
+
+            // Interstitial 仅首页
+            if (isIndex && adUnitInterstitial) {
+                interstitialSlot = googletag.defineOutOfPageSlot(adUnitInterstitial, googletag.enums.OutOfPageFormat.INTERSTITIAL);
+                if (interstitialSlot) {
+                    interstitialSlot.addService(googletag.pubads());
+
+                    // 触发器
+                    interstitialSlot.setConfig({
+                        interstitial: {
+                            triggers: {
+                                unhideWindow: true,
+                                navBar: true,
+                                inactivity: true,
+                                endOfArticle: true,
+                                continueReading: true
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Bottom Anchor
+            if (adUnitAnchor) {
+                anchorSlot = googletag.defineOutOfPageSlot(adUnitAnchor, googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR);
+                if (anchorSlot) {
+                    anchorSlot.addService(googletag.pubads());
+                }
+            }
+
+            // 启动 GPT
+            googletag.enableServices();
+
+            // Banner display
+            if (bannerSlot1) {
+                googletag.display("div-gpt-ad-banner1");
+            }
+            if (bannerSlot2) {
+                googletag.display("div-gpt-ad-banner2");
+            }
+            if (bannerSlot3) {
+                googletag.display("div-gpt-ad-banner3");
+            }
+
+            // Out-of-page display
+            if (interstitialSlot) {
+                googletag.display(interstitialSlot);
+            }
+            if (anchorSlot) {
+                googletag.display(anchorSlot);
+            }
+        });
+    });
+
+// Google Analytics
+if (gaMeasurementId) {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () {
+        dataLayer.push(arguments);
+    };
+    gtag("js", new Date());
+    gtag("config", gaMeasurementId);
+    const gtagScript = document.createElement("script");
+    gtagScript.async = true;
+    gtagScript.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(gaMeasurementId);
+    document.head.appendChild(gtagScript);
+} else {
+    console.warn("GA ID is empty.");
+}`;
+    }
+
+    // Build v1.0.2 from the configurable v1.0.1 template so ad paths and GA IDs
+    // continue to come from each workflow's settings rather than fixed values.
+    function generateV102AdJs(baseSource) {
+        let source = baseSource
+            .replace('ad.js v1.0.1', 'ad.js v1.0.2')
+            .replace('Updated: 2026-09-23', 'Updated: 2026-09-24');
+        const lazyLoadBlock = /\/\/ GPT 原生 Lazy Load\s+googletag\.setConfig\(\{[\s\S]*?singleRequest: false\s*\}\);/;
+        const analyticsBlock = /const gaMeasurementId = ([^\r\n]+);\r?\n\/\* ========================================= \*\//;
+        if (!lazyLoadBlock.test(source) || !analyticsBlock.test(source)) {
+            throw new Error('v1.0.2 广告模板生成失败：缺少懒加载或 GA 配置段。');
+        }
+        source = source.replace(lazyLoadBlock, `// GPT 设置：可通过开关控制原生懒加载
+            if (enableLazyLoad) {
+                googletag.setConfig({
+                    lazyLoad: {
+                        fetchMarginPercent: 50,
+                        renderMarginPercent: 0,
+                        mobileScaling: 1
+                    },
+                    singleRequest: false
+                });
+            } else {
+                googletag.setConfig({
+                    lazyLoad: null,
+                    singleRequest: false
+                });
+            }`);
+        source = source.replace(analyticsBlock, function(match, analyticsId) {
+            return 'const gaMeasurementId = ' + analyticsId + ';\n\n' +
+                '// 选项\n' +
+                'const enableLazyLoad = false;              // 关闭广告延迟加载\n' +
+                'const enableInterstitialTriggers = false;  // 关闭插屏广告额外触发器\n' +
+                '/* ========================================= */';
+        });
+        let triggerCount = 0;
+        source = source.replace(/(unhideWindow|navBar|inactivity|endOfArticle|continueReading): true/g, function(match, trigger) {
+            triggerCount += 1;
+            return trigger + ': enableInterstitialTriggers';
+        });
+        if (triggerCount !== 5) throw new Error('v1.0.2 广告模板生成失败：插屏触发器配置不完整。');
+        return source;
+    }
+
+    function generateSelectedAdJs(adPaths, version) {
+        const selectedVersion = normalizeAdJsVersion(version);
+        if (selectedVersion === 'initial') {
+            const source = typeof window !== 'undefined' && window.AD_JS_SOURCE;
+            if (!source) throw new Error('初版 ad.js 模板未加载。');
+            const paths = adPaths || {};
+            return source.replace(/^const (bannerPath[1-4]|interstitialPath|anchorPath|analyticsID) = "";$/gm, function(line, key) {
+                return 'const ' + key + ' = ' + serializeForScript(paths[key] || '') + ';';
+            });
+        }
+        const latest = generateNormalAdJs(adPaths);
+        if (selectedVersion === 'v1.0.1') return latest;
+        if (selectedVersion === 'v1.0.2') return generateV102AdJs(latest);
+        const triggerBlock = /\n\s*\/\/ 触发器\n\s*interstitialSlot\.setConfig\(\{[\s\S]*?\n\s*\}\);/;
+        if (!triggerBlock.test(latest)) throw new Error('v1.0.0 广告模板生成失败：找不到插页广告触发器。');
+        return latest.replace('ad.js v1.0.1', 'ad.js v1.0.0').replace(triggerBlock, '');
     }
 
     // ========== 生成CSS ==========
@@ -737,6 +960,11 @@ ${style.categoryTitleStyle === 'gradient' ? `.category-title::after { content: '
     gap: var(--grid-gap);
     align-items: stretch;
 }
+
+${config.structure.cardColumns === 'auto' ? `
+/* 全部文章页的中段广告将列表分成两段；收起未使用的自动列，避免广告前出现空列。 */
+#all-articles .items-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+` : ''}
 
 ${config.structure.cardColumns === 'auto' ? `
 /* 仅在自动列数时，按实际文章数补齐均衡网格；固定列数必须完全遵从用户选择。 */
@@ -1390,6 +1618,8 @@ ${style.detailLayout === 'sidebar' ? `
       'opacity: 0.9;'}
 }
 
+.view-all-articles { text-align: center; margin: 28px 0 12px; }
+
 .detail-content {
     margin-top: 30px;
     line-height: 1.8;
@@ -2021,6 +2251,10 @@ ${style.detailLayout === 'sidebar' ? `
                 const anchorId = categoryAnchorId(entry.category, entry.index);
                 html += `<li><a href="${categoryNavigationHref(anchorId, pageContext)}">${escapeNavigationText(entry.category.name)}</a></li>`;
             });
+            if (config.structure.hasAllArticlesPage) {
+                const allHref = pageContext === 'detail' ? '../all-articles.html' : 'all-articles.html';
+                html += `<li><a href="${allHref}"${pageContext === 'all' ? ' aria-current="page"' : ''}>All Articles</a></li>`;
+            }
             return html;
         }
 
@@ -2161,13 +2395,13 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     }
 
     // ========== 生成首页 index.html ==========
-    function generateIndexHtml(config) {
+    function generateIndexHtml(config, data) {
         const theme = config.theme;
         const siteName = theme.siteTitle;
         const navbar = generateNavbar(config, 'home');
         const footer = generateFooter(config);
         const adPlacements = config.adPlacements || {};
-        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths);
+        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
         const adScripts = hasAdRuntime(config)
             ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
             : '';
@@ -2209,6 +2443,10 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 categoriesHtml += '\n' + getHomeAd('after-section-' + i);
             }
         });
+        const homeCapacity = categories.reduce(function(total, category) { return total + Math.max(0, Number(category.count) || 0); }, 0);
+        if (config.structure.hasAllArticlesPage && data.length > homeCapacity) {
+            categoriesHtml += '\n<div class="view-all-articles"><a class="action-btn" href="all-articles.html">View All ' + data.length + ' Articles</a></div>';
+        }
         // 内容区底部广告
         categoriesHtml += '\n' + getHomeAd('content-bottom');
 
@@ -2235,6 +2473,69 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     </main>
     ${getHomeAd('footer-top')}
     ${footer}
+</body>
+</html>`;
+    }
+
+    function generateAllArticlesCard(item, index, config, imageSource, preview) {
+        const mapping = config.fieldMapping || {};
+        const title = escapeNavigationText(item[mapping.title] || 'Untitled');
+        const href = preview ? '#detail-item-' + index : 'details/article' + escapeNavigationText(getItemId(item, index)) + '.html';
+        const previewAttribute = preview ? ' data-preview-item="' + index + '"' : '';
+        const image = imageSource && config.structure.cardFields.includes('image')
+            ? '<div class="card-image-frame"><img class="card-image image-cover" src="' + escapeNavigationText(imageSource) + '" alt="' + title + '" loading="lazy"></div>'
+            : '';
+        let fields = '';
+        (config.structure.cardFields || []).forEach(function(field) {
+            if (field === 'image') return;
+            const value = field === 'title' ? title : item[mapping[field] || field];
+            if (value === undefined || value === null || value === '') return;
+            if (field === 'title') {
+                fields += '<div class="card-title">' + title + '</div>';
+                return;
+            }
+            const className = field === 'excerpt' || field === 'content' ? 'desc' : /^[a-z0-9-]+$/i.test(field) ? field : 'extra';
+            const text = escapeNavigationText(value);
+            const freeClass = field === 'price' && text.toLowerCase() === 'free' ? ' price-free' : '';
+            fields += '<div class="card-' + className + freeClass + '">' + text + '</div>';
+        });
+        return '<a class="item-card" href="' + href + '"' + previewAttribute + '>' + image + '<div class="card-body">' + fields + '</div></a>';
+    }
+
+    function generateAllArticlesHtml(config, data) {
+        const siteName = escapeNavigationText(config.theme.siteTitle);
+        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
+        const adScripts = hasAdRuntime(config)
+            ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
+            : '';
+        const cards = data.map(function(item, index) {
+            return generateAllArticlesCard(item, index, config, getImageSrc(item, config.fieldMapping.image, config.isLocalImages), false);
+        });
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Articles | ${siteName}</title>
+    <meta name="description" content="Browse all ${data.length} articles on ${siteName}.">
+    ${adScripts}
+    ${renderExportStyles(config, 'css/style.css')}
+</head>
+<body>
+    ${generateNavbar(config, 'all')}
+    ${getAllArticlesDetailAds(config, ['after-navbar'])}
+    <main class="main-content layout-standard">
+        <div class="container">
+            ${getAllArticlesDetailAds(config, ['detail-before-content'])}
+            <section id="all-articles" class="category-section">
+                <h1 class="category-title">All Articles</h1>
+                ${buildAllArticlesCardGrid(config, cards)}
+            </section>
+        </div>
+    </main>
+    ${getAllArticlesDetailAds(config, ['detail-after-related', 'footer-top'])}
+    ${generateFooter(config)}
+    <script>${generateNavbarInteractionScript()}</script>
 </body>
 </html>`;
     }
@@ -2489,7 +2790,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const mapping = config.fieldMapping;
         const itemId = getItemId(item, index);
         const siteName = theme.siteTitle;
-        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths);
+        const adRuntimeVersion = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
         const adScripts = hasAdRuntime(config)
             ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n    <script defer src="../js/ad.js?v=' + adRuntimeVersion + '"><\/script>'
             : '';
@@ -2945,21 +3246,30 @@ if __name__ == '__main__':
         onProgress(15, '正在生成首页...');
 
         // index.html
-        const homeHtml = generateIndexHtml(config);
+        const homeHtml = generateIndexHtml(config, data);
         if (hasValidatedAdConfig(config)) {
             const errors = validateMigratedPage(homeHtml, 'home');
             if (errors.length) throw new Error('广告移植首页校验失败：' + errors.map(function(item) { return item.message; }).join(' '));
         }
         siteFolder.file('index.html', homeHtml);
 
+        if (config.structure.hasAllArticlesPage) {
+            const allArticlesHtml = generateAllArticlesHtml(config, data);
+            if (hasValidatedAdConfig(config)) {
+                const errors = validateMigratedPage(allArticlesHtml, 'all');
+                if (errors.length) throw new Error('全部文章页广告校验失败：' + errors.map(function(item) { return item.message; }).join(' '));
+            }
+            siteFolder.file('all-articles.html', allArticlesHtml);
+        }
+
         onProgress(25, '正在生成script.js...');
 
         // script.js
         siteFolder.folder('js').file('script.js', generateScriptJs(config));
 
-        // 已校验广告代码与“先预留广告位”模式都输出同一份运行时；后者的路径保持为空。
+        // 本生成器负责普通建站、广告移植和批量建站加广告，按广告配置输出所选版本。
         if (hasAdRuntime(config)) {
-            siteFolder.folder('js').file('ad.js', generateAdJs(config.adPaths));
+            siteFolder.folder('js').file('ad.js', generateSelectedAdJs(config.adPaths, config.adJsVersion));
         }
 
         // data.json - 处理本地图片路径
@@ -3022,7 +3332,7 @@ if __name__ == '__main__':
         if (hasValidatedAdConfig(config)) {
             siteFolder.file('AD_MIGRATION_REGENERATION.txt', '广告移植站的详情页必须使用本建站工具重新导出。生成器模板会在所有详情页保留 GPT、../js/ad.js 与 banner1/2/3 容器，并在打包前重新校验数量。请勿使用旧版 generate_details.py 覆盖详情页。\n');
         } else if (hasAdRuntime(config)) {
-            siteFolder.file('AD_PLACEHOLDER_SETUP.txt', '本网站已预留广告容器，并生成路径为空的 js/ad.js。拿到运营广告代码后，请填写 bannerPath1、bannerPath2、bannerPath3、interstitialPath、anchorPath 与 analyticsID；不需要重新生成页面。请勿使用旧版 generate_details.py 覆盖详情页。\n');
+            siteFolder.file('AD_PLACEHOLDER_SETUP.txt', '本网站已预留广告容器，并生成路径为空的 js/ad.js。拿到运营广告代码后，请填写 adUnitBanner1、adUnitBanner2、adUnitBanner3、adUnitInterstitial、adUnitAnchor 与 gaMeasurementId；不需要重新生成页面。请勿使用旧版 generate_details.py 覆盖详情页。\n');
         } else {
             siteFolder.file('generate_details.py', generatePythonScript(config));
         }
@@ -3043,7 +3353,6 @@ if __name__ == '__main__':
 
     // ========== 构建配置对象 ==========
     function buildConfig(appState, options) {
-        const previewManualAds = !!(options && options.previewManualAds);
         const baseTheme = THEMES[appState.selectedTheme];
         const profile = typeof DOMAIN_CATALOG !== 'undefined' ? DOMAIN_CATALOG[appState.selectedTheme] : null;
         const selectedCategories = appState.config.categories || baseTheme.categories || [];
@@ -3063,11 +3372,13 @@ if __name__ == '__main__':
             : (appState.siteBuildMode === 'normal' && !reserveAds && appState.adCodeMigration && appState.adCodeMigration.valid
                 ? appState.adCodeMigration
                 : null);
-        // 已验证广告代码继续采用固定位置；预留模式则把用户在首页/详情页选择的位置写入导出站。
-        const automaticAdPlacements = migration && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+        // 已验证广告代码及固定预留使用相同布局；手动预留保留用户选择的位置。
+        const fixedReserveAds = reserveAds && appState.reservePlacementMode === 'fixed';
+        const automaticAdPlacements = (migration || fixedReserveAds) && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+        if (fixedReserveAds && automaticAdPlacements.adv2 && selectedCategories.length < 2) automaticAdPlacements.adv2.home = 'content-bottom';
+        if (fixedReserveAds && automaticAdPlacements.adv3 && selectedCategories.length < 2) automaticAdPlacements.adv3.home = 'footer-top';
         const manualAdPlacements = appState.config.adPlacements || {};
-        const exportedAdPlacements = migration ? automaticAdPlacements : (reserveAds ? manualAdPlacements : {});
-        const previewAdPlacements = !migration && previewManualAds ? manualAdPlacements : exportedAdPlacements;
+        const exportedAdPlacements = migration || fixedReserveAds ? automaticAdPlacements : (reserveAds ? manualAdPlacements : {});
 
         return {
             theme: theme,
@@ -3087,6 +3398,7 @@ if __name__ == '__main__':
                 heroSubtitle: appState.config.heroSubtitle || theme.hero.subtitle,
                 categories: selectedCategories,
                 populatedNavigationCategories: populatedNavigationCategories,
+                hasAllArticlesPage: appState.siteBuildMode === 'normal' && appState.config.allArticlesEnabled !== false && Array.isArray(appState.data) && appState.data.length > 0,
                 cardColumns: appState.config.cardColumns || 'auto',
                 randomSort: true,
                 cardFields: appState.config.cardFields || theme.cardFields,
@@ -3134,8 +3446,9 @@ if __name__ == '__main__':
             siteBuildMode: migration ? 'ad-migration' : (reserveAds ? 'ad-placeholder' : 'normal'),
             adMigration: migration,
             adRuntimeEnabled: !!migration || reserveAds,
-            adPlacements: previewManualAds ? previewAdPlacements : exportedAdPlacements,
+            adPlacements: exportedAdPlacements,
             adPaths: migration ? migration.config : {},
+            adJsVersion: normalizeAdJsVersion(appState.adJsVersion),
             adPlacementMode: appState.adPlacementMode || null,
             isLocalImages: appState.isLocalImages || false
         };
@@ -3332,9 +3645,26 @@ if __name__ == '__main__':
 
             if (isPlacingAds) bodyContent += genMarker('content-bottom', pageType);
             bodyContent += getAdCodeAt('content-bottom', pageType, adPlacements);
+            if (config.structure.hasAllArticlesPage && data.length > itemIndex) {
+                bodyContent += '<div class="view-all-articles"><a class="action-btn" href="all-articles.html" data-preview-page="all">View All ' + data.length + ' Articles</a></div>';
+            }
             bodyContent += '</div></main>';
             if (isPlacingAds) bodyContent += genMarker('footer-top', pageType);
             bodyContent += getAdCodeAt('footer-top', pageType, adPlacements);
+            bodyContent += generateFooter(config);
+
+        } else if (pageType === 'all' && config.structure.hasAllArticlesPage) {
+            bodyContent = generateNavbar(config, 'all');
+            bodyContent += getAllArticlesDetailAds(config, ['after-navbar']);
+            bodyContent += '<main class="main-content layout-standard"><div class="container">';
+            bodyContent += getAllArticlesDetailAds(config, ['detail-before-content']);
+            bodyContent += '<section id="all-articles" class="category-section"><h1 class="category-title">All Articles</h1>';
+            bodyContent += buildAllArticlesCardGrid(config, data.map(function(item, index) {
+                return generateAllArticlesCard(item, index, config, getPreviewImageSrc(item), true);
+            }));
+            bodyContent += '</section>';
+            bodyContent += '</div></main>';
+            bodyContent += getAllArticlesDetailAds(config, ['detail-after-related', 'footer-top']);
             bodyContent += generateFooter(config);
 
         } else if (pageType === 'detail') {
@@ -3527,6 +3857,7 @@ if __name__ == '__main__':
             else if (href.indexOf('about') !== -1) page = 'about';
             else if (href.indexOf('privacy') !== -1) page = 'privacy';
             else if (href.indexOf('terms') !== -1) page = 'terms';
+            else if (target.getAttribute('data-preview-page') === 'all' || href.indexOf('all-articles') !== -1) page = 'all';
             else if (href.indexOf('details') !== -1 || href.indexOf('article') !== -1) page = 'detail';
             if (itemIndex !== null) {
                 page = 'detail';
@@ -3547,8 +3878,10 @@ if __name__ == '__main__':
         exportWebsite: exportWebsite,
         generatePreviewHtml: generatePreviewHtml,
         buildConfig: buildConfig,
-        // 批量广告恢复与普通建站共用同一份模板，避免两套广告脚本随版本漂移。
+        // 广告恢复保留带策略的运行时；静态新建站流程由 generateNormalAdJs 生成。
         generateAdJs: generateAdJs,
+        generateNormalAdJs: generateNormalAdJs,
+        generateSelectedAdJs: generateSelectedAdJs,
         getAdTemplate: function(adId) { return AD_TEMPLATES[adId] || ''; }
     };
 })();

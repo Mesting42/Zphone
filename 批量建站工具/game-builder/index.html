@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>游戏建站工具 · 批量建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20260918-header-nav-layout-1">
+    <link rel="stylesheet" href="css/tool.css?v=20260924-ad-version-wrap-2">
   <link rel="stylesheet" href="../css/liquid-glass.css?v=20260918-liquid-glass-17">
     <!-- 压缩包解析优先使用当前发布包的本地依赖，CDN 仅作旧环境回退。 -->
     <script src="../node_modules/jszip/dist/jszip.min.js"></script>
@@ -678,7 +678,24 @@
 
                     <!-- 广告配置 -->
                     <div class="config-section" id="tab-ads" hidden>
-                        <div class="config-group">
+                        <section class="config-group" id="ad-js-version-group" aria-labelledby="ad-js-version-title">
+                            <h4 class="group-title" id="ad-js-version-title">ad.js 模板版本</h4>
+                            <p class="group-hint">导出时使用所选版本；预留广告位也会导出对应版本的空配置脚本。</p>
+                            <div class="normal-ad-mode-grid ad-js-version-grid" role="radiogroup" aria-label="ad.js 模板版本">
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.2" checked><span><strong>最新版 v1.0.2（默认）</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.1"><span><strong>旧版 v1.0.1</strong><small>GPT 原生懒加载，含首页插页广告触发器。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.0"><span><strong>旧版 v1.0.0</strong><small>GPT 原生懒加载，无插页广告触发器。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="initial"><span><strong>初版</strong><small>IntersectionObserver 延迟加载 banner1–3；支持 banner4。</small></span></label>
+                            </div>
+                        </section>
+                        <div class="config-group" id="normal-ad-mode-group">
+                            <h4 class="group-title">广告接入方式</h4>
+                            <div class="normal-ad-mode-grid" role="radiogroup" aria-label="游戏建站广告接入方式">
+                                <label class="normal-ad-mode-card"><input type="radio" name="normal-ad-mode" value="reserve"><span><strong>先预留广告位</strong><small>无需广告代码，选择固定位置或手动放置；导出空配置的 <code>js/ad.js</code>。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="normal-ad-mode" value="code" checked><span><strong>上传代码自动添加</strong><small>上传并校验 TXT 后，自动接入三个固定广告位。</small></span></label>
+                            </div>
+                        </div>
+                        <div class="config-group" id="ad-code-mode-panel">
                             <h4 class="group-title">📢 广告代码配置</h4>
                             <div style="margin-bottom:12px;">
                                 <label style="display:block;font-size:13px;margin-bottom:6px;">广告代码文件（启用广告时必需）</label>
@@ -696,7 +713,14 @@
                         </div>
                         <div class="config-group" id="ad-placement-group">
                             <h4 class="group-title">📢 广告容器</h4>
-                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择广告容器后，预览会显示带名称的常用广告位，点击即可放置。上传并校验广告 TXT 后，系统会自动插入三个可用广告位；未上传代码的手动位置不会导出为空白广告区域。</p>
+                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择预留位置方式。导出会保留广告容器、GPT 引用和空配置的 <code>js/ad.js</code>。</p>
+                            <div class="normal-ad-mode-grid" role="radiogroup" aria-label="游戏站预留广告位定位方式">
+                                <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="fixed"><span><strong>固定位置</strong><small>自动放在首页导航下方、分类间和页面底部；分类不足时自动调整。详情页与“全部游戏”页同步放置。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="manual" checked><span><strong>手动放置</strong><small>自行选择每个广告容器在首页和详情页的位置。</small></span></label>
+                            </div>
+                            <p id="ad-fixed-placement-note" class="group-hint" hidden>固定位置已生效，预览会显示三个广告容器；切回手动放置后，原有手动位置仍会保留。</p>
+                            <div id="ad-manual-placement-controls">
+                            <p class="group-desc" style="font-size:12px;color:#888;margin:12px 0;">选择广告容器后，在预览中点击常用广告位进行放置；“全部游戏”页沿用详情页位置。</p>
 
                             <!-- 广告1 -->
                             <div class="ad-container-config">
@@ -736,6 +760,7 @@
 
                             <div class="ad-placement-hint" id="ad-placement-hint" style="display:none;background:rgba(74,158,255,0.1);border:1px dashed var(--color-primary,#4a9eff);border-radius:6px;padding:10px;margin-top:8px;font-size:12px;color:var(--color-primary,#4a9eff);text-align:center;">
                                 已选择广告，请点击预览区中带名称的常用广告位进行放置
+                            </div>
                             </div>
                         </div>
                     </div>
@@ -943,14 +968,15 @@
     <script src="js/games-data.js?v=20260910-6"></script>
     <script src="js/open-source-games-bundle.js?v=20260910-6"></script>
     <script src="js/data.js?v=20260912-emoji-1"></script>
-    <script src="js/ad-migration.js?v=20260920-banner4-optional-1"></script>
+    <script src="js/ad-migration.js?v=20260924-all-games-ads-1"></script>
+    <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
     <script src="js/game-archive-runtime.js?v=20260912-feature-parity-1"></script>
     <script src="js/game-zip-import.js?v=20260912-1"></script>
     <script src="js/built-in-game-sources.js?v=20260912-1"></script>
     <script src="js/saved-game-catalogs.js?v=20260912-content-identity-1"></script>
-    <script src="js/generator.js?v=20260920-navbar-fullwidth-sticky-1"></script>
+    <script src="js/generator.js?v=20260924-ad-version-picker-1"></script>
   <script src="js/differentiated-builder.js?v=20260914-v101-48"></script>
-  <script src="js/app.js?v=20260918-workflow-action-dock-1"></script>
+  <script src="js/app.js?v=20260924-ad-version-picker-1"></script>
   <script src="../js/jelly-button.js?v=20260918-9"></script>
   <script src="../js/liquid-glass.js?v=20260918-liquid-glass-1"></script>
 </body>

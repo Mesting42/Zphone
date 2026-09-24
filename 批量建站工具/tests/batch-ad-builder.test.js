@@ -11,7 +11,8 @@ class ZipMock {
 }
 
 const source = (name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8');
-const context = { JSZip: ZipMock, Blob, URL, TextDecoder, setTimeout: (callback) => callback() };
+const context = { JSZip: ZipMock, Blob, URL, TextDecoder, window: {}, setTimeout: (callback) => callback() };
+vm.runInNewContext(source('ad.js'), context);
 vm.runInNewContext(source('data.js') + '\nthis.__themes = THEMES;', context);
 vm.runInNewContext(source('ad-migration.js') + '\nthis.__migration = AdMigration;', context);
 vm.runInNewContext(source('generator.js') + '\nthis.__generator = Generator;', context);
@@ -78,6 +79,26 @@ describe('batch ad build guards', () => {
     const checked = context.__batch.validateGeneratedSiteFiles(globalThis.__batchGeneratedFiles, first);
     expect(checked.valid).toBe(true);
     expect(globalThis.__batchGeneratedFiles['website/js/ad.js']).toContain(first.config.bannerPath1);
+    expect(globalThis.__batchGeneratedFiles['website/js/ad.js']).toContain('ad.js v1.0.1');
+    expect(globalThis.__batchGeneratedFiles['website/js/ad.js']).toContain('interstitialSlot.setConfig({');
+  });
+
+  it('carries the batch ad.js version into each generated site', async () => {
+    const first = code('site-old', 'one');
+    const sourceSite = site('a', 'one');
+    const base = {
+      selectedTheme: 'game', siteBuildMode: 'batch-ad-build', data: sourceSite.data,
+      fieldMapping: sourceSite.fieldMapping,
+      config: { siteTitle: 'Batch Site', logoText: 'Batch Site', categories: context.__themes.game.categories, cardFields: ['image', 'title'], relatedCardFields: ['image', 'title'], relatedCount: 1 }
+    };
+    for (const version of ['v1.0.0', 'initial']) {
+      const state = context.__batch.createSiteState({ ...base, adJsVersion: version }, sourceSite, first);
+      await context.__generator.exportWebsite(state, () => {});
+      const output = globalThis.__batchGeneratedFiles['website/js/ad.js'];
+      expect(context.__batch.validateGeneratedSiteFiles(globalThis.__batchGeneratedFiles, first).valid).toBe(true);
+      if (version === 'initial') expect(output).toContain('const bannerPath1 = "/publisher/site-old-banner1";');
+      else expect(output).toContain('ad.js v1.0.0');
+    }
   });
 
   it('exports the selected template and style configuration stored for each site', () => {
@@ -151,6 +172,7 @@ describe('batch ad build guards', () => {
     expect(exported.file('site-one/index.html')).toBeTruthy();
     expect(exported.file('site-two/js/ad.js')).toBeTruthy();
     expect(await exported.file('site-two/js/ad.js').async('text')).toContain(second.config.bannerPath2);
+    expect(await exported.file('site-two/js/ad.js').async('text')).toContain('continueReading: true');
     expect(exported.file('BATCH_AD_EXPORT_REPORT.json')).toBeTruthy();
   });
 });

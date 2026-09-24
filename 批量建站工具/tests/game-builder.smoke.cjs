@@ -285,6 +285,8 @@ const state = {
     assert.ok(detailHtml.includes('href="../index.html#category-featured">Featured</a>'), 'detail navigation must return to the category anchor on the homepage');
     assert.ok(detailHtml.includes('href="../all-games.html">All Games</a>'), 'detail navigation must expose the complete game list');
     assert.ok(allGamesHtml, 'a complete game list page must be exported when the homepage is capped');
+    assert.ok(!allGamesHtml.includes('securepubads'), 'all-games page must not load ads when no ad code is configured');
+    assert.ok(!allGamesHtml.includes('all-games-middle-ads'), 'an ad-free all-games page must keep its original uninterrupted card grid');
     assert.equal((allGamesHtml.match(/class="item-card"/g) || []).length, testGames.length, 'all-games page must render every imported game');
     assert.ok(footerHtml.includes('href="privacy.html"'), 'privacy link must remain in the footer');
     assert.ok(footerHtml.includes('href="terms.html"'), 'terms link must remain in the footer');
@@ -397,11 +399,13 @@ const state = {
     assert.ok(directAdPreview.includes('div-gpt-ad-banner1'), 'validated TXT ads must render an automatic first ad container in preview');
     const manualAdPreview = PrincipalGenerator.generatePreviewHtml({
         ...state,
+        siteBuildMode: 'normal',
+        normalAdMode: 'reserve',
         config: { ...state.config, adPlacements: { adv1: { home: 'after-navbar' } } },
         adCodeMigration: null,
         _previewBlobUrls: []
     }, 'home');
-    assert.ok(manualAdPreview.includes('div-gpt-ad-banner1'), 'manual placement must remain visible as an ad placeholder in preview before TXT validation');
+    assert.ok(manualAdPreview.includes('div-gpt-ad-banner1'), 'manual reserve placement must remain visible in preview without TXT validation');
     assert.ok(homePreview.includes('#adv1 + .main-content'), 'a homepage ad must not be followed by the default large content padding');
     assert.ok(selectedDetailPreview.includes('#adv1 + .detail-page'), 'a detail-page ad must not be followed by the default large detail padding');
     const manualAdExportConfig = PrincipalGenerator.buildConfig({
@@ -410,6 +414,34 @@ const state = {
         adCodeMigration: null
     });
     assert.deepEqual(manualAdExportConfig.adPlacements, {}, 'manual preview placeholders must not produce empty ad slots in exported sites without validated TXT code');
+    const reservedGameState = {
+        ...state,
+        siteBuildMode: 'normal',
+        normalAdMode: 'reserve',
+        reservePlacementMode: 'fixed',
+        config: { ...state.config, adPlacements: { adv1: { home: 'content-top', detail: 'detail-before-content' } } },
+        adCodeMigration: null
+    };
+    const savedGamePositions = JSON.stringify(reservedGameState.config.adPlacements);
+    assert.deepEqual(PrincipalGenerator.buildConfig(reservedGameState).adPlacements, {
+        ...PrincipalAdMigration.fixedPlacements(),
+        adv2: { home: 'content-bottom', detail: 'detail-after-content' },
+        adv3: { home: 'footer-top', detail: 'footer-top' }
+    }, 'fixed reserve mode must keep the third banner visible when only one homepage category exists');
+    assert.ok(PrincipalGenerator.generatePreviewHtml(reservedGameState, 'home').includes('div-gpt-ad-banner3'), 'fixed reserve positions must appear in game preview');
+    await PrincipalGenerator.exportWebsite(reservedGameState, function() {});
+    assert.equal((generatedFiles['website/index.html'].match(/id="div-gpt-ad-banner[123]"/g) || []).length, 3, 'fixed reserve mode must export all homepage banners');
+    assert.equal((generatedFiles['website/details/article1.html'].match(/id="div-gpt-ad-banner[123]"/g) || []).length, 3, 'fixed reserve mode must export all detail banners');
+    assert.equal((generatedFiles['website/all-games.html'].match(/id="div-gpt-ad-banner[123]"/g) || []).length, 3, 'fixed reserve mode must export all all-games banners');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('const adUnitBanner1 = "";'), 'fixed reserve mode must export an editable empty ad.js');
+    assert.ok(generatedFiles['website/AD_PLACEHOLDER_SETUP.txt'], 'fixed reserve mode must explain how to fill ad.js');
+    assert.equal(JSON.stringify(reservedGameState.config.adPlacements), savedGamePositions, 'fixed reserve mode must not overwrite manual placements');
+    reservedGameState.reservePlacementMode = 'manual';
+    assert.deepEqual(PrincipalGenerator.buildConfig(reservedGameState).adPlacements, reservedGameState.config.adPlacements, 'switching back must restore manual game placements');
+    await PrincipalGenerator.exportWebsite(reservedGameState, function() {});
+    assert.ok(generatedFiles['website/index.html'].includes('div-gpt-ad-banner1'), 'manual reserve mode must export its placed homepage banner');
+    assert.ok(!generatedFiles['website/index.html'].includes('div-gpt-ad-banner2'), 'manual reserve mode must not export unplaced banners');
+    await PrincipalGenerator.exportWebsite(state, function() {});
     const adPlacementPreview = PrincipalGenerator.generatePreviewHtml({
         ...state,
         adPlacementMode: 'adv3',
@@ -738,6 +770,15 @@ const state = {
     assert.equal(migration.valid, true, 'nested legacy ZIP layout must be recognized');
     assert.equal(migration.config.bannerPath2, '/123/banner-2', 'legacy ad.js values must be extracted without reading page content');
     assert.equal(migration.config.bannerPath4, '/123/banner-4', 'an explicitly configured banner4 slot must be preserved');
+    const modernMigration = PrincipalAdMigration.inspectEntries([
+        { path: legacyEntries[0].path, text: [
+            'const adUnitBanner1 = "/123/banner-1";', 'const adUnitBanner2 = "/123/banner-2";',
+            'const adUnitBanner3 = "/123/banner-3";', 'const adUnitInterstitial = "/123/interstitial";',
+            'const adUnitAnchor = "/123/anchor";', 'const gaMeasurementId = "G-TEST123";'
+        ].join('\n') }, legacyEntries[1], legacyEntries[2]
+    ]);
+    assert.equal(modernMigration.valid, true, 'game ad migration must recognize v1.0.1 variable names');
+    assert.equal(modernMigration.config.analyticsID, 'G-TEST123', 'game ad migration must preserve the new GA setting');
     const threeBannerMigration = PrincipalAdMigration.inspectEntries([
         {
             path: 'old-site/js/ad.js',
@@ -785,8 +826,10 @@ const state = {
     };
     await PrincipalGenerator.exportWebsite(migrationState, function() {});
     const migratedHome = generatedFiles['website/index.html'];
+    const migratedAllGames = generatedFiles['website/all-games.html'];
     const migratedDetail = generatedFiles['website/details/article1.html'];
     const migratedPreview = PrincipalGenerator.generatePreviewHtml(migrationState, 'home');
+    const migratedAllGamesPreview = PrincipalGenerator.generatePreviewHtml(migrationState, 'all');
     const migratedNavigation = migratedHome.slice(migratedHome.indexOf('<nav'), migratedHome.indexOf('</nav>') + 6);
     const count = function(source, needle) { return (source.match(new RegExp(needle, 'g')) || []).length; };
     assert.equal((migratedNavigation.match(/<li>/g) || []).length, 5, 'migrated header navigation must contain Home, all migrated-site categories, and the complete game list');
@@ -794,16 +837,22 @@ const state = {
     assert.ok(migratedNavigation.includes('href="#category-action">Action</a>'), 'migrated header must link to dynamic categories');
     assert.ok(migratedNavigation.includes('href="all-games.html">All Games</a>'), 'migrated header must still expose every imported game');
     assert.equal(count(migratedHome, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js'), 1, 'migrated home must have one GPT script');
-    assert.equal(count(migratedHome, 'src="js/ad\\.js\\?v=20260919-ad-runtime-init-1-[a-z0-9]+"'), 1, 'migrated home must have one versioned ad.js');
+    assert.equal(count(migratedHome, 'src="js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"'), 1, 'migrated home must have one versioned ad.js');
     assert.equal(count(migratedDetail, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js'), 1, 'migrated detail must have one GPT script');
-    assert.equal(count(migratedDetail, 'src="\\.\\./js/ad\\.js\\?v=20260919-ad-runtime-init-1-[a-z0-9]+"'), 1, 'migrated detail must have one versioned relative ad.js');
+    assert.equal(count(migratedDetail, 'src="\\.\\./js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"'), 1, 'migrated detail must have one versioned relative ad.js');
+    assert.equal(count(migratedAllGames, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js'), 1, 'all-games page must load GPT once');
+    assert.equal(count(migratedAllGames, 'src="js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"'), 1, 'all-games page must load its root-relative ad.js once');
     assert.equal(count(migratedHome, '>advertisement</div>'), 3, 'migrated homepage must visibly label every ad slot');
     assert.equal(count(migratedDetail, '>advertisement</div>'), 3, 'migrated detail page must visibly label every ad slot');
     assert.equal(count(migratedPreview, '>advertisement</div>'), 3, 'migration preview must visibly label every ad slot');
+    assert.equal(count(migratedAllGames, '>advertisement</div>'), 3, 'all-games page must include the detail-page banner placements');
+    assert.equal(count(migratedAllGamesPreview, '>advertisement</div>'), 3, 'all-games preview must show the detail-page banner placements');
+    assert.deepEqual(PrincipalAdMigration.validateGeneratedPage(migratedAllGames, 'all'), [], 'all-games ad markup must pass export validation');
     assert.ok(migratedHome.includes('color:var(--color-text,#111)'), 'ad labels must remain visible on dark themes');
     ['banner1', 'banner2', 'banner3'].forEach(function(name) {
         assert.equal(count(migratedHome, 'id="div-gpt-ad-' + name + '"'), 1, 'migrated home must have one ' + name);
         assert.equal(count(migratedDetail, 'id="div-gpt-ad-' + name + '"'), 1, 'migrated detail must have one ' + name);
+        assert.equal(count(migratedAllGames, 'id="div-gpt-ad-' + name + '"'), 1, 'migrated all-games page must have one ' + name);
     });
     assert.ok(migratedHome.indexOf('div-gpt-ad-banner1') > migratedHome.indexOf('</nav>'), 'banner1 must be immediately after the homepage navigation');
     assert.ok(migratedHome.indexOf('div-gpt-ad-banner1') < migratedHome.indexOf('div-gpt-ad-banner2'), 'banner2 must follow the first category');
@@ -811,12 +860,58 @@ const state = {
     assert.ok(migratedDetail.indexOf('div-gpt-ad-banner1') < migratedDetail.indexOf('class="detail-page"'), 'detail banner1 must be before the detail content starts');
     assert.ok(migratedDetail.indexOf('div-gpt-ad-banner2') > migratedDetail.indexOf('class="detail-content"'), 'detail banner2 must follow the body');
     assert.ok(migratedDetail.indexOf('div-gpt-ad-banner3') > migratedDetail.indexOf('class="related-section"'), 'detail banner3 must be before the footer after the detail page');
+    assert.ok(migratedAllGames.indexOf('div-gpt-ad-banner1') > migratedAllGames.indexOf('</nav>'), 'all-games banner1 must follow navigation');
+    assert.ok(migratedAllGames.indexOf('div-gpt-ad-banner1') < migratedAllGames.indexOf('id="all-games"'), 'all-games banner1 must precede the collection');
+    assert.ok(migratedAllGames.indexOf('div-gpt-ad-banner2') > migratedAllGames.indexOf('id="all-games"'), 'all-games banner2 must be inside the game list');
+    assert.ok(migratedAllGames.indexOf('div-gpt-ad-banner2') < migratedAllGames.indexOf('</section>'), 'all-games banner2 must appear before the end of the game list');
+    assert.ok(migratedAllGames.indexOf('div-gpt-ad-banner3') > migratedAllGames.indexOf('</section>'), 'all-games banner3 must remain after the game list');
     assert.ok(generatedFiles['website/js/ad.js'].includes('"/123/banner-1"'), 'migrated ad.js must contain extracted configuration');
-    assert.ok(generatedFiles['website/js/ad.js'].includes('function initializeBannerObservers()'), 'migrated ad.js must initialize banner observers when the DOM is ready');
-    assert.ok(generatedFiles['website/js/ad.js'].includes("document.addEventListener('DOMContentLoaded', initializeBannerObservers, { once: true });"), 'migrated ad.js must wait only for DOM readiness');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('const adUnitBanner1 = "/123/banner-1";'), 'migrated ad.js must declare the populated first banner unit');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('ad.js v1.0.1'), 'game export must use the uploaded v1.0.1 runtime');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('interstitialSlot.setConfig({'), 'game export must configure interstitial triggers');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('continueReading: true'), 'game export must include the continuing-reading trigger');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('googletag.setConfig({'), 'migrated ad.js must configure GPT before defining slots');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('document.addEventListener("DOMContentLoaded",'), 'migrated ad.js must wait only for DOM readiness');
     assert.ok(!generatedFiles['website/js/ad.js'].includes("window.addEventListener('load'"), 'migrated ad.js must not wait for every page resource before initializing banners');
     assert.doesNotThrow(() => new Function(generatedFiles['website/js/ad.js']), 'generated ad runtime must parse');
     assert.ok(!migratedHome.includes('old-site/'), 'legacy source paths must not be copied into the new homepage');
+
+    const normalAdsState = {
+        ...state,
+        siteBuildMode: 'normal',
+        adCodeMigration: parsedAdCode,
+        config: { ...state.config, categories: migrationState.config.categories }
+    };
+    await PrincipalGenerator.exportWebsite(normalAdsState, function() {});
+    await PrincipalGenerator.exportWebsite({ ...normalAdsState, adJsVersion: 'v1.0.0' }, function() {});
+    assert.ok(generatedFiles['website/js/ad.js'].includes('ad.js v1.0.0'), 'selected old game runtime must be exported');
+    assert.ok(!generatedFiles['website/js/ad.js'].includes('interstitialSlot.setConfig({'), 'old game runtime must omit the trigger block');
+    assert.match(generatedFiles['website/index.html'], /ad-runtime-v100-[a-z0-9]+/, 'old game HTML must use a version-specific cache key');
+    await PrincipalGenerator.exportWebsite(normalAdsState, function() {});
+    const normalAllGames = generatedFiles['website/all-games.html'];
+    assert.ok(normalAllGames, 'normal game sites with ads must export the all-games page when enabled');
+    assert.equal(count(normalAllGames, 'id="div-gpt-ad-banner[123]"'), 3, 'normal game sites must put all detail banner slots on the all-games page');
+    assert.equal(PrincipalAdMigration.validateGeneratedPage(normalAllGames, 'all').length, 0, 'normal all-games ads must pass export validation');
+    const fourGameRows = Array.from({ length: 4 }, function(_, index) {
+        return { ...testGames[index % testGames.length], id: 'middle-ad-' + index };
+    });
+    const fourGameState = { ...normalAdsState, data: fourGameRows };
+    await PrincipalGenerator.exportWebsite(fourGameState, function() {});
+    const fourGameAll = generatedFiles['website/all-games.html'];
+    const fourGamePreview = PrincipalGenerator.generatePreviewHtml(fourGameState, 'all');
+    for (const page of [fourGameAll, fourGamePreview]) {
+        assert.equal((page.match(/class="item-card"/g) || []).length, 4, 'all games must remain in one continuous card grid');
+        assert.equal((page.match(/class="all-games-middle-ads"/g) || []).length, 1, 'middle banner must be emitted once');
+        assert.ok(page.indexOf('style="order:4"') < page.indexOf('class="all-games-middle-ads"'), 'desktop middle banner must follow three complete cards');
+        assert.ok(page.indexOf('class="all-games-middle-ads"') < page.indexOf('style="order:6"'), 'desktop middle banner must precede the fourth card');
+        assert.ok(page.includes('--desktop-ad-order:5;--mobile-ad-order:3'), 'mobile layout must move banner after a complete two-card row');
+    }
+    assert.ok(generatedFiles['website/css/style.css'].includes('#all-games .all-games-middle-ads { grid-column: 1 / -1; order: var(--desktop-ad-order); }'), 'banner must span the full game grid row');
+    await PrincipalGenerator.exportWebsite({
+        ...normalAdsState,
+        config: { ...normalAdsState.config, allGamesEnabled: false }
+    }, function() {});
+    assert.ok(!generatedFiles['website/all-games.html'], 'disabled all-games option must not export that page even when ads are configured');
 
     const invalidMigration = PrincipalAdMigration.inspectEntries([{ path: 'js/ad.js', text: 'const bannerPath1 = "/only-one";' }]);
     assert.equal(invalidMigration.valid, false, 'missing old-page structure must block migration');

@@ -1,6 +1,7 @@
 import './differentiated-builder.js?v=20260915-industrial-catalog-1';
-import { injectReactSource } from './react-source-ad-injector.js';
+import { injectReactSource } from './react-source-ad-injector.js?v=20260923-export-parity-2';
 import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection-preview-router.js';
+import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-builder.js?v=20260923-artifact-first-1';
 
 /**
  * 主应用逻辑
@@ -31,7 +32,9 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         previewDetailIndex: 0,
         previewSectionSlug: '',
         adPlacementMode: null,  // null or 'adv1'|'adv2'|'adv3'
-        normalAdMode: 'code',   // code: 上传 TXT 自动接入；reserve: 先导出空 ad.js 与手动广告位
+        normalAdMode: 'code',   // code: 上传 TXT 自动接入；reserve: 先导出空 ad.js 与预留广告位
+        adJsVersion: 'v1.0.2',
+        reservePlacementMode: 'manual',
         siteBuildMode: 'normal',
         legacyAdMigration: null,
         adCodeMigration: null,
@@ -47,8 +50,12 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         adInjectionCodes: [],
         adInjectionAllowPartial: false,
         adInjectionPolicy: null,
+        adInjectionPlacementModeDefault: 'fixed',
+        adInjectionAdJsVersion: 'v1.0.2',
+        adInjectionSiteOverrides: {},
         adInjectionPreviewSiteId: '',
         adInjectionPreviewEntryPath: '',
+        adInjectionPreviewEffectsEnabled: false,
         adInjectionPlacementMode: null,
         batchAdBuild: { sites: [], codes: [], activeSiteIndex: 0 },
         differentiated: {
@@ -70,6 +77,64 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
     var btnNext = document.getElementById('btn-next');
     var workflowActionMessage = document.getElementById('workflow-action-message');
     var previewFrame = document.getElementById('preview-frame');
+    var previewRefreshTimer = null;
+    var previewDocumentRevision = 0;
+    var previewPendingLoadRevision = 0;
+    var workflowModeTransitionTimer = null;
+
+    // Keep iframe refreshes visually continuous without changing the preview
+    // document itself. The load event restores full clarity; the timeout also
+    // recovers if a preview has slow or blocked external resources.
+    function clearPreviewRefreshState() {
+        if (!previewFrame || previewPendingLoadRevision !== previewDocumentRevision) return;
+        previewPendingLoadRevision = 0;
+        if (previewRefreshTimer) {
+            clearTimeout(previewRefreshTimer);
+            previewRefreshTimer = null;
+        }
+        previewFrame.removeAttribute('data-refreshing');
+    }
+
+    if (previewFrame) previewFrame.addEventListener('load', clearPreviewRefreshState);
+
+    function setPreviewDocument(html) {
+        if (!previewFrame) return;
+        if (previewRefreshTimer) {
+            clearTimeout(previewRefreshTimer);
+            previewRefreshTimer = null;
+        }
+
+        var revision = ++previewDocumentRevision;
+        previewPendingLoadRevision = 0;
+        previewFrame.setAttribute('data-refreshing', 'true');
+        var assignDocument = function() {
+            if (revision !== previewDocumentRevision) return;
+            previewPendingLoadRevision = revision;
+            previewFrame.srcdoc = html;
+            previewRefreshTimer = setTimeout(function() {
+                if (revision === previewDocumentRevision && previewPendingLoadRevision === revision) clearPreviewRefreshState();
+            }, 1400);
+        };
+        if (typeof window.requestAnimationFrame === 'function' && document.visibilityState !== 'hidden') {
+            // Let the dimmed state reach a paint before replacing the iframe document.
+            window.requestAnimationFrame(function() {
+                window.requestAnimationFrame(assignDocument);
+            });
+        } else {
+            setTimeout(assignDocument, 16);
+        }
+    }
+
+    function markWorkflowModeTransition() {
+        if (!document.body) return;
+        document.body.classList.add('workflow-mode-transitioning');
+        if (workflowModeTransitionTimer) clearTimeout(workflowModeTransitionTimer);
+        workflowModeTransitionTimer = setTimeout(function() {
+            document.body.classList.remove('workflow-mode-transitioning');
+            workflowModeTransitionTimer = null;
+        }, 260);
+    }
+
     var noticeOverlay = document.getElementById('notice-overlay');
     var noticeDialog = document.getElementById('notice-dialog');
     var noticeMessage = document.getElementById('notice-message');
@@ -257,6 +322,24 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         target.innerHTML = migrationResultHtml(result);
     }
 
+    function syncAllArticlesUI() {
+        var normalMode = appState.siteBuildMode === 'normal';
+        var enabled = normalMode && appState.config && appState.config.allArticlesEnabled !== false && !!(appState.data && appState.data.length);
+        var settings = document.getElementById('all-articles-settings');
+        var input = document.getElementById('all-articles-enabled');
+        var tab = document.querySelector('.preview-tab[data-page="all"]');
+        if (settings) settings.hidden = !normalMode;
+        if (input) input.checked = !!(appState.config && appState.config.allArticlesEnabled !== false);
+        if (tab) {
+            tab.hidden = !enabled;
+            if (!enabled && tab.classList.contains('active')) {
+                tab.classList.remove('active');
+                var homeTab = document.querySelector('.preview-tab[data-page="home"]');
+                if (homeTab) homeTab.classList.add('active');
+            }
+        }
+    }
+
     function syncBuildModeUI() {
         var isMigration = appState.siteBuildMode === 'ad-migration';
         var isDifferentiated = appState.siteBuildMode === 'differentiated';
@@ -295,14 +378,19 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         if (standardConfigPanel) standardConfigPanel.hidden = isDifferentiated || isInjection;
         var injectionConfigPanel = document.getElementById('ad-injection-config-panel');
         if (injectionConfigPanel) injectionConfigPanel.hidden = !isInjection;
+        syncAdInjectionPreviewEffectsControl();
         var differentiatedCustomizer = document.getElementById('differentiated-customizer');
         if (differentiatedCustomizer) differentiatedCustomizer.hidden = !isDifferentiated;
         // 广告代码模式在模板配置后可用；旧站移植仍只接受完整旧站源码压缩包。
         var adsTab = document.querySelector('.config-tab[data-tab="ads"]');
         var adsSection = document.getElementById('tab-ads');
-        if (adsTab) adsTab.hidden = isMigration || isInjection;
-        if (adsSection) adsSection.hidden = isMigration || isInjection;
-        if (adsSection) adsSection.querySelectorAll(':scope > .config-group').forEach(function(group) { group.hidden = isBatchAdBuild || isInjection; });
+        if (adsTab) adsTab.hidden = isInjection;
+        if (adsSection) adsSection.hidden = isInjection;
+        if (adsSection) adsSection.querySelectorAll(':scope > .config-group').forEach(function(group) {
+            group.hidden = isInjection || (isBatchAdBuild && group.id !== 'ad-js-version-group');
+        });
+        var adJsVersionGroup = document.getElementById('ad-js-version-group');
+        if (adJsVersionGroup) adJsVersionGroup.hidden = isInjection || isRestoration || isDifferentiated;
         var batchCodeWorkspace = document.getElementById('batch-ad-code-workspace');
         if (batchCodeWorkspace) batchCodeWorkspace.hidden = !isBatchAdBuild;
         var legacyExport = document.getElementById('legacy-export-options');
@@ -331,6 +419,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             renderDifferentiatedPackageStatus();
             populateDifferentiatedDesigns();
         }
+        syncAllArticlesUI();
         syncDirectAdPlacementUI();
         // Switching workflow cards happens without changing the numeric step.
         // Keep the sticky action dock in sync immediately; otherwise it still
@@ -345,7 +434,9 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             window.location.assign('game-builder/index.html');
             return;
         }
-        appState.siteBuildMode = mode === 'ad-migration' || mode === 'differentiated' || mode === 'ad-restoration' || mode === 'ad-injection' || mode === 'batch-ad-build' ? mode : 'normal';
+        var nextMode = mode === 'ad-migration' || mode === 'differentiated' || mode === 'ad-restoration' || mode === 'ad-injection' || mode === 'batch-ad-build' ? mode : 'normal';
+        if (nextMode !== appState.siteBuildMode) markWorkflowModeTransition();
+        appState.siteBuildMode = nextMode;
         appState.adPlacementMode = null;
         if (appState.config) {
             appState.config.adPlacements = {};
@@ -529,13 +620,15 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         list.innerHTML = sites.map(function(site, index) {
             var metadata = site.metadata || {};
             var valid = !!metadata.valid;
+            var policyCompatible = valid && !!metadata.adJsVersion;
             var override = appState.adPolicyOverrides[site.id];
             var meta = valid
-                ? (metadata.detectedHost || '已识别广告路径') + ' · ' + metadata.detailPaths.length + ' 个详情页'
+                ? (metadata.detectedHost || '已识别广告路径') + ' · ' + metadata.detailPaths.length + ' 个详情页' +
+                    (metadata.adJsVersion ? ' · ad.js ' + metadata.adJsVersion : ' · ad.js 版本无法识别，不能批量恢复/限流')
                 : (metadata.errors || []).map(function(item) { return item.message; }).join('；');
-            return '<article class="ad-policy-site' + (valid ? '' : ' is-invalid') + '">' +
+            return '<article class="ad-policy-site' + (policyCompatible ? '' : ' is-invalid') + '">' +
                 '<div class="ad-policy-site-summary"><span class="ad-policy-site-index">' + (index + 1) + '</span><div class="ad-policy-site-copy"><strong>' + escapeHtml(site.name) + '</strong><small>' + escapeHtml(meta) + '</small></div>' +
-                '<label class="ad-policy-override-toggle"><input type="checkbox" data-policy-override-index="' + index + '"' + (override ? ' checked' : '') + (valid ? '' : ' disabled') + '>单站覆盖</label></div>' +
+                '<label class="ad-policy-override-toggle"><input type="checkbox" data-policy-override-index="' + index + '"' + (override ? ' checked' : '') + (policyCompatible ? '' : ' disabled') + '>单站覆盖</label></div>' +
                 (override ? '<div class="ad-policy-override"><button type="button" class="ad-policy-override-copy" data-policy-copy-index="' + index + '">重新复制全局方案</button>' + policyEditorMarkup(override, index) + '</div>' : '') +
                 '</article>';
         }).join('');
@@ -575,6 +668,9 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var workspace = document.getElementById('ad-policy-workspace');
         var sites = appState.adPolicySites || [];
         var validCount = sites.filter(function(site) { return site.metadata && site.metadata.valid; }).length;
+        var policyCompatibleCount = sites.filter(function(site) {
+            return site.metadata && site.metadata.valid && site.metadata.adJsVersion;
+        }).length;
         var policyInvalid = appState.adPolicyGlobal && AdRestoration.validatePolicy(appState.adPolicyGlobal).length > 0;
         Object.keys(appState.adPolicyOverrides || {}).forEach(function(key) {
             if (AdRestoration.validatePolicy(appState.adPolicyOverrides[key]).length) policyInvalid = true;
@@ -588,7 +684,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             directoryStatus.classList.toggle('is-ready', appState.adPolicySourceMode === 'directory' && sites.length > 0);
         }
         if (workspace) workspace.hidden = sites.length === 0;
-        if (runButton) runButton.disabled = adRestorationRunning || validCount === 0 || policyInvalid;
+        if (runButton) runButton.disabled = adRestorationRunning || policyCompatibleCount === 0 || policyInvalid;
         if (codeExportButton) codeExportButton.disabled = adRestorationRunning || validCount === 0;
     }
 
@@ -608,8 +704,8 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         if (results.length) {
             html += '<ul>' + results.map(function(item) {
                 var detail = item.valid
-                    ? '成功：' + (item.siteName || item.archiveName) + '（' + (item.overridden ? '单站覆盖' : '全局方案') + '，共 ' + item.changedPages + ' 个页面）'
-                    : '失败：' + (item.siteName || item.archiveName) + '—' + (item.errors || []).map(function(error) { return error.message; }).join('；');
+                    ? '成功：' + (item.siteName || item.archiveName) + '（ad.js ' + (item.adJsVersion || '版本未知') + '，' + (item.overridden ? '单站覆盖' : '全局方案') + '，共 ' + item.changedPages + ' 个页面）'
+                    : '失败：' + (item.siteName || item.archiveName) + (item.adJsVersion ? '（ad.js ' + item.adJsVersion + '）' : '') + '—' + (item.errors || []).map(function(error) { return error.message; }).join('；');
                 return '<li>' + escapeHtml(detail) + '</li>';
             }).join('') + '</ul>';
         }
@@ -918,6 +1014,11 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var match = renderAdInjectionMappings();
         var runButton = document.getElementById('injection-run');
         if (runButton) runButton.disabled = adInjectionRunning || match.validCount === 0;
+        var directoryButton = document.getElementById('injection-run-directory');
+        if (directoryButton) {
+            directoryButton.hidden = typeof window.showDirectoryPicker !== 'function';
+            directoryButton.disabled = adInjectionRunning || match.validCount === 0;
+        }
     }
 
     function adInjectionPlacementLabel(position) {
@@ -934,7 +1035,35 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
 
     function getAdInjectionPolicy() {
         if (!appState.adInjectionPolicy && typeof AdRestoration !== 'undefined') appState.adInjectionPolicy = AdRestoration.createPolicy();
-        return appState.adInjectionPolicy || { slots: { home: [], detail: [] } };
+        var override = appState.adInjectionSiteOverrides[appState.adInjectionPreviewSiteId];
+        return (override && override.policy) || appState.adInjectionPolicy || { slots: { home: [], detail: [] } };
+    }
+
+    // The batch settings are inherited until a site explicitly opts into its
+    // own copy. This keeps a manual edit on one site from changing its peers.
+    function getAdInjectionSettings(siteId) {
+        var override = appState.adInjectionSiteOverrides[siteId || appState.adInjectionPreviewSiteId];
+        return override || {
+            mode: appState.adInjectionPlacementModeDefault,
+            version: appState.adInjectionAdJsVersion,
+            policy: appState.adInjectionPolicy || (typeof AdRestoration !== 'undefined' ? AdRestoration.createPolicy() : null)
+        };
+    }
+
+    function syncAdInjectionSettingsControls() {
+        var override = appState.adInjectionSiteOverrides[appState.adInjectionPreviewSiteId];
+        var settings = getAdInjectionSettings();
+        var toggle = document.getElementById('injection-site-override');
+        if (toggle) { toggle.checked = !!override; toggle.disabled = !appState.adInjectionPreviewSiteId; }
+        var scope = document.getElementById('injection-settings-scope');
+        if (scope) scope.textContent = override ? '当前站点单独配置；其他站点仍使用共用设置。' : '当前使用整批站点的共用设置。';
+        document.querySelectorAll('input[name="injection-placement-mode"]').forEach(function(input) { input.checked = input.value === settings.mode; });
+        document.querySelectorAll('input[name="injection-ad-version"]').forEach(function(input) { input.checked = input.value === settings.version; });
+        var manual = document.getElementById('injection-manual-controls');
+        if (manual) manual.hidden = settings.mode !== 'manual';
+        var fixedNote = document.getElementById('injection-fixed-note');
+        if (fixedNote) fixedNote.hidden = settings.mode !== 'fixed';
+        if (settings.mode !== 'manual') appState.adInjectionPlacementMode = null;
     }
 
     function entryTextForPreview(entry) {
@@ -948,6 +1077,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
     function clearAdInjectionPreviewUrls() {
         (appState._previewBlobUrls || []).forEach(function(url) { URL.revokeObjectURL(url); });
         appState._previewBlobUrls = [];
+        appState._previewAssetUrls = {};
     }
 
     function adInjectionPreviewDataUrl(value, mime) {
@@ -987,16 +1117,54 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         return match ? match[1] : path.replace(/[^/]+$/, '');
     }
 
+    function adInjectionPreviewEntries(site) {
+        return site && site._previewBuild && site._previewBuild.status === 'ready'
+            ? site._previewBuild.entries
+            : site && site.entries || [];
+    }
+
+    function adInjectionPreviewSourceEntries(site) {
+        return site && site.previewSourceEntries && site.previewSourceEntries.length
+            ? site.previewSourceEntries
+            : site && site.entries || [];
+    }
+
+    function adInjectionUploadedPreviewArtifact(site, entries) {
+        var sourceEntries = entries || [];
+        var htmlEntries = sourceEntries.filter(function(entry) { return /\.html?$/i.test(entry.path || ''); });
+        var outputIndex = htmlEntries.filter(function(entry) {
+            var path = normalizeAdInjectionPreviewPath(entry.path);
+            if (!/(?:^|\/)(?:dist|build|out|output|export|www|_site|public|\.output\/public|\.vercel\/output\/static)\/(?:client\/)?index\.html?$/i.test(path)) return false;
+            if (site && site.project && site.project.kind === 'react-source' && /(?:^|\/)public\/(?:client\/)?index\.html?$/i.test(path) && isAdInjectionPreviewSourceShell(site, entry)) return false;
+            return true;
+        }).sort(function(a, b) {
+            var aPath = normalizeAdInjectionPreviewPath(a.path);
+            var bPath = normalizeAdInjectionPreviewPath(b.path);
+            var aClient = /\/client\/index\.html?$/i.test(aPath) ? 0 : 1;
+            var bClient = /\/client\/index\.html?$/i.test(bPath) ? 0 : 1;
+            return aClient - bClient || aPath.split('/').length - bPath.split('/').length;
+        })[0];
+        var rootIndex = htmlEntries.find(function(entry) { return /^index\.html?$/i.test(normalizeAdInjectionPreviewPath(entry.path)); });
+        var entry = outputIndex || (rootIndex && !isAdInjectionPreviewSourceShell(site, rootIndex) ? rootIndex : null);
+        if (!entry) return null;
+        var root = normalizeAdInjectionPreviewPath(entry.path).replace(/index\.html?$/i, '');
+        var artifactEntries = root ? sourceEntries.filter(function(item) {
+            return normalizeAdInjectionPreviewPath(item.path).indexOf(root) === 0;
+        }) : sourceEntries;
+        return { status: 'ready', entries: artifactEntries, entryPath: normalizeAdInjectionPreviewPath(entry.path), outputRoot: root, omittedCount: 0, uploadedArtifact: true, promise: null };
+    }
+
     function findAdInjectionPreviewEntry(site, pageType) {
-        var entries = (site && site.entries || []).filter(function(entry) { return /\.html?$/i.test(entry.path || ''); });
+        var entries = adInjectionPreviewEntries(site).filter(function(entry) { return /\.html?$/i.test(entry.path || ''); });
         if (!entries.length) return null;
         var project = site.project || {};
-        var preferredPath = normalizeAdInjectionPreviewPath(project.previewEntryPath || project.entryPath || '');
+        var builtEntryPath = site && site._previewBuild && site._previewBuild.status === 'ready' ? site._previewBuild.entryPath : '';
+        var preferredPath = normalizeAdInjectionPreviewPath(builtEntryPath || project.previewEntryPath || project.entryPath || '');
         var preferred = entries.find(function(entry) { return normalizeAdInjectionPreviewPath(entry.path).toLowerCase() === preferredPath.toLowerCase(); });
         if (!pageType || pageType === 'home') return preferred || entries.find(function(entry) { return /(?:^|\/)index\.html?$/i.test(entry.path || ''); }) || entries[0];
         var namedPage = entries.filter(function(entry) {
             var path = normalizeAdInjectionPreviewPath(entry.path).toLowerCase();
-            if (pageType === 'detail') return /\/(?:details?|articles?|blog|tools)\/[^/]+\/index\.html?$/.test('/' + path) || /\/(?:detail|article)[^/]*\.html?$/.test('/' + path);
+            if (pageType === 'detail') return /\/(?:details?|articles?|news|posts?|stories?|guides?|blog|tools)\/[^/]+\/index\.html?$/.test('/' + path) || /\/(?:detail|article|post|story|news)[^/]*\.html?$/.test('/' + path);
             return new RegExp('/' + pageType + '(?:/index)?\\.html?$').test('/' + path);
         }).sort(function(a, b) { return String(a.path).split('/').length - String(b.path).split('/').length; })[0];
         return namedPage || preferred || entries[0];
@@ -1049,10 +1217,94 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             if (/\.(?:[cm]?js)$/i.test(resolved)) return quote + adInjectionPreviewModuleId(resolved) + quote;
             return assetUrls[resolved.toLowerCase()] ? quote + assetUrls[resolved.toLowerCase()] + quote : match;
         });
-        return rewritten.replace(/new\s+URL\(\s*(['"])([^'"]+)\1\s*,\s*import\.meta\.url\s*\)/g, function(match, quote, reference) {
+        rewritten = rewritten.replace(/new\s+URL\(\s*(['"])([^'"]+)\1\s*,\s*import\.meta\.url\s*\)/g, function(match, quote, reference) {
             var resolved = resolveAdInjectionPreviewAsset(reference, fromPath, root, entryByPath);
             return resolved && assetUrls[resolved.toLowerCase()] ? 'new URL(' + JSON.stringify(assetUrls[resolved.toLowerCase()]) + ')' : match;
         });
+        // Plain HTML sites often create cards and images from JavaScript data.
+        // Rewrite those quoted local asset strings before the script executes;
+        // otherwise srcdoc resolves them against the tool itself and shows broken
+        // images even though the archive contains the files.
+        return rewritten.replace(/(['"])([^'"\r\n<>]+\.(?:avif|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|webm|glb|gltf|bin|hdr|exr|ktx2?|basis|dds|tga|obj|mtl|fbx|stl|ply|dae|3mf|draco|wasm|json)(?:[?#][^'"\r\n<>]*)?)\1/gi, function(match, quote, reference) {
+            var resolved = resolveAdInjectionPreviewAsset(reference, fromPath, root, entryByPath);
+            return resolved && assetUrls[resolved.toLowerCase()] ? quote + assetUrls[resolved.toLowerCase()] + quote : match;
+        });
+    }
+
+    function adInjectionPreviewRuntimeAssetResolver(entryPath, root, assetUrls, effectsEnabled) {
+        var token = 'preview-assets-' + Math.random().toString(36).slice(2);
+        var scriptConfig = JSON.stringify({
+            entryPath: normalizeAdInjectionPreviewPath(entryPath),
+            root: normalizeAdInjectionPreviewPath(root),
+            token: token,
+            effectsEnabled: !!effectsEnabled,
+            assets: Object.keys(assetUrls)
+        }).replace(/</g, '\\u003c');
+        return '(function(){' +
+            'var config=' + scriptConfig + ';' +
+            'function installMemoryStorage(name){try{void window[name];return;}catch(error){}var values=Object.create(null);var storage={get length(){return Object.keys(values).length;},key:function(index){return Object.keys(values)[index]||null;},getItem:function(key){key=String(key);return Object.prototype.hasOwnProperty.call(values,key)?values[key]:null;},setItem:function(key,value){values[String(key)]=String(value);},removeItem:function(key){delete values[String(key)];},clear:function(){values=Object.create(null);}};try{Object.defineProperty(window,name,{value:storage,configurable:true});}catch(error){}}installMemoryStorage("localStorage");installMemoryStorage("sessionStorage");' +
+            'var assets=Object.create(null),waiting=Object.create(null),urlWaiting=Object.create(null),requested=Object.create(null);config.assets.forEach(function(path){assets[path]=true;});' +
+            'var nativeSetAttribute=Element.prototype.setAttribute;' +
+            'function normalize(path){var parts=[];String(path||"").replace(/\\\\/g,"/").split("/").forEach(function(part){if(!part||part===".")return;if(part==="..")parts.pop();else parts.push(part);});return parts.join("/");}' +
+            'function resolve(value){var raw=String(value||"").trim();if(!raw||/^(?:[a-z]+:|#|\\/\\/)/i.test(raw))return "";try{raw=decodeURIComponent(raw);}catch(error){}raw=raw.split(/[?#]/)[0];var candidate=(raw.charAt(0)==="/"?normalize(config.root+raw.slice(1)):normalize(config.entryPath.replace(/[^/]+$/,"")+raw)).toLowerCase();if(assets[candidate])return candidate;var bare=normalize(raw.replace(/^\\/+/,"")).toLowerCase();if(assets[bare])return bare;var matches=config.assets.filter(function(path){return path.endsWith("/"+bare);});return matches.length===1?matches[0]:"";}' +
+            'function request(node,name,value){var path=resolve(value);if(!path)return;(waiting[path]||(waiting[path]=[])).push({node:node,name:name});if(requested[path])return;requested[path]=true;parent.postMessage({type:"sitefoundry-preview-asset-request",token:config.token,path:path},"*");}' +
+            'function requestUrl(path){return new Promise(function(done){(urlWaiting[path]||(urlWaiting[path]=[])).push(done);if(requested[path])return;requested[path]=true;parent.postMessage({type:"sitefoundry-preview-asset-request",token:config.token,path:path},"*");});}' +
+            'function requestSrcset(node,value){String(value||"").split(",").forEach(function(candidate){var parts=candidate.trim().split(/\\s+/);request(node,"srcset:"+parts.slice(1).join(" "),parts[0]);});}' +
+            'function requestStyle(node,value){String(value||"").replace(/url\\(\\s*([\'\"]?)([^)\'\"\\s]+)\\1\\s*\\)/gi,function(match,quote,url){request(node,"style:"+url,url);return match;});}' +
+            'function apply(node){if(!node||node.nodeType!==1)return;["src","href","poster"].forEach(function(name){if(node.hasAttribute(name))request(node,name,node.getAttribute(name));});if(node.hasAttribute("srcset"))requestSrcset(node,node.getAttribute("srcset"));if(node.hasAttribute("style"))requestStyle(node,node.getAttribute("style"));node.querySelectorAll&&node.querySelectorAll("[src],[href],[poster],[srcset],[style]").forEach(apply);}' +
+            'addEventListener("message",function(event){var data=event.data||{};if(event.source!==parent||data.type!=="sitefoundry-preview-asset-response"||data.token!==config.token||!data.path||!data.url)return;(waiting[data.path]||[]).forEach(function(item){if(!item.node||!item.node.isConnected)return;if(item.name.indexOf("srcset:")===0){var descriptor=item.name.slice(7);nativeSetAttribute.call(item.node,"srcset",data.url+(descriptor?" "+descriptor:""));}else if(item.name.indexOf("style:")===0){var original=item.name.slice(6);nativeSetAttribute.call(item.node,"style",String(item.node.getAttribute("style")||"").split(original).join(data.url));}else nativeSetAttribute.call(item.node,item.name,data.url);});(urlWaiting[data.path]||[]).forEach(function(done){done(data.url);});delete waiting[data.path];delete urlWaiting[data.path];});' +
+            'if(config.effectsEnabled&&window.fetch){var nativeFetch=window.fetch.bind(window);window.fetch=function(input,init){var value=typeof input==="string"?input:input&&input.url||"";var path=resolve(value);return path?requestUrl(path).then(function(url){return nativeFetch(url,init);}):nativeFetch(input,init);};}' +
+            'new MutationObserver(function(records){records.forEach(function(record){apply(record.target);record.addedNodes&&record.addedNodes.forEach(apply);});}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:["src","href","poster","srcset","style"]});' +
+            'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",function(){apply(document.documentElement);},{once:true});else apply(document.documentElement);' +
+            '})();';
+    }
+
+    function adInjectionPreviewCsp(effectsEnabled) {
+        if (!effectsEnabled) return "default-src 'none'; img-src data:; style-src data: 'unsafe-inline'; font-src data:; media-src data:; script-src 'unsafe-inline' data:";
+        return "default-src 'none'; img-src data: blob: https: http:; style-src data: blob: https: http: 'unsafe-inline'; font-src data: blob: https: http:; media-src data: blob: https: http:; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob: https: http:; connect-src data: blob: https: http: ws: wss:; worker-src data: blob:; child-src data: blob:; frame-src data: blob: https: http:";
+    }
+
+    function buildAdInjectionEmbeddedPreviewDocument(entry, root, entryByPath, assetUrls, moduleImports) {
+        var doc = new DOMParser().parseFromString(entryTextForPreview(entry), 'text/html');
+        doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], base').forEach(function(node) { node.remove(); });
+        doc.querySelectorAll('script[src]').forEach(function(node) {
+            if (/(?:^|\/)js\/ad\.js(?:[?#]|$)/i.test(node.getAttribute('src') || '') || node.hasAttribute('data-sitefoundry-ad-runtime')) {
+                node.remove();
+                return;
+            }
+            var source = node.getAttribute('src') || '';
+            var resolved = resolveAdInjectionPreviewAsset(source, entry.path, root, entryByPath);
+            if (resolved && assetUrls[resolved.toLowerCase()]) node.setAttribute('src', assetUrls[resolved.toLowerCase()]);
+            else if (!/^(?:https?:)?\/\//i.test(source)) node.remove();
+        });
+        doc.querySelectorAll('script:not([src]):not([type="application/ld+json"]):not([type="application/json"])').forEach(function(node) {
+            node.textContent = rewriteAdInjectionPreviewModule(node.textContent, entry.path, root, entryByPath, assetUrls);
+        });
+        doc.querySelectorAll('link[rel="modulepreload"], link[rel="preload"][as="script"]').forEach(function(node) { node.remove(); });
+        doc.querySelectorAll('[src], [href], [poster]').forEach(function(node) {
+            ['src', 'href', 'poster'].forEach(function(attribute) {
+                if (!node.hasAttribute(attribute)) return;
+                var resolved = resolveAdInjectionPreviewAsset(node.getAttribute(attribute), entry.path, root, entryByPath);
+                if (resolved && assetUrls[resolved.toLowerCase()]) node.setAttribute(attribute, assetUrls[resolved.toLowerCase()]);
+            });
+        });
+        doc.querySelectorAll('style').forEach(function(node) {
+            node.textContent = rewriteAdInjectionPreviewCss(node.textContent, entry.path, root, entryByPath, assetUrls);
+        });
+        doc.querySelectorAll('[style]').forEach(function(node) {
+            node.setAttribute('style', rewriteAdInjectionPreviewCss(node.getAttribute('style'), entry.path, root, entryByPath, assetUrls));
+        });
+        var csp = doc.createElement('meta');
+        csp.httpEquiv = 'Content-Security-Policy';
+        csp.content = adInjectionPreviewCsp(true);
+        doc.head.prepend(csp);
+        if (Object.keys(moduleImports).length) {
+            var importMap = doc.createElement('script');
+            importMap.type = 'importmap';
+            importMap.textContent = JSON.stringify({ imports: moduleImports }).replace(/</g, '\\u003c');
+            csp.after(importMap);
+        }
+        return '<!doctype html>\n' + doc.documentElement.outerHTML;
     }
 
     function isAdInjectionPreviewSourceShell(site, entry) {
@@ -1094,7 +1346,10 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         policy.slots[page][index] = position
             ? { position: position, unit: unit }
             : { position: 'off', unit: 'off' };
-        appState.adInjectionPolicy = AdRestoration.normalizePolicy(policy);
+        var normalized = AdRestoration.normalizePolicy(policy);
+        var override = appState.adInjectionSiteOverrides[appState.adInjectionPreviewSiteId];
+        if (override) override.policy = normalized;
+        else appState.adInjectionPolicy = normalized;
     }
 
     function adInjectionOccupiedPositions(page, ignoredUnit) {
@@ -1156,7 +1411,9 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
 
     function collectAdInjectionCustomPlacements(root) {
         var placements = [];
-        var maxDepth = 9;
+        // The exported policy accepts at most eight path segments. Do not show
+        // a preview target that the exported site cannot resolve.
+        var maxDepth = 7;
         // A finished site can nest article sections, card grids and rich text
         // several levels deep.  Keep a generous catalogue so a visual gap late
         // in the page is never lost merely because the hero had many elements.
@@ -1173,7 +1430,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             var depth = current.depth;
             if (!container || depth > maxDepth) continue;
             var children = adInjectionMeaningfulChildren(container);
-            if (children.length > 1) {
+            if (children.length) {
                 // Keep structural endpoints.  The interactive overlay below
                 // merges cards sharing a grid row into one horizontal gap.
                 for (var index = 0; index < children.length; index++) {
@@ -1229,8 +1486,9 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         // part of the uploaded page's layout and therefore cannot move its cards.
         script.textContent = `(function(){
             var candidates=${JSON.stringify(descriptors)},page=${JSON.stringify(page)};
-            var overlay,customButton,active,geometries=[],commonButtons=[];
-            function byId(id){return id?document.querySelector('[data-sitefoundry-placement-anchor="'+id+'"]'):null;}
+            var overlay,customButton,active,geometries=[],commonButtons=[],customByAnchor={};
+            candidates.forEach(function(candidate){if(candidate.kind==='custom')customByAnchor[candidate.anchor]=candidate;});
+            function byId(id){if(!id)return null;var found=document.querySelector('[data-sitefoundry-placement-anchor="'+id+'"]');if(found)return found;var candidate=customByAnchor[id],match=candidate&&/^custom-after-((?:\d+)(?:-\d+)*)$/.exec(candidate.position);if(!match)return null;var target=document.querySelector('main')||document.body;match[1].split('-').map(Number).forEach(function(index){var children=Array.prototype.filter.call(target.children||[],function(child){return !/^(?:SCRIPT|STYLE|TEMPLATE|HEADER|NAV|FOOTER|ASIDE)$/.test(child.tagName||'')&&!child.hasAttribute('data-sitefoundry-preview-ad')&&!child.matches('.related-section, [class*="related"]');});target=children[Math.min(index,children.length-1)]||target;});if(target&&target.setAttribute)target.setAttribute('data-sitefoundry-placement-anchor',id);return target;}
             function relevantNext(candidate,anchor){var next=byId(candidate.next);if(next)return next;return candidate.relation==='before'?anchor.previousElementSibling:anchor.nextElementSibling;}
             function rowBounds(anchor,rect){var parent=anchor.parentElement;if(!parent)return{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom};var row=Array.prototype.filter.call(parent.children,function(node){var r=node.getBoundingClientRect();return r.width>1&&r.height>1&&Math.abs(r.top-rect.top)<4;});return row.reduce(function(bounds,node){var r=node.getBoundingClientRect();return{left:Math.min(bounds.left,r.left),right:Math.max(bounds.right,r.right),top:Math.min(bounds.top,r.top),bottom:Math.max(bounds.bottom,r.bottom)};},{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom});}
             function geometry(candidate,anchor){var rect=anchor.getBoundingClientRect(),near=relevantNext(candidate,anchor),nearRect=near&&near.getBoundingClientRect(),bounds=rowBounds(anchor,rect),top,bottom;if(rect.width<1||rect.height<1)return null;if(candidate.relation==='before'){bottom=bounds.top;top=nearRect&&nearRect.bottom<bottom-2?nearRect.bottom:bottom-18;}else{top=bounds.bottom;if(nearRect&&Math.abs(nearRect.top-bounds.top)<4)return null;bottom=nearRect&&nearRect.top>top+2?nearRect.top:top+18;}if(bottom-top<3)return null;return{left:Math.max(6,bounds.left),right:Math.min(window.innerWidth-6,bounds.right),y:(top+bottom)/2,top:top,bottom:bottom};}
@@ -1238,14 +1496,15 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             function overlapsCommon(gap){return geometries.some(function(entry){if(entry.candidate.kind!=='common')return false;var common=entry.gap;return gap.right>common.left-10&&gap.left<common.right+10&&gap.bottom>common.top-18&&gap.top<common.bottom+18;});}
             function candidateAt(event){var x=event.clientX,y=event.clientY,best=null;geometries.forEach(function(entry){if(entry.candidate.kind!=='custom'||overlapsCommon(entry.gap))return;var gap=entry.gap;if(x<gap.left-10||x>gap.right+10||y<gap.top-16||y>gap.bottom+16)return;var distance=Math.abs(y-gap.y);if(!best||distance<best.distance)best={candidate:entry.candidate,gap:gap,distance:distance};});return best;}
             function fallbackAt(event){var x=event.clientX,y=event.clientY,best=null;candidates.forEach(function(candidate){if(candidate.kind!=='custom'||candidate.relation==='before')return;var anchor=byId(candidate.anchor);if(!anchor)return;var rect=anchor.getBoundingClientRect(),bounds=rowBounds(anchor,rect),next=relevantNext(candidate,anchor),nextRect=next&&next.getBoundingClientRect(),top=bounds.bottom,bottom=nextRect&&nextRect.top>top+2?nextRect.top:top+180;if(nextRect&&Math.abs(nextRect.top-bounds.top)<4)return;var fallbackGap={left:Math.max(6,bounds.left),right:Math.min(window.innerWidth-6,bounds.right),y:y,top:top,bottom:bottom};if(overlapsCommon(fallbackGap))return;if(x<bounds.left-10||x>bounds.right+10||y<top-3||y>Math.min(top+180,bottom+16))return;var distance=y-top;if(!best||distance<best.distance)best={candidate:candidate,gap:fallbackGap,distance:distance};});return best;}
-            function hideCustom(){active=null;if(customButton)customButton.hidden=true;}
-            function showCustom(match){active=match.candidate;customButton.hidden=false;customButton.textContent='＋ 点击放置广告';customButton.title=match.candidate.label;customButton.style.left=Math.round(match.gap.left)+'px';customButton.style.top=Math.round(match.gap.y-12)+'px';customButton.style.width=Math.max(96,Math.round(match.gap.right-match.gap.left))+'px';}
-            function pointerMove(event){var match=candidateAt(event);if(!match){rebuild();match=candidateAt(event)||fallbackAt(event);}if(match)showCustom(match);else hideCustom();}
+            function whitespaceAt(event){var x=event.clientX,y=event.clientY,root=document.querySelector('main')||document.body;var hit=(document.elementsFromPoint?document.elementsFromPoint(x,y):[document.elementFromPoint(x,y)]).find(function(node){return node&&node.nodeType===1&&node!==overlay&&!overlay.contains(node);});for(var parent=hit;parent&&root.contains(parent);parent=parent.parentElement){var frame=parent.getBoundingClientRect();if(x<frame.left||x>frame.right||y<frame.top||y>frame.bottom)continue;var rows=[];Array.prototype.forEach.call(parent.children,function(child){if(child===overlay||child.hasAttribute('data-sitefoundry-preview-ad')||child.hasAttribute('data-sitefoundry-runtime-ad'))return;var rect=child.getBoundingClientRect();if(rect.width<2||rect.height<2)return;var row=rows.find(function(item){return Math.abs(item.top-rect.top)<4;});if(!row){row={top:rect.top,bottom:rect.bottom,last:child};rows.push(row);}else{row.bottom=Math.max(row.bottom,rect.bottom);row.last=child;}});rows.sort(function(a,b){return a.top-b.top;});for(var i=0;i<rows.length;i++){var upper=rows[i],lower=rows[i+1],top=upper.bottom,bottom=lower?lower.top:frame.bottom;if(bottom-top<18||y<top||y>bottom)continue;var candidate=customByAnchor[upper.last.getAttribute('data-sitefoundry-placement-anchor')];if(!candidate)continue;var gap={left:Math.max(6,frame.left),right:Math.min(window.innerWidth-6,frame.right),top:top,bottom:bottom,y:(top+bottom)/2};if(gap.right-gap.left<100||overlapsCommon(gap))continue;return{candidate:candidate,gap:gap,distance:0};}}return null;}
+            function hideCustom(){active=null;if(customButton){customButton.hidden=true;customButton.style.display='none';}}
+            function showCustom(match){active=match.candidate;customButton.hidden=false;customButton.style.display='flex';customButton.title=match.candidate.label;customButton.style.left=Math.round(match.gap.left)+'px';customButton.style.top=Math.round(match.gap.top)+'px';customButton.style.width=Math.max(96,Math.round(match.gap.right-match.gap.left))+'px';customButton.style.height=Math.max(24,Math.round(match.gap.bottom-match.gap.top))+'px';}
+            function pointerMove(event){var match=whitespaceAt(event)||candidateAt(event);if(!match){rebuild();match=whitespaceAt(event)||candidateAt(event)||fallbackAt(event);}if(match)showCustom(match);else hideCustom();}
             function commonButton(candidate){var node=document.createElement('button');node.type='button';node.className='sitefoundry-injection-marker sitefoundry-injection-common-marker';node.textContent='＋ '+candidate.label.replace(/^常用广告位\\s*·\\s*/, '');node.title=candidate.label;node.style.cssText='position:fixed;height:28px;margin:0;padding:0 10px;z-index:2147483647;pointer-events:auto;cursor:pointer;border:1px dashed #2683df;border-radius:6px;background:rgba(238,247,255,.97);color:#174f87;font:700 11px/26px system-ui,sans-serif;box-shadow:0 1px 5px rgba(13,67,112,.16);';node.addEventListener('click',function(event){event.preventDefault();event.stopPropagation();window.parent.postMessage({type:'ad-injection-place',position:candidate.position,page:page},'*');});overlay.appendChild(node);return{candidate:candidate,node:node};}
             function render(){rebuild();hideCustom();commonButtons.forEach(function(item){var entry=geometries.find(function(value){return value.candidate===item.candidate;});if(!entry){item.node.hidden=true;return;}var gap=entry.gap;item.node.hidden=false;item.node.style.left=Math.round(gap.left)+'px';item.node.style.top=Math.round(gap.y-14)+'px';item.node.style.width=Math.max(116,Math.round(gap.right-gap.left))+'px';});}
             function queue(){requestAnimationFrame(render);}
             overlay=document.createElement('div');overlay.id='sitefoundry-ad-placement-overlay';overlay.style.cssText='position:fixed;inset:0;z-index:2147483646;pointer-events:none;overflow:hidden;';
-            customButton=document.createElement('button');customButton.type='button';customButton.className='sitefoundry-injection-marker sitefoundry-injection-custom-marker';customButton.hidden=true;customButton.style.cssText='position:fixed;height:24px;margin:0;padding:0 8px;z-index:2147483647;pointer-events:auto;cursor:pointer;border:1px dashed #2683df;border-radius:6px;background:rgba(238,247,255,.96);color:#174f87;font:700 11px/22px system-ui,sans-serif;box-shadow:0 1px 5px rgba(13,67,112,.16);';
+            customButton=document.createElement('button');customButton.type='button';customButton.className='sitefoundry-injection-marker sitefoundry-injection-custom-marker';customButton.hidden=true;customButton.style.cssText='position:fixed;display:none;align-items:center;justify-content:center;margin:0;padding:0;z-index:2147483647;pointer-events:auto;cursor:pointer;border:1px dashed rgba(38,131,223,.65);border-radius:6px;background:rgba(238,247,255,.22);color:#174f87;font:700 11px/22px system-ui,sans-serif;';var customLabel=document.createElement('span');customLabel.textContent='＋ 点击放置广告';customLabel.style.cssText='padding:0 12px;border:1px dashed #2683df;border-radius:6px;background:rgba(238,247,255,.97);box-shadow:0 1px 5px rgba(13,67,112,.16);';customButton.appendChild(customLabel);
             customButton.addEventListener('click',function(event){if(!active)return;event.preventDefault();event.stopPropagation();window.parent.postMessage({type:'ad-injection-place',position:active.position,page:page},'*');});
             overlay.appendChild(customButton);candidates.filter(function(candidate){return candidate.kind==='common';}).forEach(function(candidate){commonButtons.push(commonButton(candidate));});document.body.appendChild(overlay);document.addEventListener('pointerover',pointerMove,true);document.addEventListener('mouseover',pointerMove,true);document.addEventListener('pointermove',pointerMove,true);document.addEventListener('mousemove',pointerMove,true);document.documentElement.addEventListener('mouseleave',hideCustom);
             function ensureOverlay(){if(!document.getElementById('sitefoundry-ad-placement-overlay')&&document.body)document.body.appendChild(overlay);queue();}
@@ -1262,16 +1521,19 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var sections = main ? Array.from(main.querySelectorAll(':scope > section, :scope > article, section')) : [];
         var content = adInjectionDetailContentTarget(doc, main);
         var related = doc.querySelector('.related-section, [class*="related"], [id*="related"]');
-        var footer = doc.querySelector('footer');
+        var footer = typeof FinishedSiteAds !== 'undefined' && FinishedSiteAds.pageFooter
+            ? FinishedSiteAds.pageFooter(doc) : doc.querySelector('footer, [role="contentinfo"]');
+        var navigation = typeof FinishedSiteAds !== 'undefined' && FinishedSiteAds.navigationAnchor
+            ? FinishedSiteAds.navigationAnchor(doc) : doc.querySelector('header, nav');
         var customPlacements = collectAdInjectionCustomPlacements(main);
         var candidates = page === 'detail' ? [
-            ['after-navbar', doc.querySelector('header, nav'), 'after', '导航栏下方'],
+            ['after-navbar', navigation, 'after', '导航栏下方'],
             ['detail-before-content', content, 'before', '正文前'],
             ['detail-after-content', content, 'middle', '正文中部'],
             ['detail-after-related', related, 'after', '相关推荐后'],
             ['footer-top', footer, 'before', '页脚上方']
         ] : [
-            ['after-navbar', doc.querySelector('header, nav'), 'after', '导航栏下方'],
+            ['after-navbar', navigation, 'after', '导航栏下方'],
             ['after-hero', doc.querySelector('.hero, [class*="hero"], main > section'), 'after', '首屏区下方'],
             ['content-top', main && main.firstElementChild, 'before', '内容区顶部'],
             ['after-section-0', sections[0], 'after', '第一个分类后'],
@@ -1284,7 +1546,11 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             if (!target || !target.parentNode || occupied[position]) return;
             var duplicate = candidatesForOverlay.some(function(item) { return item.target === target && item.relation === relation; });
             if (duplicate) return;
-            candidatesForOverlay.push({ position: position, target: target, next: next || null, relation: relation, label: label, kind: kind });
+            var savedUnits = (getAdInjectionPolicy().slots[page] || []).filter(function(slot) {
+                return slot && slot.unit !== 'off' && slot.position === position;
+            }).map(function(slot) { return 'advertisement' + String(slot.unit).replace('banner', ''); });
+            var confirmation = savedUnits.length ? ' · ' + savedUnits.join(' / ') : '';
+            candidatesForOverlay.push({ position: position, target: target, next: next || null, relation: relation, label: label + confirmation, kind: kind });
         }
         candidates.forEach(function(candidate) {
             var position = candidate[0];
@@ -1319,15 +1585,42 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         doc.body.appendChild(script);
     }
 
-    function addAdInjectionPreviewSlots(doc, pageType) {
+    function addAdInjectionPreviewSlots(doc, pageType, entryPath, homePath, config) {
+        var warnings = document.getElementById('injection-fixed-warnings');
+        if (warnings) warnings.textContent = '';
+        if (typeof FinishedSiteAds !== 'undefined' && !FinishedSiteAds.isContentPath(entryPath)) return;
+        var settings = getAdInjectionSettings();
+        if (settings.mode === 'fixed' && typeof FinishedSiteAds !== 'undefined') {
+            // The selected preview tab is authoritative for the root page;
+            // uploaded React builds can use aliases that do not equal index.html.
+            var fixedPage = pageType === 'home' || pageType === 'detail'
+                ? pageType
+                : FinishedSiteAds.isHomePath(entryPath, homePath) ? 'home' : 'detail';
+            var plan = FinishedSiteAds.place(doc, fixedPage, config || {
+                bannerPath1: 'preview', bannerPath2: 'preview', bannerPath3: 'preview'
+            });
+            if (warnings) warnings.textContent = plan.skipped.length
+                ? plan.skipped.map(function(item) { return item.unit + '：' + item.reason + '。'; }).join(' ') + '可勾选单站配置并改用手动放置。'
+                : '';
+            return;
+        }
         var page = pageType === 'detail' ? 'detail' : 'home';
         var slots = (getAdInjectionPolicy().slots[page] || []).filter(function(slot) {
             if (!slot || slot.unit === 'off' || slot.position === 'off') return false;
-            return !(slot.unit === appState.adInjectionPlacementMode && /^custom-after-(?:\d+)(?:-\d+)*$/.test(String(slot.position || '')));
+            // Hide only this unit's old custom position while it is being moved.
+            // Common placements and other units remain visible as placement references.
+            return !(slot.unit === appState.adInjectionPlacementMode && /^custom-after-/.test(String(slot.position || '')));
         });
+        var navigation = typeof FinishedSiteAds !== 'undefined' && FinishedSiteAds.navigationAnchor
+            ? FinishedSiteAds.navigationAnchor(doc) : doc.querySelector('header, nav');
+        var footer = typeof FinishedSiteAds !== 'undefined' && FinishedSiteAds.pageFooter
+            ? FinishedSiteAds.pageFooter(doc) : doc.querySelector('footer, [role="contentinfo"]');
         function insertAfter(target, node) { if (target && target.parentNode) target.parentNode.insertBefore(node, target.nextSibling); }
         function placeholder(slot, fallbackIndex) {
             var unitNumber = Number(String(slot.unit || '').replace('banner', '')) || fallbackIndex + 1;
+            if (typeof FinishedSiteAds !== 'undefined' && FinishedSiteAds.previewPlaceholder) {
+                return FinishedSiteAds.previewPlaceholder(doc, 'banner' + unitNumber);
+            }
             var outer = doc.createElement('div');
             outer.id = 'adv' + unitNumber;
             outer.setAttribute('data-sitefoundry-preview-ad', String(unitNumber));
@@ -1355,11 +1648,11 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             var sections = main ? Array.from(main.querySelectorAll(':scope > section, :scope > article, section')) : [];
             var content = adInjectionDetailContentTarget(doc, main);
             var related = doc.querySelector('.related-section, [class*="related"], [id*="related"]');
-            if (slot.position === 'after-navbar') insertAfter(doc.querySelector('header, nav'), node);
+            if (slot.position === 'after-navbar') insertAfter(navigation, node);
             else if (slot.position === 'after-hero') insertAfter(doc.querySelector('.hero, [class*="hero"], main > section'), node);
             else if (slot.position === 'content-top' && main) main.insertBefore(node, main.firstChild);
             else if (/^after-section-\d+$/.test(slot.position)) insertAfter(sections[Number(slot.position.split('-').pop())], node);
-            else if (slot.position === 'footer-top' && doc.querySelector('footer')) doc.querySelector('footer').parentNode.insertBefore(node, doc.querySelector('footer'));
+            else if (slot.position === 'footer-top' && footer && footer.parentNode) footer.parentNode.insertBefore(node, footer);
             else if (slot.position === 'detail-before-content' && content && content.parentNode) content.parentNode.insertBefore(node, content);
             else if (/^detail-between-p-\d+$/.test(slot.position)) insertAfter((content || main).querySelectorAll('p')[Number(slot.position.split('-').pop()) - 1], node);
             else if (slot.position === 'detail-before-related' && related && related.parentNode) related.parentNode.insertBefore(node, related);
@@ -1375,15 +1668,16 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
     function buildAdInjectionPreviewDocument(site, pageType, entryPath) {
         var normalizedEntryPath = normalizeAdInjectionPreviewPath(entryPath);
         var entry = normalizedEntryPath
-            ? (site.entries || []).find(function(item) { return normalizeAdInjectionPreviewPath(item.path).toLowerCase() === normalizedEntryPath.toLowerCase(); })
+            ? adInjectionPreviewEntries(site).find(function(item) { return normalizeAdInjectionPreviewPath(item.path).toLowerCase() === normalizedEntryPath.toLowerCase(); })
             : findAdInjectionPreviewEntry(site, pageType);
         if (!entry || isAdInjectionPreviewSourceShell(site, entry)) return '<!doctype html><html><body style="font-family:system-ui;padding:32px;line-height:1.65;color:#172033"><h2>该源码包还没有浏览器可运行的预览产物</h2><p>源码型 React 项目需要先完成自身的依赖安装与生产构建。请把构建后的 <strong>dist、build、out、public、.output/public</strong> 等目录一并放入压缩包后重新上传；纯 HTML/CSS/JavaScript 站点和任何框架的已构建静态产物都可直接预览。</p><p>当前仍可继续配置并导出源码，随后在原项目环境执行构建命令。</p></body></html>';
         clearAdInjectionPreviewUrls();
-        var entries = site.entries || [];
+        var entries = adInjectionPreviewEntries(site);
         var entryByPath = {};
         entries.forEach(function(item) { entryByPath[normalizeAdInjectionPreviewPath(item.path).toLowerCase()] = item; });
         var homeEntry = findAdInjectionPreviewEntry(site, 'home');
         var root = adInjectionPreviewRoot(homeEntry ? homeEntry.path : entry.path);
+        var effectsEnabled = !!appState.adInjectionPreviewEffectsEnabled;
         var assetUrls = {};
         entries.filter(function(item) { return !/\.(?:html?|css|[cm]?jsx?|tsx?|map)$/i.test(item.path || ''); }).forEach(function(item) {
             var path = normalizeAdInjectionPreviewPath(item.path);
@@ -1394,7 +1688,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             var css = rewriteAdInjectionPreviewCss(entryTextForPreview(item), path, root, entryByPath, assetUrls);
             assetUrls[path.toLowerCase()] = adInjectionPreviewDataUrl(css, 'text/css;charset=utf-8');
         });
-        var executeSiteScripts = shouldExecuteAdInjectionPreviewScripts(site, entry);
+        var executeSiteScripts = effectsEnabled || shouldExecuteAdInjectionPreviewScripts(site, entry);
         var moduleImports = {};
         entries.filter(function(item) { return executeSiteScripts && /\.(?:[cm]?js|jsx|tsx)$/i.test(item.path || ''); }).forEach(function(item) {
             var path = normalizeAdInjectionPreviewPath(item.path);
@@ -1406,6 +1700,15 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             moduleImports['/' + rootedPath] = url;
             moduleImports['./' + rootedPath] = url;
         });
+        if (effectsEnabled) {
+            entries.filter(function(item) {
+                return /\.html?$/i.test(item.path || '') && normalizeAdInjectionPreviewPath(item.path).toLowerCase() !== normalizeAdInjectionPreviewPath(entry.path).toLowerCase();
+            }).forEach(function(item) {
+                var path = normalizeAdInjectionPreviewPath(item.path);
+                var embeddedHtml = buildAdInjectionEmbeddedPreviewDocument(item, root, entryByPath, assetUrls, moduleImports);
+                assetUrls[path.toLowerCase()] = adInjectionPreviewDataUrl(embeddedHtml, 'text/html;charset=utf-8');
+            });
+        }
         var doc = new DOMParser().parseFromString(entryTextForPreview(entry), 'text/html');
         doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], base').forEach(function(node) { node.remove(); });
         doc.querySelectorAll('script[src]').forEach(function(node) {
@@ -1413,9 +1716,10 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 node.remove();
                 return;
             }
-            var resolved = resolveAdInjectionPreviewAsset(node.getAttribute('src'), entry.path, root, entryByPath);
+            var source = node.getAttribute('src') || '';
+            var resolved = resolveAdInjectionPreviewAsset(source, entry.path, root, entryByPath);
             if (resolved && assetUrls[resolved.toLowerCase()]) node.setAttribute('src', assetUrls[resolved.toLowerCase()]);
-            else node.remove();
+            else if (!effectsEnabled || !/^(?:https?:)?\/\//i.test(source)) node.remove();
         });
         if (!executeSiteScripts) doc.querySelectorAll('script:not([type="application/ld+json"]):not([type="application/json"])').forEach(function(node) { node.remove(); });
         doc.querySelectorAll('script[type="module"]:not([src])').forEach(function(node) {
@@ -1430,18 +1734,35 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         doc.querySelectorAll('[src], [href], [poster]').forEach(function(node) {
             ['src', 'href', 'poster'].forEach(function(attribute) {
                 if (!node.hasAttribute(attribute)) return;
-                var resolved = resolveAdInjectionPreviewAsset(node.getAttribute(attribute), entry.path, root, entryByPath);
-                if (resolved && assetUrls[resolved.toLowerCase()]) node.setAttribute(attribute, assetUrls[resolved.toLowerCase()]);
+                var reference = node.getAttribute(attribute);
+                var resolved = resolveAdInjectionPreviewAsset(reference, entry.path, root, entryByPath);
+                if (effectsEnabled && String(node.tagName || '').toLowerCase() === 'iframe' && attribute === 'src' && (!resolved || !assetUrls[resolved.toLowerCase()])) {
+                    var bareHtmlPath = normalizeAdInjectionPreviewPath(String(reference || '').replace(/^\/+/, '')).toLowerCase();
+                    var htmlMatches = entries.filter(function(item) {
+                        var candidatePath = normalizeAdInjectionPreviewPath(item.path).toLowerCase();
+                        return /\.html?$/.test(candidatePath) && (candidatePath === bareHtmlPath || candidatePath.endsWith('/' + bareHtmlPath));
+                    });
+                    if (htmlMatches.length === 1) resolved = normalizeAdInjectionPreviewPath(htmlMatches[0].path);
+                }
+                var previewableAsset = /\.(?:css|[cm]?js|jsx|tsx)$/i.test(resolved) || (effectsEnabled && String(node.tagName || '').toLowerCase() === 'iframe' && /\.html?$/i.test(resolved));
+                if (resolved && previewableAsset && assetUrls[resolved.toLowerCase()]) node.setAttribute(attribute, assetUrls[resolved.toLowerCase()]);
             });
         });
-        doc.querySelectorAll('[srcset]').forEach(function(node) {
-            var rewritten = String(node.getAttribute('srcset') || '').split(',').map(function(candidate) {
-                var parts = candidate.trim().split(/\s+/);
-                var resolved = resolveAdInjectionPreviewAsset(parts[0], entry.path, root, entryByPath);
-                if (resolved && assetUrls[resolved.toLowerCase()]) parts[0] = assetUrls[resolved.toLowerCase()];
-                return parts.join(' ');
-            }).join(', ');
-            node.setAttribute('srcset', rewritten);
+        doc.querySelectorAll('iframe').forEach(function(node) {
+            if (!effectsEnabled) {
+                var placeholder = doc.createElement('div');
+                placeholder.setAttribute('role', 'status');
+                placeholder.setAttribute('aria-label', '3D 与嵌套效果预览已关闭');
+                placeholder.style.cssText = 'min-height:240px;display:grid;place-items:center;padding:24px;box-sizing:border-box;border:1px dashed #7b8492;border-radius:10px;background:rgba(127,132,146,.08);color:inherit;font:600 14px/1.5 system-ui,sans-serif;text-align:center;';
+                placeholder.textContent = '3D / 嵌套效果预览已关闭';
+                node.replaceWith(placeholder);
+                return;
+            }
+            var source = String(node.getAttribute('src') || '').trim();
+            if (source && !/^(?:data:|https?:|\/\/|about:)/i.test(source)) {
+                node.removeAttribute('src');
+                node.setAttribute('srcdoc', '<!doctype html><meta charset="utf-8"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#f5f7fa;color:#27364a;font:14px/1.6 system-ui,sans-serif;text-align:center}</style><body>压缩包中没有找到此嵌套页面，已阻止它回退到建站工具地址。</body>');
+            }
         });
         doc.querySelectorAll('style').forEach(function(node) {
             node.textContent = rewriteAdInjectionPreviewCss(node.textContent, entry.path, root, entryByPath, assetUrls);
@@ -1451,7 +1772,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         });
         var csp = doc.createElement('meta');
         csp.httpEquiv = 'Content-Security-Policy';
-        csp.content = "default-src 'none'; img-src data:; style-src data: 'unsafe-inline'; font-src data:; media-src data:; script-src 'unsafe-inline' data:";
+        csp.content = adInjectionPreviewCsp(effectsEnabled);
         doc.head.prepend(csp);
         if (Object.keys(moduleImports).length) {
             var importMap = doc.createElement('script');
@@ -1459,8 +1780,36 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             importMap.textContent = JSON.stringify({ imports: moduleImports }).replace(/</g, '\\u003c');
             csp.after(importMap);
         }
-        addAdInjectionPreviewSlots(doc, pageType);
-        addAdInjectionPlacementMarkers(doc, pageType);
+        if (Object.keys(assetUrls).length) {
+            var runtimeAssetResolver = doc.createElement('script');
+            runtimeAssetResolver.setAttribute('data-sitefoundry-preview-assets', '');
+            runtimeAssetResolver.textContent = adInjectionPreviewRuntimeAssetResolver(entry.path, root, assetUrls, effectsEnabled);
+            var importMapNode = doc.querySelector('script[type="importmap"]');
+            (importMapNode || csp).after(runtimeAssetResolver);
+        }
+        appState._previewAssetUrls = assetUrls;
+        var previewMatch = typeof AdRestoration !== 'undefined'
+            ? AdRestoration.matchAdCodesToSites([site], appState.adInjectionCodes || []).mappings[0] : null;
+        var previewPaths = previewMatch && previewMatch.valid && previewMatch.code
+            ? previewMatch.code.config
+            : { bannerPath1: 'preview', bannerPath2: 'preview', bannerPath3: 'preview' };
+        addAdInjectionPreviewSlots(doc, pageType, entry.path, homeEntry && homeEntry.path, previewPaths);
+        if (getAdInjectionSettings().mode === 'fixed' && executeSiteScripts
+            && typeof FinishedSiteAds !== 'undefined' && FinishedSiteAds.isContentPath(entry.path)) {
+            // Hydrated React pages can replace the uploaded HTML after the
+            // initial preview plan. Re-run the same planner after hydration.
+            var fixedPreviewPage = pageType === 'home' || pageType === 'detail'
+                ? pageType
+                : FinishedSiteAds.isHomePath(entry.path, homeEntry && homeEntry.path) ? 'home' : 'detail';
+            var fixedPreviewRuntime = doc.createElement('script');
+            fixedPreviewRuntime.textContent = FinishedSiteAds.dynamicRuntimeSource(previewPaths, getAdInjectionSettings().version, {
+                previewPageType: fixedPreviewPage
+            });
+            doc.body.appendChild(fixedPreviewRuntime);
+        }
+        if (getAdInjectionSettings().mode === 'manual' && (typeof FinishedSiteAds === 'undefined' || FinishedSiteAds.isContentPath(entry.path))) {
+            addAdInjectionPlacementMarkers(doc, pageType);
+        }
         addAdInjectionPreviewNavigation(doc, entry.path);
         return '<!doctype html>\n' + doc.documentElement.outerHTML;
     }
@@ -1512,19 +1861,36 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 '<button type="button" class="ad-remove-btn injection-ad-remove-btn" data-injection-ad-unit="' + unit + '">移除</button></div></div>' +
                 '<div class="ad-slot-meta">ID: div-gpt-ad-banner' + (index + 1) + ' <span aria-hidden="true">·</span> 位置: ' +
                 '<span class="ad-position-label injection-ad-position-label" data-injection-ad-unit="' + unit + '">' + escapeHtml(adInjectionPlacementSummary(unit)) + '</span></div></article>';
-        }).join('') + '<div class="ad-placement-hint injection-ad-placement-hint" id="injection-ad-placement-hint" hidden>已选择广告。右侧会直接显示常用广告位；也可将鼠标移动到内容空隙，出现“点击放置广告”后选择自定义位置。重新放置时仅隐藏当前自定义广告，不会挤压原页面布局。</div>';
+        }).join('') + '<div class="ad-placement-hint injection-ad-placement-hint" id="injection-ad-placement-hint" hidden>已选择广告。右侧仍显示常用广告位；也可将鼠标移动到上下内容之间的留白，整块留白会变为可点击的自定义位置。重新放置时仅隐藏当前自定义广告，不会挤压原页面布局。</div>';
         syncAdInjectionPlacementControls();
     }
 
+    function syncAdInjectionPreviewEffectsControl() {
+        var button = document.getElementById('preview-effects-toggle');
+        if (!button) return;
+        var available = isAdInjectionWorkflow() && appState.currentStep === 4;
+        var enabled = available && !!appState.adInjectionPreviewEffectsEnabled;
+        var label = button.querySelector('.preview-effects-label');
+        button.hidden = !available;
+        button.classList.toggle('is-active', enabled);
+        button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        button.setAttribute('aria-label', enabled ? '关闭 3D 与外部效果预览' : '打开 3D 与外部效果预览');
+        button.title = enabled
+            ? '关闭完整效果并重新加载安全预览'
+            : '打开 Three.js、WebGL、嵌套页面与外部资源效果';
+        if (label) label.textContent = enabled ? '3D 已开' : '3D 关闭';
+    }
+
     function renderAdInjectionConfig() {
+        syncAdInjectionPreviewEffectsControl();
         var sites = appState.adInjectionSites || [];
         var policy = getAdInjectionPolicy();
         var selectedId = appState.adInjectionPreviewSiteId;
         if (!sites.some(function(site) { return site.id === selectedId; })) selectedId = sites[0] ? sites[0].id : '';
         appState.adInjectionPreviewSiteId = selectedId;
+        syncAdInjectionSettingsControls();
         var activeSite = sites.find(function(site) { return site.id === selectedId; }) || null;
         var structure = document.getElementById('injection-structure-summary');
-        var style = document.getElementById('injection-style-summary');
         var select = document.getElementById('injection-preview-site');
         if (select) {
             select.disabled = !sites.length;
@@ -1532,16 +1898,16 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 ? sites.map(function(site) { return '<option value="' + escapeHtml(site.id) + '">' + escapeHtml(site.name) + ' · ' + escapeHtml((site.project && site.project.framework) || '待识别') + '</option>'; }).join('')
                 : '<option>等待上传站点</option>';
             select.value = selectedId;
+            if (sites.length) {
+                rebuildStyledSelect(select);
+                var trigger = select.closest('.select-shell').querySelector('.select-trigger');
+                if (trigger) trigger.setAttribute('aria-label', '实时预览站点');
+                syncStyledSelects();
+            }
         }
         if (structure) structure.innerHTML = activeSite
             ? '<strong>' + escapeHtml(activeSite.name) + '</strong><br>站点类型：' + escapeHtml((activeSite.project && activeSite.project.framework) || '正在识别') + '<br>源码入口：' + escapeHtml((activeSite.project && activeSite.project.entryPath) || '由框架路由管理') + '<br>预览入口：' + escapeHtml((activeSite.project && activeSite.project.previewEntryPath) || (activeSite.project && activeSite.project.entryPath) || '未包含构建产物') + '<br>本次识别到 ' + activeSite.entries.length + ' 个源文件。'
             : '请先上传已过审网站压缩包。';
-        if (style) {
-            var styleFiles = activeSite ? activeSite.entries.filter(function(entry) { return /\.css$/i.test(entry.path || ''); }).length : 0;
-            style.innerHTML = activeSite
-                ? '已保留 <strong>' + styleFiles + '</strong> 个 CSS 样式文件和原有页面标记。广告容器只使用独立标记，不改写原有配色、字号、布局或内容。'
-                : '等待读取原站样式资源。';
-        }
         var grid = document.getElementById('injection-policy-grid');
         if (grid && typeof AdRestoration !== 'undefined') {
             renderAdInjectionPlacementControls(grid);
@@ -1549,8 +1915,43 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         renderAdInjectionFields();
     }
 
+    function adInjectionPreviewNotice(title, message) {
+        return '<!doctype html><html><body style="font-family:system-ui;padding:32px;line-height:1.65;color:#172033;background:#fff"><h2>' + escapeHtml(title) + '</h2><p>' + escapeHtml(message) + '</p></body></html>';
+    }
+
+    function ensureAdInjectionPreviewBuild(site) {
+        var sourceEntries = adInjectionPreviewSourceEntries(site);
+        if (!site || !previewBuildPlan(sourceEntries)) return null;
+        if (site._previewBuild) return site._previewBuild.promise || null;
+        var state = site._previewBuild = { status: 'building', entries: [], entryPath: '', error: '', promise: null };
+        state.promise = buildPreviewSite(sourceEntries).then(function(result) {
+            state.status = 'ready';
+            state.entries = result.entries || [];
+            state.entryPath = result.entryPath || '';
+            state.outputRoot = result.outputRoot || '';
+            state.omittedCount = result.omittedCount || 0;
+            state.promise = null;
+            if (site.id === appState.adInjectionPreviewSiteId && isAdInjectionWorkflow() && appState.currentStep === 4) {
+                appState.adInjectionPreviewEntryPath = '';
+                renderAdInjectionConfig();
+                updateAdInjectionPreview();
+            }
+            return result;
+        }).catch(function(error) {
+            state.status = 'error';
+            state.error = formatUiError(error, '浏览器内预览构建失败。');
+            state.promise = null;
+            if (site.id === appState.adInjectionPreviewSiteId && isAdInjectionWorkflow() && appState.currentStep === 4) {
+                renderAdInjectionConfig();
+                updateAdInjectionPreview();
+            }
+        });
+        return state.promise;
+    }
+
     function updateAdInjectionPreview(pageType, entryPath) {
         if (!isAdInjectionWorkflow() || appState.currentStep !== 4) return;
+        syncAdInjectionPreviewEffectsControl();
         var sites = appState.adInjectionSites || [];
         var site = sites.find(function(item) { return item.id === appState.adInjectionPreviewSiteId; }) || sites[0];
         if (!site) return;
@@ -1562,25 +1963,72 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         if (entryPath) appState.adInjectionPreviewEntryPath = normalizeAdInjectionPreviewPath(entryPath);
         else if (hasExplicitPage) appState.adInjectionPreviewEntryPath = '';
         syncAdInjectionPlacementControls();
+        var previewSourceEntries = adInjectionPreviewSourceEntries(site);
+        var hasDedicatedPreviewSource = previewSourceEntries !== site.entries;
+        if (!site._previewBuild) {
+            site._previewBuild = adInjectionUploadedPreviewArtifact(site, previewSourceEntries);
+        }
+        var currentEntry = findAdInjectionPreviewEntry(site, pageType);
+        var hasUploadedArtifact = !!(site._previewBuild && site._previewBuild.status === 'ready' && site._previewBuild.uploadedArtifact);
+        var needsPreviewBuild = (hasDedicatedPreviewSource && !hasUploadedArtifact) || !currentEntry || isAdInjectionPreviewSourceShell(site, currentEntry);
+        if (needsPreviewBuild && previewBuildPlan(previewSourceEntries)) {
+            ensureAdInjectionPreviewBuild(site);
+            previewFrame.setAttribute('sandbox', 'allow-scripts');
+            previewFrame.removeAttribute('src');
+            if (!site._previewBuild || site._previewBuild.status === 'building') {
+                setPreviewDocument(adInjectionPreviewNotice('正在准备完整预览', '正在当前浏览器的隔离环境中执行该站点自带的静态生成脚本；源压缩包和导出内容不会被修改。'));
+                return;
+            }
+            if (site._previewBuild.status === 'error') {
+                setPreviewDocument(adInjectionPreviewNotice('预览构建失败', site._previewBuild.error));
+                return;
+            }
+        }
         var html = buildAdInjectionPreviewDocument(site, pageType, appState.adInjectionPreviewEntryPath);
         previewFrame.setAttribute('sandbox', 'allow-scripts');
         previewFrame.removeAttribute('src');
-        previewFrame.srcdoc = html;
+        setPreviewDocument(html);
     }
 
     function initAdInjectionConfig() {
         var panel = document.getElementById('ad-injection-config-panel');
         if (!panel || panel.dataset.ready === 'true') return;
         panel.dataset.ready = 'true';
-        panel.querySelectorAll('.injection-config-tab').forEach(function(tab) {
-            tab.addEventListener('click', function() {
-                var name = tab.dataset.injectionTab;
-                panel.querySelectorAll('.injection-config-tab').forEach(function(item) { var active = item === tab; item.classList.toggle('active', active); item.setAttribute('aria-selected', active ? 'true' : 'false'); });
-                panel.querySelectorAll('.injection-config-section').forEach(function(section) { var active = section.dataset.injectionSection === name; section.hidden = !active; section.classList.toggle('active', active); });
-            });
-        });
         var siteSelect = document.getElementById('injection-preview-site');
         if (siteSelect) siteSelect.addEventListener('change', function() { appState.adInjectionPreviewSiteId = this.value; appState.adInjectionPreviewEntryPath = ''; renderAdInjectionConfig(); updateAdInjectionPreview(); });
+        var overrideToggle = document.getElementById('injection-site-override');
+        if (overrideToggle) overrideToggle.addEventListener('change', function() {
+            var id = appState.adInjectionPreviewSiteId;
+            if (!id) return;
+            if (this.checked) appState.adInjectionSiteOverrides[id] = {
+                mode: appState.adInjectionPlacementModeDefault,
+                version: appState.adInjectionAdJsVersion,
+                policy: JSON.parse(JSON.stringify(appState.adInjectionPolicy || AdRestoration.createPolicy()))
+            };
+            else delete appState.adInjectionSiteOverrides[id];
+            renderAdInjectionConfig();
+            updateAdInjectionPreview();
+        });
+        document.querySelectorAll('input[name="injection-placement-mode"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                var override = appState.adInjectionSiteOverrides[appState.adInjectionPreviewSiteId];
+                if (override) override.mode = this.value;
+                else appState.adInjectionPlacementModeDefault = this.value;
+                syncAdInjectionSettingsControls();
+                updateAdInjectionPreview();
+            });
+        });
+        document.querySelectorAll('input[name="injection-ad-version"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                var version = typeof FinishedSiteAds !== 'undefined' ? FinishedSiteAds.normalizeVersion(this.value) : this.value;
+                var override = appState.adInjectionSiteOverrides[appState.adInjectionPreviewSiteId];
+                if (override) override.version = version;
+                else appState.adInjectionAdJsVersion = version;
+                syncAdInjectionSettingsControls();
+            });
+        });
         var policyGrid = document.getElementById('injection-policy-grid');
         if (policyGrid) policyGrid.addEventListener('click', function(event) {
             var selectButton = event.target.closest('.injection-ad-select-btn');
@@ -1600,6 +2048,16 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         });
         window.addEventListener('message', function(event) {
             if (event.source !== previewFrame.contentWindow || !event.data) return;
+            if (event.data.type === 'sitefoundry-preview-asset-request') {
+                var assetUrl = (appState._previewAssetUrls || {})[String(event.data.path || '').toLowerCase()];
+                if (assetUrl) event.source.postMessage({
+                    type: 'sitefoundry-preview-asset-response',
+                    token: event.data.token,
+                    path: event.data.path,
+                    url: assetUrl
+                }, '*');
+                return;
+            }
             if (event.data.type === 'ad-injection-preview-navigate') {
                 var sites = appState.adInjectionSites || [];
                 var site = sites.find(function(item) { return item.id === appState.adInjectionPreviewSiteId; }) || sites[0];
@@ -1615,6 +2073,14 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                     tab.classList.toggle('is-jelly-active', active);
                 });
                 updateAdInjectionPreview(targetPage, targetEntry.path);
+                return;
+            }
+            if (event.data.type === 'ad-injection-fixed-skipped') {
+                var fixedWarnings = document.getElementById('injection-fixed-warnings');
+                if (fixedWarnings) fixedWarnings.textContent = (Array.isArray(event.data.skipped) ? event.data.skipped : [])
+                    .filter(function(item) { return item && /^banner[123]$/.test(item.unit); })
+                    .map(function(item) { return item.unit + '：' + String(item.reason || '未找到可靠位置'); })
+                    .join('。') + '。请勾选单站配置并改用手动放置。';
                 return;
             }
             if (event.data.type !== 'ad-injection-place' || !appState.adInjectionPlacementMode) return;
@@ -1726,6 +2192,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 appState.adInjectionSourceMode = mode === 'archives' ? 'archives' : 'directory';
                 appState.adInjectionPreviewSiteId = scan.sites[0] ? scan.sites[0].id : '';
                 appState.adInjectionPolicy = typeof AdRestoration !== 'undefined' ? AdRestoration.createPolicy() : null;
+                appState.adInjectionSiteOverrides = {};
                 if (fill) fill.style.width = '100%';
                 if (textTarget) textTarget.textContent = '已识别 ' + scan.sites.length + ' 个成品站、' + scan.fileCount + ' 个文件';
             } catch (error) {
@@ -1791,12 +2258,12 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 updateAdInjectionPreview();
             }
         });
-        runButton.addEventListener('click', async function() {
+        async function runAdInjectionExport(useDirectory) {
             if (adInjectionRunning) return;
             var destinationHandle = null;
-            if (typeof window.showDirectoryPicker === 'function') {
+            if (useDirectory && typeof window.showDirectoryPicker === 'function') {
                 try { destinationHandle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'finished-site-ad-output' }); }
-                catch (pickerError) { if (pickerError && pickerError.name === 'AbortError') return; }
+                catch (pickerError) { if (pickerError && pickerError.name === 'AbortError') return; throw pickerError; }
             }
             adInjectionRunning = true;
             updateAdInjectionControls();
@@ -1811,7 +2278,12 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 var output = await AdRestoration.applyAdCodeBatch(appState.adInjectionSites, appState.adInjectionCodes, function(percent, message) {
                     if (fill) fill.style.width = Math.min(percent, 88) + '%';
                     if (textTarget) textTarget.textContent = message;
-                }, getAdInjectionPolicy(), injectReactSource);
+                }, {
+                    mode: appState.adInjectionPlacementModeDefault,
+                    version: appState.adInjectionAdJsVersion,
+                    policy: appState.adInjectionPolicy,
+                    overrides: appState.adInjectionSiteOverrides
+                }, injectReactSource);
                 if (destinationHandle) {
                     await AdRestoration.writePolicyBatchToDirectory(output, destinationHandle, function(percent, message) {
                         if (fill) fill.style.width = (88 + Math.round(percent * .12)) + '%';
@@ -1833,7 +2305,10 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 adInjectionRunning = false;
                 updateAdInjectionControls();
             }
-        });
+        }
+        runButton.addEventListener('click', function() { runAdInjectionExport(false); });
+        var directoryButton = document.getElementById('injection-run-directory');
+        if (directoryButton) directoryButton.addEventListener('click', function() { runAdInjectionExport(true); });
         updateAdInjectionControls();
     }
 
@@ -2261,7 +2736,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 });
             });
         });
-        document.querySelectorAll('.diff-config-tab').forEach(function(tab) { tab.addEventListener('click', function() { var name = this.dataset.diffTab; document.querySelectorAll('.diff-config-tab').forEach(function(item) { var active = item === tab; item.classList.toggle('active', active); item.setAttribute('aria-selected', active ? 'true' : 'false'); }); document.querySelectorAll('.diff-config-section').forEach(function(section) { var active = section.dataset.diffSection === name; section.hidden = !active; section.classList.toggle('active', active); }); }); });
+        document.querySelectorAll('.diff-config-tab').forEach(function(tab) { tab.addEventListener('click', function() { var name = this.dataset.diffTab; document.body.classList.add('has-config-transition'); document.querySelectorAll('.diff-config-tab').forEach(function(item) { var active = item === tab; item.classList.toggle('active', active); item.setAttribute('aria-selected', active ? 'true' : 'false'); }); document.querySelectorAll('.diff-config-section').forEach(function(section) { var active = section.dataset.diffSection === name; section.hidden = !active; section.classList.toggle('active', active); }); }); });
         populateDifferentiatedDesigns();
         populateDifferentiatedCustomizer();
     }
@@ -2781,6 +3256,8 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             if (injectionWorkflowSteps().indexOf(step) === -1) return;
         } else if (step < 1 || step > 5) return;
 
+        var previousStep = appState.currentStep;
+
         // 验证当前步骤是否完成
         if (step > appState.currentStep) {
             if (!validateStep(appState.currentStep)) return;
@@ -2792,7 +3269,12 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         stepPanels.forEach(function(panel) {
             panel.classList.remove('active');
         });
-        document.getElementById('step-' + step).classList.add('active');
+        var activePanel = document.getElementById('step-' + step);
+        if (step !== previousStep) {
+            document.body.classList.add('has-workflow-transition');
+            activePanel.dataset.transitionDirection = step > previousStep ? 'forward' : 'back';
+        }
+        activePanel.classList.add('active');
 
         // 更新进度条
         stepItems.forEach(function(item, idx) {
@@ -2821,8 +3303,6 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         if (step === 4) {
             if (injectionStep) {
                 initPreviewControls();
-                var adsTab = document.querySelector('.injection-config-tab[data-injection-tab="ads"]');
-                if (adsTab) adsTab.click();
                 renderAdInjectionConfig();
             }
             updatePreview();
@@ -3004,6 +3484,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 footerStyle: 'simple',
                 backLinkStyle: 'text',
                 heroEnabled: false,
+                allArticlesEnabled: true,
                 homeLayout: 'standard',
                 heroTitle: theme.hero.title,
                 heroSubtitle: theme.hero.subtitle,
@@ -3668,6 +4149,13 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 document.getElementById('hero-title').value = appState.config.heroTitle;
                 document.getElementById('hero-subtitle').value = appState.config.heroSubtitle;
             }
+            updatePreview();
+        });
+
+        var allArticlesToggle = document.getElementById('all-articles-enabled');
+        if (allArticlesToggle) allArticlesToggle.addEventListener('change', function() {
+            appState.config.allArticlesEnabled = this.checked;
+            syncAllArticlesUI();
             updatePreview();
         });
 
@@ -4471,6 +4959,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
 
         // 设置初始值
         setInitialConfigValues();
+        syncAllArticlesUI();
         initStyledSelects();
     }
 
@@ -4654,6 +5143,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
 
         tabs.forEach(function(tab) {
             tab.addEventListener('click', function() {
+                document.body.classList.add('has-config-transition');
                 tabs.forEach(function(t) { t.classList.remove('active'); });
                 sections.forEach(function(s) { s.classList.remove('active'); });
                 this.classList.add('active');
@@ -4748,6 +5238,22 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
 
         initFullscreenPreview();
 
+        var effectsButton = document.getElementById('preview-effects-toggle');
+        var effectsStatus = document.getElementById('preview-effects-status');
+        if (effectsButton && effectsButton.dataset.effectsBound !== 'true') {
+            effectsButton.dataset.effectsBound = 'true';
+            effectsButton.addEventListener('click', function() {
+                if (!isAdInjectionWorkflow() || appState.currentStep !== 4) return;
+                appState.adInjectionPreviewEffectsEnabled = !appState.adInjectionPreviewEffectsEnabled;
+                syncAdInjectionPreviewEffectsControl();
+                if (effectsStatus) effectsStatus.textContent = appState.adInjectionPreviewEffectsEnabled
+                    ? '已打开 3D 与外部效果预览。预览页面将重新加载。'
+                    : '已关闭 3D 与外部效果预览。预览页面将重新加载。';
+                updateAdInjectionPreview();
+            });
+        }
+        syncAdInjectionPreviewEffectsControl();
+
         // 页面切换
         document.querySelectorAll('.preview-tab').forEach(function(tab) {
             tab.addEventListener('click', function() {
@@ -4829,6 +5335,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
     }
 
     function reservedAdPlacementCount() {
+        if (appState.reservePlacementMode === 'fixed') return 6;
         var placements = appState.config && appState.config.adPlacements || {};
         return Object.keys(placements).reduce(function(total, adId) {
             var pages = placements[adId] || {};
@@ -4836,7 +5343,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         }, 0);
     }
 
-    // 两种模式互斥：预留模式只显示手动位置；代码模式只显示 TXT 上传与自动放置结果。
+    // 代码模式使用 TXT 自动广告位；预留模式可在固定位置和手动位置之间切换。
     function syncDirectAdPlacementUI() {
         var automatic = hasValidatedDirectAdCode();
         var reserved = isReservedDirectAdMode();
@@ -4844,15 +5351,25 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var codePanel = document.getElementById('ad-code-mode-panel');
         var automaticNote = document.getElementById('ad-auto-placement-note');
         var modeGroup = document.getElementById('normal-ad-mode-group');
+        var manualControls = document.getElementById('ad-manual-placement-controls');
+        var fixedNote = document.getElementById('ad-fixed-placement-note');
         var normalWorkflow = appState.siteBuildMode === 'normal';
         if (modeGroup) modeGroup.hidden = !normalWorkflow;
         if (manualGroup) manualGroup.hidden = !reserved;
         if (codePanel) codePanel.hidden = reserved || !normalWorkflow;
         if (automaticNote) automaticNote.hidden = !automatic;
+        if (manualControls) manualControls.hidden = appState.reservePlacementMode === 'fixed';
+        if (fixedNote) fixedNote.hidden = appState.reservePlacementMode !== 'fixed';
         document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
             input.checked = input.value === appState.normalAdMode;
         });
-        if (!reserved) appState.adPlacementMode = null;
+        document.querySelectorAll('input[name="ad-js-version"]').forEach(function(input) {
+            input.checked = input.value === appState.adJsVersion;
+        });
+        document.querySelectorAll('input[name="reserve-placement-mode"]').forEach(function(input) {
+            input.checked = input.value === appState.reservePlacementMode;
+        });
+        if (!reserved || appState.reservePlacementMode === 'fixed') appState.adPlacementMode = null;
     }
 
     function initAdConfig() {
@@ -4861,11 +5378,28 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var adCodeBtn = document.getElementById('ad-code-btn');
         var adCodeStatus = document.getElementById('ad-code-status');
         var adCodePreview = document.getElementById('ad-code-preview');
+        document.querySelectorAll('input[name="ad-js-version"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                appState.adJsVersion = this.value;
+                updatePreview();
+            });
+        });
         document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
             input.addEventListener('change', function() {
                 if (!this.checked) return;
                 appState.normalAdMode = this.value === 'reserve' ? 'reserve' : 'code';
                 if (appState.normalAdMode !== 'reserve') exitAdPlacementMode();
+                syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
+        });
+        document.querySelectorAll('input[name="reserve-placement-mode"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                exitAdPlacementMode();
+                appState.reservePlacementMode = this.value === 'fixed' ? 'fixed' : 'manual';
                 syncDirectAdPlacementUI();
                 updateAdPlacementUI();
                 updatePreview();
@@ -4954,6 +5488,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
             showNotice('请先选择“先预留广告位”模式，再手动设置首页和详情页的位置。', '请选择广告接入方式');
             return;
         }
+        if (appState.reservePlacementMode === 'fixed') return;
         if (hasValidatedDirectAdCode()) {
             showNotice('广告 TXT 已通过校验，系统会自动插入三个广告位，无需手动选择位置。', '已自动放置广告');
             return;
@@ -4962,6 +5497,13 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         // “重新放置”仅移除当前预览页面的旧位置，另一页面的设置会被保留。
         var activeTab = document.querySelector('.preview-tab.active');
         var currentPage = activeTab ? activeTab.dataset.page : 'home';
+        if (currentPage === 'all') {
+            // 全部文章页继承详情页广告位；编辑时切到真正提供放置标记的详情页。
+            var detailTab = document.querySelector('.preview-tab[data-page="detail"]');
+            if (activeTab) activeTab.classList.remove('active');
+            if (detailTab) detailTab.classList.add('active');
+            currentPage = 'detail';
+        }
         var placements = appState.config.adPlacements || {};
         var currentPlacement = placements[adId];
         if (currentPlacement && currentPlacement[currentPage]) {
@@ -5009,6 +5551,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var currentPage = 'home';
         var activeTab = document.querySelector('.preview-tab.active');
         if (activeTab) currentPage = activeTab.dataset.page;
+        if (currentPage === 'all') currentPage = 'detail';
 
         ['adv1', 'adv2', 'adv3'].forEach(function(adId) {
             var label = document.querySelector('.ad-position-label[data-ad="' + adId + '"]');
@@ -5093,13 +5636,13 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         if (appState.siteBuildMode === 'differentiated' && (typeof DifferentiatedBuilder === 'undefined' || DifferentiatedBuilder.BUILD_VERSION !== REQUIRED_DIFFERENTIATED_BUILDER_VERSION)) {
             if (previewTimeout) clearTimeout(previewTimeout);
             previewFrame.removeAttribute('src');
-            previewFrame.srcdoc = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#f4f7fb;color:#15243a;font:16px/1.6 system-ui,sans-serif}.notice{max-width:560px;padding:32px;border:1px solid #f0b8b8;background:#fff;box-shadow:8px 8px 0 #d33}h1{margin:0 0 12px;font-size:24px}</style><body><section class="notice"><h1>模板引擎版本未同步</h1><p>当前页面拒绝运行旧模板。请刷新页面后重新上传本次数据源。</p></section></body></html>';
+            setPreviewDocument('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#f4f7fb;color:#15243a;font:16px/1.6 system-ui,sans-serif}.notice{max-width:560px;padding:32px;border:1px solid #f0b8b8;background:#fff;box-shadow:8px 8px 0 #d33}h1{margin:0 0 12px;font-size:24px}</style><body><section class="notice"><h1>模板引擎版本未同步</h1><p>当前页面拒绝运行旧模板。请刷新页面后重新上传本次数据源。</p></section></body></html>');
             return;
         }
         if (appState.siteBuildMode === 'differentiated' && !appState.differentiatedImportName && typeof DifferentiatedBuilder !== 'undefined') {
             if (previewTimeout) clearTimeout(previewTimeout);
             previewFrame.removeAttribute('src');
-            previewFrame.srcdoc = DifferentiatedBuilder.generateWaitingPreviewHtml(appState.differentiated.siteType);
+            setPreviewDocument(DifferentiatedBuilder.generateWaitingPreviewHtml(appState.differentiated.siteType));
             return;
         }
         if (!appState.data || appState.data.length === 0) return;
@@ -5125,7 +5668,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                     : Generator.generatePreviewHtml(appState, pageType, appState.previewDetailIndex);
                 previewFrame.removeAttribute('sandbox');
                 previewFrame.removeAttribute('src');
-                previewFrame.srcdoc = html;
+                setPreviewDocument(html);
             } catch(e) {
                 console.error('Preview error:', e);
             }
@@ -5147,7 +5690,8 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
                 makeSummaryItem('已过审站点', injectionSites.length + ' 个') +
                 makeSummaryItem('有效广告 TXT', injectionCodes.filter(function(code) { return code.valid; }).length + '/' + injectionCodes.length + ' 份') +
                 makeSummaryItem('完成域名配对', injectionReport.validCount + '/' + injectionSites.length + ' 站') +
-                makeSummaryItem('广告位策略', '首页与详情页分别配置') +
+                makeSummaryItem('广告位策略', appState.adInjectionPlacementModeDefault === 'fixed' ? '固定位置自动适配' : '手动放置') +
+                makeSummaryItem('ad.js 版本', appState.adInjectionAdJsVersion + (Object.keys(appState.adInjectionSiteOverrides || {}).length ? '；含单站覆盖' : '')) +
                 makeSummaryItem('输出方式', reactSourceSites.length ? '加入广告后的完整 React 源码' : '新目录或 ZIP 新副本') +
                 '</div><section class="migration-validation ' + (injectionReady ? '' : 'invalid') + '"><h5>' + (injectionReady ? '广告代码与站点配对校验通过' : '导出仍被阻止') + '</h5><p>' + (injectionReady ? '导出只向新副本增加广告脚本和已确认广告位；上传的已过审源站保持不变。' : '请返回“配置网站”上传广告代码 TXT，并确保每个站点都有一份有效且域名匹配的代码。') + '</p></section>';
             if (summary && reactSourceSites.length) summary.innerHTML += '<section class="migration-validation"><h5>React 源码将完整导出</h5><p>浏览器不会执行 npm install 或 npm run build；工具会导出加入广告后的完整工程。请下载后在项目环境安装依赖并执行生产构建，再部署新生成的 dist、build 或框架输出目录。</p></section>';
@@ -5229,7 +5773,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var isMigration = appState.siteBuildMode === 'ad-migration';
         var isReservedAds = appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
         summaryHtml += makeSummaryItem('建站方式', isMigration ? '广告移植建站' : '普通建站');
-        if (!isMigration) summaryHtml += makeSummaryItem('广告接入', isReservedAds ? '先预留广告位，后填 ID' : '上传代码自动添加');
+        if (!isMigration) summaryHtml += makeSummaryItem('广告接入', isReservedAds ? '先预留广告位（' + (appState.reservePlacementMode === 'fixed' ? '固定位置' : '手动放置') + '），后填 ID' : '上传代码自动添加');
         summaryHtml += '</div>';
         var adCode = appState.adCodeMigration;
         var isAdCodeBuild = !isMigration && !isReservedAds && !!adCode;
@@ -5238,7 +5782,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         if (isMigration) {
             summaryHtml += '<section class="migration-validation ' + (migration && migration.valid ? '' : 'invalid') + '"><h5>广告移植导出前校验</h5>' + migrationResultHtml(migration) + '</section>';
         } else if (isReservedAds) {
-            summaryHtml += '<section class="migration-validation ' + (reservedCount ? '' : 'invalid') + '"><h5>' + (reservedCount ? '广告位预留配置完成' : '尚未放置广告位') + '</h5><p>' + (reservedCount ? '将导出 ' + reservedCount + ' 个首页/详情页广告位置，并生成路径为空的 js/ad.js。拿到运营代码后，只需填写 bannerPath1/2/3、interstitialPath、anchorPath 和 analyticsID。' : '请返回“广告代码”标签，至少在首页或详情页放置一个广告容器后再导出。') + '</p></section>';
+            summaryHtml += '<section class="migration-validation ' + (reservedCount ? '' : 'invalid') + '"><h5>' + (reservedCount ? '广告位预留配置完成' : '尚未放置广告位') + '</h5><p>' + (reservedCount ? '将导出 ' + reservedCount + ' 个首页/详情页广告位置，并生成路径为空的 js/ad.js。拿到运营代码后，只需填写 adUnitBanner1/2/3、adUnitInterstitial、adUnitAnchor 和 gaMeasurementId。' : '请返回“广告代码”标签，至少在首页或详情页放置一个广告容器后再导出。') + '</p></section>';
         } else if (isAdCodeBuild) {
             summaryHtml += '<section class="migration-validation ' + (adCodeValid ? '' : 'invalid') + '"><h5>广告代码建站校验</h5>' + migrationResultHtml(adCode) + '</section>';
         } else {
@@ -5444,6 +5988,7 @@ import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection
         var heroConfig = document.getElementById('hero-config');
         if (heroToggle) heroToggle.checked = !!c.heroEnabled;
         if (heroConfig) heroConfig.style.display = c.heroEnabled ? 'block' : 'none';
+        syncAllArticlesUI();
         var heroTitle = document.getElementById('hero-title');
         var heroSubtitle = document.getElementById('hero-subtitle');
         if (heroTitle) heroTitle.value = c.heroTitle || '';

@@ -163,6 +163,8 @@ const BatchAdBuilder = (function() {
         const host = String(code.detectedHost || '').trim().toLowerCase();
         // 每份广告代码指向独立域名；导出的联系邮箱也随站点变化，避免一批站共享默认地址。
         if (host) config.contactEmail = 'contact@' + host;
+        // “全部文章”是普通单站工作流的开关；批量建站加广告暂不改变导出页面集合。
+        config.allArticlesEnabled = false;
         config.adPaths = clone(code.config);
         config.adPlacements = typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
         return Object.assign({}, appState, {

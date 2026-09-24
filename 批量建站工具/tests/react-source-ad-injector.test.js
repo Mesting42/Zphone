@@ -1,9 +1,68 @@
 import { describe, expect, it } from 'vitest';
 import { injectReactSource } from '../js/react-source-ad-injector.js';
+import { previewPageTypeForEntry } from '../js/ad-injection-preview-router.js';
 
 const runtimeSource = "window.refreshClarivoBanners=function(){};['pushState','replaceState'];div-gpt-ad-banner";
 
 describe('React source ad injector', () => {
+  it.each([
+    ['src/routes/articles.tsx', 'dist/client/articles/index.html', 'dist/client/'],
+    ['src/routes/catalog.tsx', 'dist/client/catalog/index.html', 'dist/client/'],
+    ['src/pages/guides/index.jsx', 'dist/guides/index.html', 'dist/'],
+    ['src/pages/arcade/index.tsx', 'build/arcade/index.html', 'build/']
+  ])('uses the same non-root policy and section gap for %s', (sourcePath, previewPath, previewRoot) => {
+    expect(previewPageTypeForEntry(previewPath, previewRoot)).toBe('detail');
+    const result = injectReactSource([
+      { path: sourcePath, text: 'export default function Page(){ return <main><section data-part="introduction"><h1>Introduction</h1></section><section data-part="collection">Collection</section></main>; }' }
+    ], { framework: 'React 源码工程' }, { bannerPath2: '/123/banner2', bannerPath3: '/123/banner3' }, {
+      slots: {
+        home: [{ position: 'after-section-1', unit: 'banner2' }, { position: 'footer-top', unit: 'banner3' }],
+        detail: [{ position: 'detail-after-content', unit: 'banner2' }, { position: 'footer-top', unit: 'banner3' }]
+      }
+    }, 'generic-route-fixture', runtimeSource);
+
+    expect(result.valid).toBe(true);
+    const output = new TextDecoder().decode(result.entries.find((entry) => entry.path === sourcePath).bytes);
+    expect(output.indexOf('data-part="introduction"')).toBeLessThan(output.indexOf('<Advertisement id="banner2"'));
+    expect(output.indexOf('<Advertisement id="banner2"')).toBeLessThan(output.indexOf('data-part="collection"'));
+    expect(output.indexOf('data-part="collection"')).toBeLessThan(output.indexOf('<Advertisement id="banner3"'));
+  });
+
+  it('exports a flat /tools route at the same gap shown by its finished-site preview', () => {
+    const previewType = previewPageTypeForEntry('dist/client/tools/index.html', 'dist/client/');
+    expect(previewType).toBe('detail');
+    const result = injectReactSource([
+      { path: 'src/routes/__root.tsx', text: 'export function RootShell({children}) { return <html><head></head><body>{children}</body></html>; }' },
+      { path: 'src/routes/tools.tsx', text: 'export default function Tools(){ return <SiteLayout><section data-part="intro"><div><h1>All Tools</h1><p>Fourteen tools</p><input /></div></section><section data-part="cards">Cards</section></SiteLayout>; }' }
+    ], { framework: 'React + TanStack Start 源码工程' }, { bannerPath2: '/123/example-banner2', bannerPath3: '/123/example-banner3' }, {
+      slots: {
+        home: [{ position: 'after-section-1', unit: 'banner2' }, { position: 'content-bottom', unit: 'banner3' }],
+        detail: [{ position: 'detail-after-content', unit: 'banner2' }, { position: 'footer-top', unit: 'banner3' }]
+      }
+    }, 'tools-preview-parity', runtimeSource);
+
+    expect(result.valid).toBe(true);
+    const output = new TextDecoder().decode(result.entries.find((entry) => entry.path === 'src/routes/tools.tsx').bytes);
+    const banner2 = output.indexOf('<Advertisement id="banner2"');
+    const banner3 = output.indexOf('<Advertisement id="banner3"');
+    expect(banner2).toBeGreaterThan(output.indexOf('</section>'));
+    expect(banner2).toBeLessThan(output.indexOf('data-part="cards"'));
+    expect(banner3).toBeGreaterThan(output.indexOf('data-part="cards"'));
+  });
+  it('keeps dynamic tool detail banners inside the tool content rather than moving them to the directory gap', () => {
+    const result = injectReactSource([
+      { path: 'src/routes/__root.tsx', text: 'export function RootShell({children}) { return <html><head></head><body>{children}</body></html>; }' },
+      { path: 'src/routes/tools_.$toolId.tsx', text: 'export default function Tool(){ return <SiteLayout><div>Breadcrumb</div><div><div><section data-part="tool">Tool</section><section data-part="principle">Principle</section><section data-part="how">How to use</section><section data-part="faq">FAQ</section></div><aside>Related</aside></div></SiteLayout>; }' }
+    ], { framework: 'React + TanStack Start 源码工程' }, { bannerPath2: '/123/example-banner2', bannerPath3: '/123/example-banner3' }, {
+      slots: { home: [], detail: [{ position: 'detail-after-content', unit: 'banner2' }, { position: 'footer-top', unit: 'banner3' }] }
+    }, 'tool-detail-parity', runtimeSource);
+
+    expect(result.valid).toBe(true);
+    const output = new TextDecoder().decode(result.entries.find((entry) => entry.path === 'src/routes/tools_.$toolId.tsx').bytes);
+    const banner2 = output.indexOf('<Advertisement id="banner2"');
+    expect(banner2).toBeGreaterThan(output.indexOf('data-part="principle"'));
+    expect(banner2).toBeLessThan(output.indexOf('data-part="how"'));
+  });
   it('uses AST edits to create one reusable component and only injects into a semantic main landmark', () => {
     const result = injectReactSource([
       { path: 'index.html', text: '<html><head></head><body><div id="root"></div></body></html>' },
@@ -80,7 +139,7 @@ export default function Home(){ return <Layout><Advertisement id="banner1"/><Adv
     expect(page.match(/<Advertisement id="banner[123]"/g)).toHaveLength(3);
   });
 
-  it('covers every eligible route across tool, editorial, and game sites without hard-coded vertical rules', () => {
+  it('uses the root policy only for the root route and the preview detail policy for other content routes', () => {
     const page = (title) => `export default function Page(){ return <main><section>${title}</section><section>more</section></main>; }`;
     const result = injectReactSource([
       { path: 'src/routes/__root.tsx', text: 'export function RootShell({children}) { return <html><head></head><body>{children}</body></html>; }' },
@@ -112,11 +171,9 @@ export default function Home(){ return <Layout><Advertisement id="banner1"/><Adv
       'src/routes/games_.$gameId.tsx'
     ]);
     const files = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
-    ['src/routes/index.tsx', 'src/routes/tools.tsx', 'src/routes/news.tsx', 'src/routes/games.tsx'].forEach((path) => {
-      expect(files[path]).toContain('<Advertisement id="banner1"');
-      expect(files[path]).not.toContain('<Advertisement id="banner2"');
-    });
-    ['src/routes/tools_.$toolId.tsx', 'src/routes/news_.$slug.tsx', 'src/routes/games_.$gameId.tsx'].forEach((path) => {
+    expect(files['src/routes/index.tsx']).toContain('<Advertisement id="banner1"');
+    expect(files['src/routes/index.tsx']).not.toContain('<Advertisement id="banner2"');
+    ['src/routes/tools.tsx', 'src/routes/news.tsx', 'src/routes/games.tsx', 'src/routes/tools_.$toolId.tsx', 'src/routes/news_.$slug.tsx', 'src/routes/games_.$gameId.tsx'].forEach((path) => {
       expect(files[path]).toContain('<Advertisement id="banner2"');
       expect(files[path]).toContain('<Advertisement id="banner3"');
       expect(files[path]).not.toContain('<Advertisement id="banner1"');
@@ -126,7 +183,7 @@ export default function Home(){ return <Layout><Advertisement id="banner1"/><Adv
     });
   });
 
-  it('uses structural route roles for nested page folders and preserves a compatible named-only component', () => {
+  it('matches preview policy on nested non-root page folders and preserves a compatible named-only component', () => {
     const component = `import { useEffect } from "react";
 const AD_SLOTS = { banner1: { elementId: "div-gpt-ad-banner1" } };
 export function Advertisement({ id }) {
@@ -160,7 +217,7 @@ export function Advertisement({ id }) {
     ]);
     const files = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
     expect(files['src/pages/stories/index.tsx']).toContain('import { Advertisement } from "../../components/advertisement"');
-    expect(files['src/pages/stories/index.tsx']).toContain('<Advertisement id="banner1"');
+    expect(files['src/pages/stories/index.tsx']).toContain('<Advertisement id="banner2"');
     expect(files['src/pages/stories/[slug].tsx']).toContain('<Advertisement id="banner2"');
     expect(files['src/pages/contact.tsx']).not.toContain('Advertisement');
     expect(files['src/components/advertisement.tsx']).toBe(component);

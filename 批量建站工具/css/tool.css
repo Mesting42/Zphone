@@ -1227,6 +1227,50 @@ body::-webkit-scrollbar-corner {
     transition: border-color .2s ease, background-color .2s ease, color .2s ease, box-shadow .2s ease;
 }
 
+.preview-effects-toggle {
+    display: inline-flex;
+    flex: 0 0 auto;
+    min-height: 36px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 9px;
+    border: 1px solid #d7e1ec;
+    border-radius: 8px;
+    background: #fff;
+    color: #56677c;
+    font: 750 11px/1 system-ui, sans-serif;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color .2s ease, background-color .2s ease, color .2s ease, box-shadow .2s ease;
+}
+
+.preview-effects-toggle svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.preview-effects-toggle:hover {
+    border-color: #aebfe0;
+    background: #f5f7ff;
+    color: #4859ad;
+}
+
+.preview-effects-toggle:focus-visible {
+    outline: 3px solid rgba(75, 89, 196, .25);
+    outline-offset: 2px;
+}
+
+.preview-effects-toggle.is-active {
+    border-color: #6558d9;
+    background: linear-gradient(135deg, #5c53ca, #8074e8);
+    color: #fff;
+    box-shadow: 0 3px 9px rgba(92, 83, 202, .28);
+}
+
 .preview-fullscreen-btn:hover {
     border-color: #c6d9f3;
     background: #edf5ff;
@@ -1279,7 +1323,8 @@ body::-webkit-scrollbar-corner {
     display: block;
 }
 
-.preview-fullscreen-status {
+.preview-fullscreen-status,
+.preview-effects-status {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -3197,7 +3242,31 @@ body.preview-fullscreen-open {
 .ad-injection-heading h3 { margin:2px 0 0;color:#5b3511;font-size:17px; }
 .injection-local-badge { padding:5px 9px;border:1px solid #ead3ae;border-radius:999px;background:#fff4e1;color:#96540c;font-size:10px;font-weight:800;white-space:nowrap; }
 .ad-injection-config-panel { overflow:auto; }
-.injection-source-summary { margin:10px 0 14px;padding:12px;border:1px solid #d9e5f3;border-radius:10px;background:#f7fbff;color:#4a617c;font-size:12px;line-height:1.65; }
+.ad-injection-config-panel > .panel-title { margin-bottom:8px; }
+.ad-injection-config-panel > .panel-title::after { content:none; }
+.ad-injection-config-panel > .panel-desc { margin:0 4px 16px;color:#51647d;font-size:12px;line-height:1.6; }
+.ad-injection-config-panel > .injection-site-context { position:relative;z-index:2;margin-bottom:18px;padding:14px;border:1px solid #dce7f5;border-radius:10px;background:#f4f8fe; }
+.injection-site-label { display:block;margin-bottom:8px;color:#263c59;font-size:12px;font-weight:700; }
+.injection-site-select { position:relative; }
+.injection-site-select select { display:block;width:100%;min-height:40px;padding:9px 36px 9px 12px;appearance:none;border:1px solid #cbdcef;border-radius:8px;background:#fff;color:#263c59;font-family:inherit;font-size:12px;font-weight:600;line-height:1.4;cursor:pointer;text-overflow:ellipsis; }
+.injection-site-select select:hover { border-color:#8fb8eb; }
+.injection-site-select select:focus-visible { outline:3px solid rgba(26,115,232,.18);outline-offset:2px;border-color:#1a73e8; }
+.injection-site-select select:disabled { background:#f8fafd;color:#687b92;cursor:not-allowed; }
+.injection-site-select .select-trigger { min-height:40px;padding:9px 34px 9px 12px;border-color:#cbdcef;background:#fff;color:#263c59;font-size:12px;font-weight:600; }
+.injection-site-select .select-trigger:focus-visible { outline:3px solid rgba(26,115,232,.18);outline-offset:2px; }
+.injection-site-select .select-menu { max-height:210px; }
+.injection-override-toggle { display:flex;align-items:flex-start;gap:8px;margin-top:12px;color:#263c59;font-size:12px;font-weight:700;line-height:1.5;cursor:pointer; }
+.injection-override-toggle input { flex:0 0 auto;margin:2px 0 0;accent-color:#2377d8; }
+.injection-site-context > .group-hint { margin:6px 0 0;color:#71849a; }
+.injection-fixed-warnings { margin-top:9px;color:#925817;font-size:11px;line-height:1.6;overflow-wrap:anywhere; }
+.injection-fixed-warnings:empty { display:none; }
+#injection-manual-controls { margin-top:12px; }
+.injection-source-details { margin-top:10px; }
+.injection-source-details summary { width:max-content;max-width:100%;color:#2468b3;font-size:11px;font-weight:700;line-height:1.5;cursor:pointer; }
+.injection-source-details summary:hover { color:#124e91;text-decoration:underline;text-underline-offset:3px; }
+.injection-source-details summary:focus-visible { outline:3px solid rgba(26,115,232,.18);outline-offset:3px;border-radius:3px; }
+.injection-source-summary { margin-top:10px;padding-top:10px;border-top:1px solid #dce7f5;color:#405773;font-size:11px;line-height:1.7;overflow-wrap:anywhere; }
+.ad-injection-config-panel .injection-ad-settings > .config-group:first-child { margin-bottom:16px; }
 .injection-config-actions { display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:12px; }
 .injection-policy-grid { display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:12px; }
 .injection-policy-card { padding:11px;border:1px solid #dfd4c5;border-radius:10px;background:#fffdf9; }
@@ -3234,6 +3303,9 @@ body.preview-fullscreen-open {
 .injection-mapping-item .injection-match-state { color:#8a4d0e;font-weight:800; }
 .injection-mapping-item.is-valid .injection-match-state { color:#24704d; }
 .injection-mapping-item.is-invalid .injection-match-state { color:#9d3d35; }
+.ad-injection-config-panel .injection-mapping-item { grid-template-columns:minmax(0,1fr);gap:6px;align-items:start; }
+.ad-injection-config-panel .injection-mapping-item > * { min-width:0;overflow-wrap:anywhere; }
+.ad-injection-config-panel .injection-mapping-item strong { overflow:visible;white-space:normal;text-overflow:clip; }
 .injection-rule-note { display:flex;gap:10px;margin-top:12px;padding:11px 13px;border-left:3px solid #b96b17;background:#fff7ea;color:#707783;font-size:11px;line-height:1.55; }
 .injection-rule-note strong { flex:0 0 auto;color:#7f480e; }
 .injection-paste-panel { display:grid;gap:8px;margin-top:12px;padding:11px;border:1px solid #d7e4ef;border-radius:10px;background:#f8fbff;font-size:11px;color:#40546b; }
@@ -3249,7 +3321,7 @@ body.preview-fullscreen-open {
 .injection-run-button:hover:not(:disabled) { background:#8e4e0b;transform:translateY(-1px); }
 .injection-run-button:disabled { background:#c7b8a8;box-shadow:none;cursor:not-allowed; }
 .injection-action-help { margin:8px 0 0;color:#7a818d;font-size:11px;line-height:1.55; }
-.injection-progress { flex:1 1 auto;min-width:220px; }
+.injection-progress { flex:1 1 auto;min-width:220px;margin-top:12px; }
 .injection-progress>div { height:7px;overflow:hidden;border-radius:999px;background:#f1e7d9; }
 .injection-progress span { display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#b96b17,#df9d4e);transition:width .2s ease; }
 .injection-progress p { margin:6px 0 0;color:#747b87;font-size:11px; }
@@ -3576,7 +3648,8 @@ body.preview-fullscreen-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .preview-fullscreen-btn { transition: none; }
+    .preview-fullscreen-btn,
+    .preview-effects-toggle { transition: none; }
 }
 
 /* 预览工具栏按“状态 + 浏览 + 设备”分组，避免站点切换与尺寸控制挤成两行。 */
@@ -3701,6 +3774,9 @@ body.preview-fullscreen-open {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
 }
+/* 版本卡片单列排列，让每个版本说明都有足够的横向空间。 */
+.ad-js-version-grid { grid-template-columns: 1fr; }
+.ad-js-version-grid .normal-ad-mode-card span { overflow-wrap: anywhere; }
 .normal-ad-mode-card {
     display: flex;
     align-items: flex-start;
@@ -3725,7 +3801,7 @@ body.preview-fullscreen-open {
 .normal-ad-mode-card small { margin-top: 4px; color: #71849a; font-size: 11px; line-height: 1.55; }
 .normal-ad-mode-card code { color: #1769c5; font-size: inherit; }
 @media (max-width: 760px) {
-    .normal-ad-mode-grid { grid-template-columns: 1fr; }
+    .normal-ad-mode-grid, .ad-js-version-grid { grid-template-columns: 1fr; }
 }
 .ad-container-config {
     margin-bottom: 10px;
@@ -3819,4 +3895,78 @@ body.preview-fullscreen-open {
 
 @media (prefers-reduced-motion: reduce) {
     .preview-fullscreen-btn { transition: none; }
+}
+
+/* Workflow transitions stay short and animate only opacity and transform. */
+@keyframes workflow-step-forward {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes workflow-step-back {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes workflow-content-enter {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes workflow-tab-enter {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+body.has-workflow-transition .step-panel.active {
+    animation: workflow-step-forward 200ms cubic-bezier(.22, .61, .36, 1) both;
+}
+
+body.has-workflow-transition .step-panel.active[data-transition-direction="back"] {
+    animation-name: workflow-step-back;
+}
+
+body.workflow-mode-transitioning #step-1 #upload-area:not([hidden]),
+body.workflow-mode-transitioning #step-1 #legacy-site-upload:not([hidden]),
+body.workflow-mode-transitioning #step-1 #differentiated-setup:not([hidden]),
+body.workflow-mode-transitioning #step-1 #ad-restoration-setup:not([hidden]),
+body.workflow-mode-transitioning #step-1 #ad-injection-setup:not([hidden]),
+body.workflow-mode-transitioning #step-1 #batch-ad-setup:not([hidden]) {
+    animation: workflow-content-enter 180ms cubic-bezier(.22, .61, .36, 1) both;
+}
+
+body.has-config-transition .config-section.active,
+body.has-config-transition .diff-config-section.active:not([hidden]) {
+    animation: workflow-tab-enter 160ms cubic-bezier(.22, .61, .36, 1) both;
+}
+
+.preview-frame {
+    transition: width 0.3s ease, height 0.3s ease, box-shadow 0.3s ease,
+        opacity 180ms ease-out, transform 180ms ease-out;
+}
+
+.preview-frame[data-refreshing="true"] {
+    opacity: 0.82;
+    transform: translateY(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.has-workflow-transition .step-panel.active,
+    body.workflow-mode-transitioning #step-1 #upload-area:not([hidden]),
+    body.workflow-mode-transitioning #step-1 #legacy-site-upload:not([hidden]),
+    body.workflow-mode-transitioning #step-1 #differentiated-setup:not([hidden]),
+    body.workflow-mode-transitioning #step-1 #ad-restoration-setup:not([hidden]),
+    body.workflow-mode-transitioning #step-1 #ad-injection-setup:not([hidden]),
+    body.workflow-mode-transitioning #step-1 #batch-ad-setup:not([hidden]),
+    body.has-config-transition .config-section.active,
+    body.has-config-transition .diff-config-section.active:not([hidden]) {
+        animation: none;
+    }
+
+    .preview-frame,
+    .preview-frame[data-refreshing="true"] {
+        transition: none;
+        opacity: 1;
+        transform: none;
+    }
 }

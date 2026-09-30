@@ -2659,6 +2659,11 @@ body.preview-fullscreen-open {
     margin-bottom: 12px;
 }
 
+.export-method-note {
+    font-size: 14px;
+    line-height: 1.6;
+}
+
 .radio-group {
     display: flex;
     flex-direction: column;
@@ -2812,6 +2817,44 @@ body.preview-fullscreen-open {
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.96);
     box-shadow: 0 8px 24px rgba(30, 53, 82, 0.07);
+}
+
+/* Domain selection is a long page; keep its existing actions in the viewport. */
+html:has(.domain-selection-panel.active) {
+    --domain-action-clearance: 104px;
+    scroll-padding-bottom: calc(var(--domain-action-clearance) + env(safe-area-inset-bottom, 0px));
+}
+
+.main-wrapper:has(> .domain-selection-panel.active) {
+    padding-bottom: calc(var(--domain-action-clearance) + env(safe-area-inset-bottom, 0px));
+}
+
+.main-wrapper:has(> .domain-selection-panel.active) > .workflow-action-dock {
+    position: fixed;
+    z-index: 100;
+    inset-inline: 24px;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    width: fit-content;
+    max-width: calc(100% - 48px);
+    margin: 0 auto;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(218, 239, 255, 0.94)) !important;
+}
+
+.main-wrapper:has(> .domain-selection-panel.active) .workflow-action-buttons > button {
+    min-height: 44px;
+}
+
+@media (max-width: 640px) {
+    html:has(.domain-selection-panel.active) {
+        --domain-action-clearance: 156px;
+    }
+
+    .main-wrapper:has(> .domain-selection-panel.active) > .workflow-action-dock {
+        inset-inline: 12px;
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        width: auto;
+        max-width: none;
+    }
 }
 
 .btn-prev,

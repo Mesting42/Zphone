@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20261001-ad-source-export-1">
+    <link rel="stylesheet" href="css/tool.css?v=20261001-browser-export-1">
     <link rel="stylesheet" href="css/liquid-glass.css?v=20260929-workflow-mode-card-5">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
@@ -289,7 +289,7 @@
         </div>
 
         <!-- ========== Step 2: 自动识别并确认领域 ========== -->
-        <div class="step-panel" id="step-2">
+        <div class="step-panel domain-selection-panel" id="step-2">
             <div class="step-heading">
                 <div>
                     <h2 class="panel-title">确认内容领域</h2>
@@ -1290,16 +1290,7 @@
 
             <div class="export-options" id="legacy-export-options">
                 <h4>导出方式</h4>
-                <div class="radio-group">
-                    <label class="radio-label">
-                        <input type="radio" name="export-mode" value="browser" checked>
-                        浏览器端生成（无需Python，一键导出）
-                    </label>
-                    <label class="radio-label">
-                        <input type="radio" name="export-mode" value="python">
-                        生成Python脚本（适合大量数据，需Python环境）
-                    </label>
-                </div>
+                <p class="export-method-note">浏览器端生成（无需 Python，一键导出）</p>
             </div>
 
             <section class="differentiated-export-options" id="differentiated-export-options" hidden aria-labelledby="diff-export-title">
@@ -1387,7 +1378,7 @@
     <script src="js/export-preflight.js?v=20261001-ad-source-export-1"></script>
     <script src="js/finished-site-ads.js?v=20260930-finished-site-export-scope-1"></script>
     <script type="module" src="js/rar-import.js?v=20260928-rar-timeout-fallback-2"></script>
-    <script src="js/generator.js?v=20260929-batch-code-placement-1"></script>
+    <script src="js/generator.js?v=20261001-browser-export-1"></script>
     <script src="js/zip-archive-worker-client.js?v=20260928-zip-worker-progress-1"></script>
     <script src="js/ad-restoration.js?v=20261001-ad-source-export-1"></script>
     <script src="js/batch-ad-builder.js?v=20260929-batch-code-placement-1"></script>

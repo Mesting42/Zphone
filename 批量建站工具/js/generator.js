@@ -3290,108 +3290,6 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 </html>`;
     }
 
-    // ========== 生成Python脚本 ==========
-    function generatePythonScript(config) {
-        const theme = config.theme;
-        const mapping = config.fieldMapping;
-        const contentRender = config.structure.contentRender;
-
-        return `#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-详情页生成脚本 - 由批量建站工具自动生成
-运行方式: python generate_details.py
-"""
-
-import json
-import os
-import re
-import random
-
-# 配置
-DATA_FILE = 'data.json'
-OUTPUT_DIR = 'details'
-THEME_ID = '${theme.id}'
-SITE_NAME = '${theme.siteTitle}'
-CONTENT_RENDER = '${contentRender}'
-IMAGE_FIELD = '${mapping.image || 'image'}'
-TITLE_FIELD = '${mapping.title || 'title'}'
-CONTENT_FIELD = '${mapping.content || 'content'}'
-ACTION_BTN_ENABLED = ${config.structure.actionButtonEnabled ? 'True' : 'False'}
-ACTION_BTN_TEXT = '${config.structure.actionButtonText || ''}'
-ACTION_BTN_LINK_FIELD = '${config.structure.actionButtonLinkField || ''}'
-RELATED_COUNT = ${config.structure.relatedCount || 4}
-BACK_LINK_STYLE = '${config.structure.backLinkStyle || 'text'}'
-
-# 字段映射
-FIELD_MAPPING = ${JSON.stringify(mapping, null, 4)}
-
-def read_data(file_path):
-    """读取JSON数据文件"""
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    if not isinstance(data, list):
-        for key in data:
-            if isinstance(data[key], list):
-                data = data[key]
-                break
-    for i, item in enumerate(data):
-        if 'id' not in item:
-            item['_index'] = i + 1
-    return data
-
-def simple_markdown_to_html(text):
-    """简易Markdown转HTML"""
-    if not text:
-        return ''
-    html = text
-    html = re.sub(r'^### (.+)$', r'<h3>\\1</h3>', html, flags=re.MULTILINE)
-    html = re.sub(r'^## (.+)$', r'<h2>\\1</h2>', html, flags=re.MULTILINE)
-    html = re.sub(r'\\*\\*(.+?)\\*\\*', r'<strong>\\1</strong>', html)
-    html = re.sub(r'\\*(.+?)\\*', r'<em>\\1</em>', html)
-    html = re.sub(r'\\[(.+?)\\]\\((.+?)\\)', r'<a href="\\2" target="_blank">\\1</a>', html)
-    html = re.sub(r'^- (.+)$', r'<li>\\1</li>', html, flags=re.MULTILINE)
-    html = re.sub(r'^(?!<[huplo]|<li|<ul|<\\/)(.+)$', r'<p>\\1</p>', html, flags=re.MULTILINE)
-    return html
-
-def generate_keywords(item):
-    """生成SEO关键词"""
-    words = []
-    if item.get(TITLE_FIELD):
-        words.append(item[TITLE_FIELD])
-    theme_kw = ${JSON.stringify(Object.keys(DOMAIN_CATALOG).reduce(function(map, domainId) {
-        map[domainId] = (DOMAIN_CATALOG[domainId].keywords || []).slice(0, 5).join(', ')
-        return map
-    }, {}))}
-    words.append(theme_kw.get(THEME_ID, ''))
-    return ', '.join(w for w in words if w)[:200]
-
-def get_item_id(item):
-    """获取数据项ID"""
-    return item.get('id', item.get('_index', 0))
-
-def generate_detail_pages(data):
-    """批量生成详情页"""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    for idx, item in enumerate(data):
-        item_id = get_item_id(item)
-        # 此处应使用与浏览器端生成相同的模板逻辑
-        # 为简化，此处仅生成占位文件
-        filename = f'article{item_id}.html'
-        filepath = os.path.join(OUTPUT_DIR, filename)
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f'<!-- Detail page for item {item_id} -->\\n')
-            f.write(f'<!-- Please use browser-side generation for full HTML -->\\n')
-        print(f'Generated: {filepath}')
-    print(f'\\nTotal: {len(data)} detail pages generated.')
-
-if __name__ == '__main__':
-    data = read_data(DATA_FILE)
-    print(f'Loaded {len(data)} items from {DATA_FILE}')
-    generate_detail_pages(data)
-`;
-    }
-
     // ========== 主导出函数 ==========
     async function exportWebsite(appState, onProgress, exportOptions) {
         const config = buildConfig(appState);
@@ -3527,14 +3425,12 @@ if __name__ == '__main__':
             }
         }
 
-        // 带广告运行时的站点必须通过本生成器重新生成详情页，避免简化脚本覆盖广告容器。
-        onProgress(92, hasAdRuntime(config) ? '正在写入广告运行时说明...' : '正在生成Python脚本...');
+        // 浏览器已生成完整详情页；带广告的站点另附运行时使用说明。
+        onProgress(92, hasAdRuntime(config) ? '正在写入广告运行时说明...' : '正在整理导出文件...');
         if (hasValidatedAdConfig(config)) {
             siteFolder.file('AD_MIGRATION_REGENERATION.txt', '广告移植站的详情页必须使用本建站工具重新导出。生成器模板会在所有详情页保留 GPT、../js/ad.js 与 banner1/2/3 容器，并在打包前重新校验数量。请勿使用旧版 generate_details.py 覆盖详情页。\n');
         } else if (hasAdRuntime(config)) {
             siteFolder.file('AD_PLACEHOLDER_SETUP.txt', '本网站已预留广告容器，并生成路径为空的 js/ad.js。拿到运营广告代码后，请填写 adUnitBanner1、adUnitBanner2、adUnitBanner3、adUnitInterstitial、adUnitAnchor 与 gaMeasurementId；不需要重新生成页面。请勿使用旧版 generate_details.py 覆盖详情页。\n');
-        } else {
-            siteFolder.file('generate_details.py', generatePythonScript(config));
         }
 
         onProgress(95, '正在打包ZIP...');

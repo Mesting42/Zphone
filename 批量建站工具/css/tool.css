@@ -3328,6 +3328,9 @@ body.preview-fullscreen-open {
 .injection-ad-select-btn.is-active { border-color:#2377d8;color:#fff;background:#2377d8;box-shadow:0 3px 8px rgba(35,119,216,.16); }
 .injection-ad-placement-hint { grid-column:1 / -1;margin-top:2px;padding:10px;border:1px dashed #4a9eff;border-radius:6px;background:rgba(74,158,255,.1);color:#1769c5;font-size:12px;font-weight:600;line-height:1.5;text-align:center; }
 .ad-injection-export-options { margin:0 0 20px;padding:20px;border:1px solid #ead5b6;border-radius:16px;background:linear-gradient(145deg,#fffaf3,#fff 64%); }
+.injection-export-content { min-width:0;margin:20px 0;padding:0;border:0; }
+.injection-export-content legend { margin-bottom:10px;color:#203653;font-size:14px;font-weight:700; }
+.injection-export-content .normal-ad-mode-card:has(input:disabled) { opacity:.65;cursor:default; }
 .ad-injection-intro { max-width:1120px;margin:0 0 16px;color:#6f7480;font-size:12px;line-height:1.65; }
 .ad-injection-file-grid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px; }
 .ad-injection-setup .ad-injection-file-grid { grid-template-columns:minmax(0,1fr);max-width:760px; }

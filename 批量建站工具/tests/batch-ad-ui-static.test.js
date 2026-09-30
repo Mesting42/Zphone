@@ -179,10 +179,10 @@ describe('batch ad upload formats', () => {
     expect(app).toContain('function buildAdInjectionPreviewDocument(site, pageType, entryPath)');
     expect(app).toContain("previewFrame.setAttribute('sandbox', 'allow-scripts')");
     expect(app).toContain('getAdInjectionPolicy()');
-    expect(app).toContain('var exportSites = await prepareAdInjectionExportSites(appState.adInjectionSites)');
+    expect(app).toContain('var exportSites = await prepareAdInjectionExportSites(appState.adInjectionSites, exportMode)');
     expect(app).toContain('applyAdCodeBatch(exportSites, appState.adInjectionCodes');
     expect(app).toContain('overrides: appState.adInjectionSiteOverrides');
-    expect(app).toContain('}, injectReactSource);');
+    expect(app).toContain('}, injectReactSource, sourceExporter);');
     expect(injectionControls).toContain('if (pasteButton && pastePanel)');
     expect(injectionControls).toContain("if (parsePaste) parsePaste.addEventListener('click'");
     expect(injectionControls).toContain("if (allowPartial) allowPartial.addEventListener('change'");

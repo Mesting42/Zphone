@@ -131,4 +131,78 @@ describe('export preflight', () => {
     expect(report.siteCount).toBe(2);
     expect(report.errors.some((error) => error.siteName === 'broken')).toBe(true);
   });
+
+  it('reports unchanged source references as warnings when adding ads to a finished site', () => {
+    const original = {
+      'index.html': '<main>Approved site</main><iframe src="vendor-games/game/index.html"></iframe>',
+      'vendor-games/game/index.html': '<script src="engine.js"></script>',
+      'vendor-games/game/engine.js': 'require("./BundledInternalModule");',
+      'vendor-games/game/theme.css': 'body { background: url("optional.png"); }'
+    };
+    const output = { ...original, 'index.html': original['index.html'] + '<script src="js/ad.js"></script>', 'js/ad.js': 'window.googletag = {};' };
+    const report = preflight.inspectEntries(output, { originalEntries: original });
+    expect(report.valid).toBe(true);
+    expect(report.errors).toEqual([]);
+    expect(report.inheritedIssues).toHaveLength(2);
+    expect(report.warnings).toEqual([expect.objectContaining({ code: 'EXPORT_SOURCE_REFERENCE_UNCHANGED', count: 2 })]);
+    expect(preflight.inspectEntries(output).valid).toBe(false);
+  });
+
+  it('resolves public assets only when checking framework source output', () => {
+    const files = {
+      'package.json': '{"dependencies":{"react":"19"}}',
+      'index.html': '<script type="module" src="/src/main.jsx"></script><script defer src="/js/ad.js"></script>',
+      'src/main.jsx': 'export default function App() { return null; }',
+      'public/js/ad.js': 'window.googletag = { cmd: [] };'
+    };
+    expect(preflight.inspectEntries(files, { sourcePublicRoot: 'public/' }).valid).toBe(true);
+    expect(preflight.inspectEntries(files).errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'EXPORT_REFERENCE_MISSING', reference: '/js/ad.js' })]));
+    delete files['public/js/ad.js'];
+    expect(preflight.inspectEntries(files, { sourcePublicRoot: 'public/' }).valid).toBe(false);
+  });
+
+  it('still blocks new missing references and dropped original files even with inherited source issues', () => {
+    const original = {
+      'index.html': '<main>Approved site</main>',
+      'vendor-games/theme.css': 'body { background: url("optional.png"); }',
+      'images/unreferenced-cover.png': new Uint8Array([0, 255, 128])
+    };
+    const output = { ...original, 'index.html': original['index.html'] + '<script src="js/ad.js"></script>' };
+    delete output['images/unreferenced-cover.png'];
+    const report = preflight.inspectEntries(output, { originalEntries: original });
+    expect(report.valid).toBe(false);
+    expect(report.inheritedIssues).toHaveLength(1);
+    expect(report.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'EXPORT_REFERENCE_MISSING', reference: 'js/ad.js' }),
+      expect.objectContaining({ code: 'EXPORT_SOURCE_FILE_MISSING', path: 'images/unreferenced-cover.png' })
+    ]));
+  });
+
+  it('matches inherited references to their originating script rather than another script at the same site root', () => {
+    const original = { 'index.html': '<script src="js/site.js"></script>', 'js/site.js': 'fetch("./missing.json");' };
+    const output = { ...original, 'index.html': original['index.html'] + '<script src="js/ad.js"></script>', 'js/ad.js': 'fetch("./missing.json");' };
+    const report = preflight.inspectEntries(output, { originalEntries: original });
+    expect(report.valid).toBe(false);
+    expect(report.inheritedIssues).toHaveLength(1);
+    expect(report.errors).toEqual([expect.objectContaining({ code: 'EXPORT_REFERENCE_MISSING', sourcePath: 'js/ad.js', reference: './missing.json' })]);
+  });
+
+  it('keeps source-reference comparisons scoped to each finished site in a batch', () => {
+    const entries = [{ path: 'index.html', bytes: new TextEncoder().encode('<img src="missing.png">') }];
+    const report = preflight.inspectSites([
+      { name: 'inherited', entries, originalEntries: entries },
+      { name: 'new-error', entries, originalEntries: [{ path: 'index.html', bytes: new TextEncoder().encode('<main>Healthy original</main>') }] }
+    ]);
+    expect(report.valid).toBe(false);
+    expect(report.inheritedIssues).toEqual([expect.objectContaining({ siteName: 'inherited', reference: 'missing.png' })]);
+    expect(report.errors).toEqual([expect.objectContaining({ siteName: 'new-error', code: 'EXPORT_REFERENCE_MISSING' })]);
+  });
+
+  it('does not downgrade invalid JSON or unsafe paths already present in a source archive', () => {
+    const original = { 'index.html': '<main>Approved site</main>', 'manifest.json': '{', '../unsafe.js': '' };
+    const report = preflight.inspectEntries(original, { originalEntries: original });
+    expect(report.valid).toBe(false);
+    expect(report.inheritedIssues).toEqual([]);
+    expect(report.errors.map((error) => error.code)).toEqual(expect.arrayContaining(['EXPORT_JSON_INVALID', 'EXPORT_UNSAFE_ARCHIVE_PATH']));
+  });
 });

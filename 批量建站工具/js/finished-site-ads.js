@@ -9,6 +9,9 @@ function createFinishedSiteAds() {
 
     const UNITS = ['banner1', 'banner2', 'banner3'];
     const UTILITY_PATH = /(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-service)?|legal|faq|404)(?:[/.]|$)/i;
+    // These HTML files run inside content pages or belong to project resources.
+    // Preserve them in the export without applying the host site's ad layout.
+    const RESOURCE_PATH = /(?:^|\/)(?:vendor-games|assets|node_modules|\.git|\.tmp[^/]*)(?:\/|$)/i;
     const BUILT_IN_AD_JS_VERSIONS = ['initial', 'v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];
 
     function normalizeVersion(version) {
@@ -18,7 +21,8 @@ function createFinishedSiteAds() {
     }
 
     function isContentPath(path) {
-        return !UTILITY_PATH.test(String(path || '').replace(/\\/g, '/'));
+        const normalized = String(path || '').replace(/\\/g, '/');
+        return !UTILITY_PATH.test(normalized) && !RESOURCE_PATH.test(normalized);
     }
 
     function isHomePath(path, homePath) {

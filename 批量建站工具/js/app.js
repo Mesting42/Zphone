@@ -58,6 +58,7 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
         adInjectionAllowPartial: false,
         adInjectionPolicy: null,
         adInjectionPlacementModeDefault: 'fixed',
+        adInjectionExportMode: 'static',
         adInjectionAdJsVersion: 'v1.0.2.1',
         adInjectionSiteOverrides: {},
         adInjectionPreviewSiteId: '',
@@ -808,6 +809,11 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
         var report = SiteExportPreflight.inspectSites(output && output.sites || []);
         if (output) output.preflightReport = report;
         SiteExportPreflight.assertValid(report);
+        if (output && report.inheritedIssues && report.inheritedIssues.length) {
+            output.report += '\r\n\r\n源站中已有的本地引用提示（原文件已保留）\r\n' + report.inheritedIssues.map(function(issue) {
+                return (issue.siteName ? issue.siteName + '：' : '') + issue.message;
+            }).join('\r\n') + '\r\n';
+        }
         return report;
     }
 
@@ -1159,6 +1165,7 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             codeStatus.classList.toggle('is-ready', validCodes > 0);
         }
         var match = renderAdInjectionMappings();
+        syncAdInjectionExportControls();
         var runButton = document.getElementById('injection-run');
         if (runButton) runButton.disabled = adInjectionRunning || match.validCount === 0;
         var directoryButton = document.getElementById('injection-run-directory');
@@ -1178,6 +1185,25 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
         };
         if (/^custom-after-(?:\d+)(?:-\d+)*$/.test(String(position || ''))) return '自定义内容位置';
         return labels[position] || position;
+    }
+
+    function syncAdInjectionExportControls() {
+        var staticUnavailable = (appState.adInjectionSites || []).some(function(site) {
+            try { AdRestoration.staticDeploymentSite(site); return false; } catch (error) { return true; }
+        });
+        if (staticUnavailable && appState.adInjectionExportMode === 'static') appState.adInjectionExportMode = 'source';
+        document.querySelectorAll('input[name="injection-export-content"]').forEach(function(input) {
+            input.checked = input.value === appState.adInjectionExportMode;
+            input.disabled = adInjectionRunning || (input.value === 'static' && staticUnavailable);
+        });
+        var sourceMode = appState.adInjectionExportMode === 'source';
+        var help = document.getElementById('injection-export-content-help');
+        if (help) help.textContent = staticUnavailable
+            ? '这批站点包含没有静态构建产物的 React 源码，当前可导出完整源码。要导出静态副本，请先生产构建并上传输出目录。'
+            : sourceMode ? '源码副本保留上传的工程文件，并接入广告配置；有构建流程的静态工程会在 npm run build 完成后自动注入广告。'
+                : '当前导出可直接部署的静态文件。React 站点使用上传包中已有的构建产物；需要修改工程时请选择完整源码。';
+        var button = document.getElementById('injection-run');
+        if (button) button.textContent = sourceMode ? '下载广告源码 ZIP' : '下载静态站点 ZIP';
     }
 
     function getAdInjectionPolicy() {
@@ -2128,9 +2154,13 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
      * 预览和最终导出必须使用同一份构建结果，否则源码包里的审计目录、
      * 示例游戏或旧产物可能被误识别为成品站根目录。
      */
-    async function prepareAdInjectionExportSites(sites) {
+    async function prepareAdInjectionExportSites(sites, exportMode) {
         var prepared = [];
         for (const site of Array.from(sites || [])) {
+            if (site.project && site.project.kind === 'react-source') {
+                prepared.push(exportMode === 'source' ? site : AdRestoration.staticDeploymentSite(site));
+                continue;
+            }
             var sourceEntries = adInjectionPreviewSourceEntries(site);
             if (!previewBuildPlan(sourceEntries)) {
                 prepared.push(site);
@@ -2162,6 +2192,8 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             prepared.push(Object.assign({}, site, {
                 entries: entries,
                 previewSourceEntries: null,
+                sourceEntries: site.sourceEntries || sourceEntries,
+                sourceDeploymentRoot: outputRoot,
                 sourceRoot: String(site.sourceRoot || '') + outputRoot,
                 project: project
             }));
@@ -2520,7 +2552,10 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             if (resultTarget) resultTarget.hidden = true;
             try {
                 if (textTarget) textTarget.textContent = '正在准备可部署的静态站产物…';
-                var exportSites = await prepareAdInjectionExportSites(appState.adInjectionSites);
+                var exportMode = appState.adInjectionExportMode;
+                var exportSites = await prepareAdInjectionExportSites(appState.adInjectionSites, exportMode);
+                var sourceExporter = exportMode === 'source'
+                    ? (await import('./finished-source-export.js')).createFinishedSourceExport : null;
                 var output = await AdRestoration.applyAdCodeBatch(exportSites, appState.adInjectionCodes, function(percent, message) {
                     if (fill) fill.style.width = Math.min(percent, 88) + '%';
                     if (textTarget) textTarget.textContent = message;
@@ -2528,8 +2563,9 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
                     mode: appState.adInjectionPlacementModeDefault,
                     version: appState.adInjectionAdJsVersion,
                     policy: appState.adInjectionPolicy,
-                    overrides: appState.adInjectionSiteOverrides
-                }, injectReactSource);
+                    overrides: appState.adInjectionSiteOverrides,
+                    exportMode: exportMode
+                }, injectReactSource, sourceExporter);
                 if (textTarget) textTarget.textContent = '正在进行导出前全站体检…';
                 var preflightReport = inspectOutputSites(output);
                 if (destinationHandle) {
@@ -2557,6 +2593,15 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             }
         }
         runButton.addEventListener('click', function() { runAdInjectionExport(false); });
+        document.querySelectorAll('input[name="injection-export-content"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked || adInjectionRunning) return;
+                appState.adInjectionExportMode = this.value;
+                var result = document.getElementById('injection-result');
+                if (result) result.hidden = true;
+                generateExportSummary();
+            });
+        });
         var directoryButton = document.getElementById('injection-run-directory');
         if (directoryButton) directoryButton.addEventListener('click', function() { runAdInjectionExport(true); });
         updateAdInjectionControls();
@@ -6586,6 +6631,7 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
     // ========== Step 5: 导出 ==========
     function generateExportSummary(afterRender) {
         if (isAdInjectionWorkflow()) {
+            syncAdInjectionExportControls();
             var injectionSites = appState.adInjectionSites || [];
             var injectionCodes = appState.adInjectionCodes || [];
             var injectionReport = typeof AdRestoration !== 'undefined'
@@ -6600,9 +6646,9 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
                 makeSummaryItem('完成域名配对', injectionReport.validCount + '/' + injectionSites.length + ' 站') +
                 makeSummaryItem('广告位策略', appState.adInjectionPlacementModeDefault === 'fixed' ? '固定位置自动适配' : '手动放置') +
                 makeSummaryItem('ad.js 版本', appState.adInjectionAdJsVersion + (Object.keys(appState.adInjectionSiteOverrides || {}).length ? '；含单站覆盖' : '')) +
-                makeSummaryItem('输出方式', reactSourceSites.length ? '加入广告后的完整 React 源码' : '新目录或 ZIP 新副本') +
+                makeSummaryItem('导出内容', appState.adInjectionExportMode === 'source' ? '含广告的完整源码' : '静态站点副本') +
                 '</div><section class="migration-validation ' + (injectionReady ? '' : 'invalid') + '"><h5>' + (injectionReady ? '广告代码与站点配对校验通过' : '导出仍被阻止') + '</h5><p>' + (injectionReady ? '导出只向新副本增加广告脚本和已确认广告位；上传的已过审源站保持不变。' : '请返回“配置网站”上传广告代码 TXT，并确保每个站点都有一份有效且域名匹配的代码。') + '</p></section>';
-            if (summary && reactSourceSites.length) summary.innerHTML += '<section class="migration-validation"><h5>React 源码将完整导出</h5><p>浏览器不会执行 npm install 或 npm run build；工具会导出加入广告后的完整工程。请下载后在项目环境安装依赖并执行生产构建，再部署新生成的 dist、build 或框架输出目录。</p></section>';
+            if (summary && reactSourceSites.length && appState.adInjectionExportMode === 'source') summary.innerHTML += '<section class="migration-validation"><h5>React 源码将完整导出</h5><p>浏览器不会执行 npm install 或 npm run build；工具会导出加入广告后的完整工程。请下载后在项目环境安装依赖并执行生产构建，再部署新生成的 dist、build 或框架输出目录。</p></section>';
             updateAdInjectionControls();
             if (typeof afterRender === 'function') afterRender();
             return;

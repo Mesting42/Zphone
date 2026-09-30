@@ -333,7 +333,12 @@ const AdRestoration = (function() {
         const entries = (rawEntries || []).map(function(entry) {
             return { path: normalizePath(entry.path || entry.name), text: entryText(entry), source: entry };
         }).filter(function(entry) { return isSafePath(entry.path); });
-        const htmlEntries = entries.filter(function(entry) { return /\.html?$/i.test(entry.path); });
+        // Finished-site previews and both placement modes share the same page
+        // scope. Embedded game documents stay in entries for lossless export.
+        const htmlEntries = entries.filter(function(entry) {
+            return /\.html?$/i.test(entry.path) && (!(options && options.finishedSite)
+                || typeof FinishedSiteAds === 'undefined' || FinishedSiteAds.isContentPath(entry.path));
+        });
         const indexCandidates = htmlEntries.filter(function(entry) { return /(?:^|\/)index\.html?$/i.test(entry.path); })
             .sort(function(a, b) { return a.path.split('/').length - b.path.split('/').length; });
         let home = null;
@@ -1868,6 +1873,16 @@ const AdRestoration = (function() {
         const metadata = inspectSiteEntries(rawEntries, archiveName, { finishedSite: true });
         metadata.errors = metadata.errors.filter(function(error) { return error.code !== 'RESTORE_EMBEDDED_CONFIG_INCOMPLETE'; });
         metadata.valid = metadata.errors.length === 0;
+        const generatorRoot = !metadata.valid ? staticGeneratorPreviewRoot(rawEntries) : null;
+        if (generatorRoot !== null) return {
+            valid: true, kind: 'static-html', framework: '静态网站源码工程（预览时构建）',
+            siteRoot: generatorRoot, entryPath: '', previewEntryPath: '', runtimePath: '',
+            buildCommand: 'npm run build', errors: [], warnings: []
+        };
+        const generatorPackage = packageEntries.find(function(entry) {
+            const pkg = parsePackageEntry(entry);
+            return entry.path === 'package.json' && pkg && pkg.scripts && pkg.scripts.build && metadata.siteRoot;
+        });
         return {
             valid: metadata.valid,
             kind: 'static-html',
@@ -1875,20 +1890,53 @@ const AdRestoration = (function() {
             siteRoot: metadata.siteRoot,
             entryPath: metadata.homePath,
             previewEntryPath: metadata.homePath,
-            runtimePath: '',
+            runtimePath: metadata.adPath,
             runtimeSrc: '',
+            ...(generatorPackage ? { deploymentRoot: metadata.siteRoot, buildCommand: 'npm run build' } : {}),
             errors: metadata.errors,
             warnings: metadata.warnings,
             metadata: metadata
         };
     }
 
+    function staticDeploymentSite(site) {
+        if (!site || !site.project || site.project.kind !== 'react-source') return site;
+        const homePath = normalizePath(site.project.previewEntryPath || '');
+        const root = homePath.replace(/index\.html?$/i, '');
+        if (!homePath || !/(?:^|\/)(?:dist|build|out|output|export|www|_site|\.output\/public|\.vercel\/output\/static)\//i.test(homePath)) {
+            throw new Error(site.name + ' 没有可导出的静态构建产物，请选择“含广告的完整源码”，或先生产构建后上传输出目录。');
+        }
+        const entries = (site.entries || []).filter(function(entry) { return normalizePath(entry.path).indexOf(root) === 0; }).map(function(entry) {
+            return { path: normalizePath(entry.path).slice(root.length), bytes: entry.bytes || textBytes(entryText(entry)) };
+        });
+        const home = entryByPath(entries, 'index.html');
+        if (!home || /<script\b[^>]*src=["'][^"']*\/src\/[^"']+\.(?:jsx?|tsx?)/i.test(entryText(home))) {
+            throw new Error(site.name + ' 的静态入口仍引用源码，请先完成生产构建，或选择“含广告的完整源码”。');
+        }
+        const project = classifyInjectableSiteEntries(entries, site.name);
+        if (!project.valid) throw new Error(site.name + ' 的静态构建产物无法识别为可部署站点。');
+        return Object.assign({}, site, { entries: entries, project: project,
+            sourceEntries: site.sourceEntries || site.entries, sourceDeploymentRoot: root });
+    }
+
     function injectableRootsFromDescriptors(descriptors) {
         const paths = descriptors.map(function(item) { return item.path; });
         let roots = [];
         paths.forEach(function(path) {
+            if (!/(?:^|\/)package\.json$/i.test(path) || /(?:^|\/)(?:node_modules|\.git|\.tmp[^/]*|vendor-games)(?:\/|$)/i.test(path)) return;
+            const root = path.replace(/package\.json$/i, '');
+            if (roots.indexOf(root) === -1) roots.push(root);
+        });
+        paths.forEach(function(path) {
             if (!/(?:^|\/)index\.html?$/i.test(path)) return;
             let root = path.replace(/index\.html?$/i, '');
+            let ancestor = root.replace(/\/$/, '');
+            while (ancestor) {
+                const slash = ancestor.lastIndexOf('/');
+                const parent = slash < 0 ? '' : ancestor.slice(0, slash + 1);
+                if (paths.some(function(candidate) { return candidate.toLowerCase() === (parent + 'package.json').toLowerCase(); })) { root = parent; break; }
+                ancestor = parent.replace(/\/$/, '');
+            }
             if (/public\/$/i.test(root)) {
                 const projectRoot = root.replace(/public\/$/i, '');
                 if (paths.some(function(candidate) { return candidate.toLowerCase() === (projectRoot + 'package.json').toLowerCase(); })) root = projectRoot;
@@ -1991,7 +2039,18 @@ const AdRestoration = (function() {
                 return { path: entry.path.slice(previewRoot.length), bytes: entry.bytes };
             }) : null;
             const name = siteFolderName(archiveBaseName(file.name), 'site-' + (index + 1));
-            sites.push({ id: 'inject-archive:' + index + ':' + name, name: name, sourceRoot: root, entries: entries, previewSourceEntries: previewSourceEntries, project: classifyInjectableSiteEntries(entries, name) });
+            const packageRoots = archiveEntries.filter(function(entry) {
+                return /(?:^|\/)package\.json$/i.test(entry.path) && !/(?:^|\/)(?:node_modules|\.git|\.tmp[^/]*)(?:\/|$)/i.test(entry.path);
+            }).map(function(entry) { return entry.path.replace(/package\.json$/i, ''); }).filter(function(candidate) {
+                return root.indexOf(candidate) === 0;
+            }).sort(function(a, b) { return b.length - a.length; });
+            const sourceRoot = previewRoot !== null ? previewRoot : packageRoots.length ? packageRoots[0] : root;
+            const sourceEntries = archiveEntries.filter(function(entry) { return entry.path.indexOf(sourceRoot) === 0; }).map(function(entry) {
+                return { path: entry.path.slice(sourceRoot.length), bytes: entry.bytes };
+            }).filter(function(entry) { return entry.path; });
+            sites.push({ id: 'inject-archive:' + index + ':' + name, name: name, sourceRoot: root, entries: entries,
+                sourceEntries: sourceEntries, sourceDeploymentRoot: root.slice(sourceRoot.length),
+                previewSourceEntries: previewSourceEntries, project: classifyInjectableSiteEntries(entries, name) });
             lastProgress = Math.max(lastProgress, archiveEnd);
             onProgress(lastProgress, file.name + '：站点结构识别完成。', { indeterminate: false });
         }
@@ -2404,7 +2463,9 @@ const AdRestoration = (function() {
 
     function deploymentEntries(entries, project) {
         const root = normalizePath(project && project.deploymentRoot || '');
-        if (!root) return (entries || []).slice();
+        if (!root) return (entries || []).map(function(entry) {
+            return { path: normalizePath(entry.path || entry.name), bytes: entry.bytes || textBytes(entryText(entry)) };
+        });
         return (entries || []).filter(function(entry) {
             return normalizePath(entry.path || entry.name).indexOf(root) === 0;
         }).map(function(entry) {
@@ -2579,12 +2640,16 @@ const AdRestoration = (function() {
             warnings.push(issue('浏览器未执行 npm install 或生产构建；本次导出的是已加入广告代码的完整 React 源码，请在项目环境完成构建。', 'AD_EXPORT_REACT_SOURCE_BUILD_REQUIRED'));
         } else {
             (changedPages || []).forEach(function(path) {
-                const page = entryByPath(entries, path);
+                const deploymentRoot = normalizePath(project && project.deploymentRoot || '');
+                const relative = deploymentRoot && path.indexOf(deploymentRoot) === 0 ? path.slice(deploymentRoot.length) : path;
+                const page = entryByPath(entries, relative) || entryByPath(entries, path);
                 if (!page) { errors.push(issue('导出内容缺少已修改页面 ' + path + '。', 'AD_EXPORT_PAGE_MISSING')); return; }
                 checkedPages.push(page.path);
-                const pageType = /(?:details?|articles?|blog|tools)\//i.test(path) ? 'detail' : 'home';
-                const relativePath = relativeAdScriptPath(path, '');
-                const checks = validateRestoredHtml(entryText(page), pageType, relativePath + '?v=ad-policy-1', policy);
+                // Injection treats only the detected entry as home. Use that
+                // identity here too: games/news/category routes use detail slots.
+                const pageType = normalizePath(page.path).toLowerCase() === normalizePath(output.entryPath || 'index.html').toLowerCase() ? 'home' : 'detail';
+                const relativePath = relativeAdScriptPath(page.path, '');
+                const checks = validateRestoredHtml(entryText(page), pageType, relativePath + '?v=ad-policy-1', policy, { finishedSite: true });
                 checks.forEach(function(check) { errors.push(issue(path + '：' + check.message, check.code)); });
             });
             const runtime = entryByPath(entries, 'js/ad.js');
@@ -2594,25 +2659,36 @@ const AdRestoration = (function() {
     }
 
     function injectionReportText(results) {
-        const lines = ['成品站广告注入与导出核验报告', '生成时间：' + new Date().toISOString(), '规则：静态站导出加入广告后的静态文件；React 源码工程导出加入广告后的完整源码，并由用户在项目环境执行安装依赖与生产构建；仅上传构建目录时只导出部署产物。', ''];
+        const lines = ['成品站广告注入与导出核验报告', '生成时间：' + new Date().toISOString(), '规则：静态副本仅包含加入广告后的部署文件；源码副本保留原工程并加入广告，具有构建流程的静态源码会自动接入构建后的广告注入步骤。原上传文件保持不变。', ''];
         results.forEach(function(result) {
             lines.push((result.valid ? '[成功] ' : '[失败] ') + result.siteName);
             if (result.framework) lines.push('  识别类型：' + result.framework);
             if (result.host) lines.push('  广告域名：' + result.host);
             if (result.changedPages != null) lines.push('  修改入口/页面：' + result.changedPages + ' 个');
+            if (result.valid && result.runtimePath) lines.push('  广告脚本已写入（导出包内路径）：' + result.runtimePath);
+            if (result.adJsVersion) lines.push('  ad.js 版本：' + result.adJsVersion);
             if (result.changedScripts && result.changedScripts.length) lines.push('  修改/新增脚本：' + result.changedScripts.join('、'));
             if (result.buildCommand) lines.push('  构建命令：' + result.buildCommand);
+            if (result.buildHook) lines.push('  构建后自动注入广告：' + result.buildHook);
             if (result.exportScope) lines.push('  ZIP 内容范围：' + result.exportScope);
             if (result.verification) lines.push('  已核验页面：' + (result.verification.checkedPages || []).join('、'));
             (result.errors || []).forEach(function(error) { lines.push('  错误：' + error.message); });
-            (result.warnings || []).forEach(function(warning) { lines.push('  提示：' + warning.message); });
+            (result.warnings || []).forEach(function(warning) {
+                const message = result.valid && result.runtimePath && warning.code === 'RESTORE_AD_JS_CREATE'
+                    ? '源站未提供 js/ad.js；本次已新建广告脚本并写入导出包。'
+                    : warning.message;
+                lines.push('  提示：' + message);
+            });
             lines.push('');
         });
         return lines.join('\r\n');
     }
 
-    async function applyAdCodeBatch(siteGroups, codeResults, onProgress, requestedPolicy, reactSourceInjector) {
-        const match = matchAdCodesToSites(siteGroups, codeResults);
+    async function applyAdCodeBatch(siteGroups, codeResults, onProgress, requestedPolicy, reactSourceInjector, sourceExporter) {
+        const exportMode = requestedPolicy && requestedPolicy.exportMode || 'auto';
+        if (['auto', 'static', 'source'].indexOf(exportMode) === -1) throw new Error('无法识别导出内容，请重新选择静态副本或完整源码。');
+        const inputs = exportMode === 'static' ? Array.from(siteGroups || []).map(staticDeploymentSite) : siteGroups;
+        const match = matchAdCodesToSites(inputs, codeResults);
         onProgress = typeof onProgress === 'function' ? onProgress : function() {};
         const outputs = [];
         const results = [];
@@ -2670,8 +2746,29 @@ const AdRestoration = (function() {
             const key = baseName.toLowerCase();
             usedNames[key] = (usedNames[key] || 0) + 1;
             const outputName = usedNames[key] === 1 ? baseName : baseName + '-' + usedNames[key];
-            outputs.push({ name: outputName, entries: exportedEntries, policy: effectivePolicy });
-            results.push({ valid: true, siteName: mapping.siteName, outputName: outputName, framework: mapping.framework, host: mapping.host, changedPages: (injected.changedPages || []).length, changedScripts: injected.changedScripts || [], errors: [], warnings: mapping.warnings.concat(injected.warnings || [], verification.warnings || []), verification: verification, buildCommand: mapping.project.buildCommand || '', exportScope: verification.exportScope });
+            const runtime = entryByPath(exportedEntries, outputProject(mapping.project).runtimePath || 'js/ad.js');
+            const originalDeployment = deploymentEntries(mapping.site.entries, mapping.project);
+            let sourceOutput = null;
+            if (exportMode === 'source') {
+                if (typeof sourceExporter !== 'function') throw new Error('源码导出组件未加载，请刷新工具后重试。');
+                sourceOutput = await sourceExporter({
+                    sourceEntries: mapping.site.sourceEntries || mapping.site.entries, injectedEntries: exportedEntries,
+                    deploymentRoot: mapping.site.sourceDeploymentRoot || mapping.project.deploymentRoot || mapping.project.siteRoot || '',
+                    config: mapping.code.config, policy: effectivePolicy, settings: settings, siteName: mapping.siteName, project: mapping.project
+                });
+            }
+            outputs.push({ name: outputName, entries: sourceOutput ? sourceOutput.entries : exportedEntries, policy: effectivePolicy,
+                sourcePublicRoot: mapping.project.kind === 'react-source' ? 'public/' : undefined,
+                preflightEntries: sourceOutput ? exportedEntries : undefined,
+                sourceOriginalEntries: sourceOutput ? mapping.site.sourceEntries || mapping.site.entries : undefined,
+                originalEntries: originalDeployment });
+            results.push({ valid: true, siteName: mapping.siteName, outputName: outputName, framework: mapping.framework, host: mapping.host,
+                runtimePath: sourceOutput ? outputName + '/' + sourceOutput.runtimePath : runtime ? outputName + '/' + normalizePath(runtime.path) : '',
+                adJsVersion: runtime ? settings.version || detectAdJsVersion(entryText(runtime)) : '',
+                buildHook: sourceOutput && sourceOutput.buildHook || '',
+                changedPages: (injected.changedPages || []).length, changedScripts: injected.changedScripts || [], errors: [], warnings: mapping.warnings.concat(injected.warnings || [], verification.warnings || []), verification: verification,
+                buildCommand: sourceOutput ? sourceOutput.buildCommand : mapping.project.buildCommand || '',
+                exportScope: sourceOutput ? sourceOutput.exportScope : exportMode === 'static' ? '仅静态站点部署副本' : verification.exportScope });
         }
         if (results.some(function(result) { return !result.valid; })) {
             const error = new Error('至少一个成品站未通过构建/广告/位置核验；为避免下载不完整批次，已阻止整个导出。');
@@ -3076,6 +3173,7 @@ const AdRestoration = (function() {
         readSiteArchiveFiles: readSiteArchiveFiles,
         readRarArchiveEntries: readRarArchive,
         classifyInjectableSiteEntries: classifyInjectableSiteEntries,
+        staticDeploymentSite: staticDeploymentSite,
         readInjectableDirectoryFiles: readInjectableDirectoryFiles,
         readInjectableDirectoryHandle: readInjectableDirectoryHandle,
         readInjectableArchiveFiles: readInjectableArchiveFiles,
@@ -3084,6 +3182,7 @@ const AdRestoration = (function() {
         generateSpaAdRuntime: generateSpaAdRuntime,
         generateReactSourceAdRuntime: generateReactSourceAdRuntime,
         verifyInjectedOutput: verifyInjectedOutput,
+        verifyFixedInjectedOutput: verifyFixedInjectedOutput,
         injectAdsIntoSiteEntries: injectAdsIntoSiteEntries,
         applyAdCodeBatch: applyAdCodeBatch,
         exportRecognizedCodesForGroups: exportRecognizedCodesForGroups,

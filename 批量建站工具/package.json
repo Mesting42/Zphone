@@ -1,11 +1,12 @@
 {
   "name": "sitefoundry-batch-publisher",
-  "version": "1.0.6",
+  "version": "1.0.6.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "build:source-runtime": "node scripts/build-source-export-runtime.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run && node tests/verify-differentiated-copies.cjs && node tests/game-builder.smoke.cjs",
     "test:watch": "vitest",
@@ -22,6 +23,8 @@
     "@babel/parser": "^8.0.6",
     "@babel/traverse": "^8.0.6",
     "@babel/types": "^8.0.6",
+    "esbuild": "0.25.12",
+    "linkedom": "0.18.12",
     "vite": "7.1.4",
     "vitest": "3.2.4"
   }

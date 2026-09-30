@@ -317,13 +317,13 @@
 
         let localReferenceCount = 0;
         const seenErrors = new Set();
-        const checkReferences = function(sourcePath, refs, siteRoot, externalBase) {
+        const checkReferences = function(sourcePath, refs, siteRoot, externalBase, originPath) {
             refs.forEach(function(ref) {
                 if (externalBase && String(ref.url || '').charAt(0) !== '/') return;
                 const resolved = resolveReference(sourcePath, siteRoot, ref.url);
                 if (resolved.ignored) return;
                 localReferenceCount++;
-                const key = [sourcePath, ref.url, resolved.invalid || resolved.path].join('|');
+                const key = [originPath || sourcePath, sourcePath, ref.url, resolved.invalid || resolved.path].join('|');
                 if (resolved.invalid) {
                     if (!seenErrors.has(key)) {
                         seenErrors.add(key);
@@ -333,11 +333,16 @@
                 }
                 let exists = hasPath(pathSet, resolved.path);
                 if (!exists && ref.module) exists = moduleCandidates(resolved.path).some(function(candidate) { return pathSet.has(candidate); });
+                // Framework source serves public/ at the URL root after building.
+                // Enable this alias only for an explicit source export.
+                if (!exists && options.sourcePublicRoot && ref.kind === 'resource') {
+                    exists = hasPath(pathSet, options.sourcePublicRoot + resolved.path);
+                }
                 if (!exists && ref.kind === 'page' && !STATIC_EXTENSION.test(resolved.path)) return;
                 if (!exists && !resolved.directoryLike && !STATIC_EXTENSION.test(resolved.path) && ref.kind !== 'resource') return;
                 if (!exists && !seenErrors.has(key)) {
                     seenErrors.add(key);
-                    errors.push({ code: 'EXPORT_REFERENCE_MISSING', path: sourcePath, reference: ref.url, message: sourcePath + ' 引用的本地文件不存在：' + ref.url });
+                    errors.push({ code: 'EXPORT_REFERENCE_MISSING', path: sourcePath, sourcePath: originPath || sourcePath, reference: ref.url, resolvedPath: resolved.path, message: sourcePath + ' 引用的本地文件不存在：' + ref.url });
                 }
             });
         };
@@ -360,14 +365,14 @@
                         }
                     }
                 }
-                checkReferences(referenceSource, parsed.refs, base, externalBase);
+                checkReferences(referenceSource, parsed.refs, base, externalBase, path);
             }
             if (STYLE_FILE.test(path)) checkReferences(path, collectCssReferences(path, source), siteRoot);
             if (SCRIPT_FILE.test(path)) {
                 const refs = collectScriptReferences(path, source);
                 refs.forEach(function(ref) {
                     const referenceSource = ref.documentRelative ? (siteRoot ? siteRoot + '/index.html' : 'index.html') : path;
-                    checkReferences(referenceSource, [ref], siteRoot);
+                    checkReferences(referenceSource, [ref], siteRoot, false, path);
                 });
             }
             if (JSON_FILE.test(path)) {
@@ -378,6 +383,33 @@
             }
         });
 
+        const inheritedIssues = [];
+        if (options.originalEntries) {
+            // Finished-site injection preserves the input deployment. Report
+            // pre-existing missing references without hiding any new failures.
+            const original = inspectEntries(options.originalEntries, { sourcePublicRoot: options.sourcePublicRoot });
+            const referenceKey = function(error) {
+                return JSON.stringify([error.code, error.sourcePath, error.path, error.reference, error.resolvedPath]);
+            };
+            const originalMissing = new Set(original.errors.filter(function(error) {
+                return error.code === 'EXPORT_REFERENCE_MISSING';
+            }).map(referenceKey));
+            const blocking = errors.filter(function(error) {
+                if (error.code !== 'EXPORT_REFERENCE_MISSING' || !originalMissing.has(referenceKey(error))) return true;
+                inheritedIssues.push(error);
+                return false;
+            });
+            errors.length = 0;
+            blocking.forEach(function(error) { errors.push(error); });
+            const originalPaths = Array.isArray(options.originalEntries)
+                ? options.originalEntries.map(function(entry) { return entry.path; }) : Object.keys(options.originalEntries);
+            new Set(originalPaths.map(normalizeArchivePath)).forEach(function(path) {
+                if (!pathSet.has(path)) errors.push({ code: 'EXPORT_SOURCE_FILE_MISSING', path: path, message: '导出丢失了源站文件：' + path });
+            });
+            if (inheritedIssues.length) warnings.push({ code: 'EXPORT_SOURCE_REFERENCE_UNCHANGED', count: inheritedIssues.length,
+                message: (options.siteName ? options.siteName + '：' : '') + '源站已有 ' + inheritedIssues.length + ' 项无法解析的本地引用，已保留原文件；详情见导出报告。' });
+        }
+
         const report = {
             valid: errors.length === 0,
             siteName: String(options.siteName || ''),
@@ -386,7 +418,8 @@
             localReferenceCount: localReferenceCount,
             fileCount: paths.length,
             errors: errors,
-            warnings: warnings
+            warnings: warnings,
+            inheritedIssues: inheritedIssues
         };
         return report;
     }
@@ -405,10 +438,24 @@
 
     function inspectSites(sites) {
         const reports = Array.from(sites || []).map(function(site) {
-            const entries = (site && site.entries || []).map(function(entry) {
+            const entries = (site && (site.preflightEntries || site.entries) || []).map(function(entry) {
                 return { path: entry.path, bytes: entry.bytes };
             });
-            return inspectEntries(entries, { siteName: site && site.name || '未命名站点' });
+            const report = inspectEntries(entries, { siteName: site && site.name || '未命名站点', originalEntries: site && site.originalEntries,
+                sourcePublicRoot: site && site.sourcePublicRoot });
+            if (site && site.sourceOriginalEntries) {
+                const sourcePaths = new Set((site.entries || []).map(function(entry) { return entry.path; }));
+                (site.sourceOriginalEntries || []).forEach(function(entry) {
+                    if (!sourcePaths.has(entry.path)) report.errors.push({ code: 'EXPORT_SOURCE_FILE_MISSING', path: entry.path, message: '完整源码副本缺少原文件：' + entry.path });
+                });
+                sourcePaths.forEach(function(path) {
+                    if (/^(?:\/|[a-z]:\/)/i.test(path) || path.split('/').some(function(part) { return part === '..'; })) {
+                        report.errors.push({ code: 'EXPORT_UNSAFE_ARCHIVE_PATH', path: path, message: '源码导出文件路径包含工程根目录之外的路径。' });
+                    }
+                });
+                report.valid = report.errors.length === 0;
+            }
+            return report;
         });
         return combine(reports);
     }
@@ -436,6 +483,9 @@
             fileCount: fileCount,
             errors: errors,
             warnings: sites.flatMap(function(report) { return report.warnings || []; }),
+            inheritedIssues: sites.flatMap(function(report) {
+                return (report.inheritedIssues || []).map(function(error) { return Object.assign({ siteName: report.siteName || '' }, error); });
+            }),
             sites: sites
         };
     }

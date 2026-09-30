@@ -14,6 +14,7 @@ vm.runInNewContext(source('generator.js') + '\nthis.__generator = Generator;', c
 vm.runInNewContext(source('finished-site-ads.js') + '\nthis.__fixed = FinishedSiteAds;', context);
 vm.runInNewContext(source('zip-archive-worker-client.js'), context);
 vm.runInNewContext(source('ad-restoration.js') + '\nthis.__restoration = AdRestoration;', context);
+vm.runInNewContext(source('export-preflight.js'), context);
 
 const oldAdJs = `
 // const bannerPath1 = "/23334460889/zp0903a.example.pro-banner1";
@@ -1662,6 +1663,87 @@ describe('batch ad restoration', () => {
     const duplicateReport = context.__restoration.verifyInjectedOutput(injected.entries, project, config, policy, injected.changedPages);
     expect(duplicateReport.valid).toBe(false);
     expect(duplicateReport.errors.map((item) => item.code)).toContain('RESTORE_CONTAINER_COUNT');
+  });
+
+  it('exports finished-site pages while preserving embedded game documents and assets byte for byte', async () => {
+    const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
+    const cleanDetail = detailHtml.replaceAll(wrongAd, '');
+    const encoder = new TextEncoder();
+    const resources = [
+      { path: 'vendor-games/2048/index.html', bytes: encoder.encode('<!doctype html><html><head></head><body><canvas id="game"></canvas></body></html>') },
+      { path: 'vendor-games/chess/main.htm', bytes: encoder.encode(cleanDetail) },
+      { path: 'vendor-games/underrun/source/html-template.html', bytes: encoder.encode('<canvas>{{game}}</canvas>') },
+      { path: 'assets/demos/index.html', bytes: encoder.encode('<html><body>Embedded demo</body></html>') },
+      { path: '.tmp-game-audit/upstream/index.html', bytes: encoder.encode('<html><body>Upstream source</body></html>') },
+      { path: 'about/index.html', bytes: encoder.encode(cleanDetail) },
+      { path: 'vendor-games/2048/cover.png', bytes: new Uint8Array([0, 255, 128, 10, 20]) }
+    ];
+    const entries = [
+      { path: 'index.html', text: cleanHome },
+      { path: 'games/2048/index.html', text: cleanDetail },
+      ...resources
+    ].map((entry) => ({ ...entry, path: '/' + entry.path }));
+    const host = 'zp0903a.example.pro';
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, host);
+    expect(project.metadata.detailPaths).toEqual(['games/2048/index.html']);
+    const code = context.__restoration.inspectCodeText(oldAdJs, host + '.txt');
+    const settings = { mode: 'manual', version: 'v1.0.2.1', policy: context.__restoration.createPolicy() };
+    const batch = await context.__restoration.applyAdCodeBatch([{ id: host, name: host, entries, project }], [code], undefined, settings);
+    expect(batch.results[0]).toMatchObject({ valid: true, changedPages: 2 });
+    expect(batch.results[0].verification.checkedPages).toEqual(['index.html', 'games/2048/index.html']);
+    expect(context.SiteExportPreflight.inspectSites(batch.sites).valid).toBe(true);
+    const zip = await JSZip.loadAsync(await (await context.__restoration.zipPolicyBatch(batch)).arrayBuffer());
+    const prefix = batch.sites[0].name + '/';
+    for (const resource of resources) {
+      expect(await zip.file(prefix + resource.path).async('uint8array')).toEqual(resource.bytes);
+    }
+    expect(await zip.file(prefix + 'games/2048/index.html').async('string')).toContain('src="../../js/ad.js?v=ad-policy-1"');
+    expect(await zip.file(prefix + 'js/ad.js').async('string')).toContain('ad.js v1.0.2.1');
+  });
+
+  it.each(['games/2048/index.html', 'categories/puzzles/index.html', 'news/story/index.html', 'story.html'])(
+    'verifies the selected detail policy for %s independently of home-page ads', async (detailPath) => {
+      const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
+      const cleanDetail = detailHtml.replaceAll(wrongAd, '');
+      const entries = [{ path: 'index.html', text: cleanHome }, { path: detailPath, text: cleanDetail }];
+      const host = 'zp0903a.example.pro';
+      const project = context.__restoration.classifyInjectableSiteEntries(entries, host);
+      const code = context.__restoration.inspectCodeText(oldAdJs, host + '.txt');
+      const policy = context.__restoration.createPolicy();
+      policy.slots.home = [{ position: 'after-navbar', unit: 'banner1' }, { position: 'off', unit: 'off' }, { position: 'off', unit: 'off' }];
+      policy.slots.detail = [{ position: 'footer-top', unit: 'banner2' }, { position: 'off', unit: 'off' }, { position: 'off', unit: 'off' }];
+      const settings = { mode: 'manual', version: 'v1.0.2.1', policy };
+      const batch = await context.__restoration.applyAdCodeBatch([{ id: host, name: host, entries, project }], [code], undefined, settings);
+      expect(batch.results[0].verification.valid).toBe(true);
+      const output = batch.sites[0].entries;
+      const detail = output.find((entry) => entry.path === detailPath);
+      detail.bytes = new TextEncoder().encode(new TextDecoder().decode(detail.bytes).replace('id="div-gpt-ad-banner2"', 'id="missing-banner2"'));
+      const verification = context.__restoration.verifyInjectedOutput(output, project, code.config, policy, ['index.html', detailPath], settings);
+      expect(verification.valid).toBe(false);
+      expect(verification.errors.map((error) => error.code)).toContain('RESTORE_CONTAINER_COUNT');
+    }
+  );
+
+  it('keeps blocking export when a selected ad position is missing from a real game content page', async () => {
+    const entries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'games/2048/index.html', text: '<html><head></head><body><main><article><p>Game guide</p></article></main></body></html>' }
+    ];
+    const host = 'zp0903a.example.pro';
+    const code = context.__restoration.inspectCodeText(oldAdJs, host + '.txt');
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, host);
+    const settings = { mode: 'manual', version: 'v1.0.2.1', policy: context.__restoration.createPolicy() };
+    await expect(context.__restoration.applyAdCodeBatch([{ id: host, name: host, entries, project }], [code], undefined, settings))
+      .rejects.toMatchObject({ results: [{ valid: false, errors: [expect.objectContaining({ code: 'AD_POLICY_POSITION_NOT_FOUND' })] }] });
+  });
+
+  it('does not detect a standalone embedded game as the finished-site home page', () => {
+    const project = context.__restoration.classifyInjectableSiteEntries([
+      { path: 'vendor-games/chess/index.html', text: homeHtml },
+      { path: 'vendor-games/chess/details/article1.html', text: detailHtml }
+    ], 'embedded-only');
+    expect(project.valid).toBe(false);
+    expect(project.errors.map((error) => error.code)).toContain('RESTORE_HOME_NOT_FOUND');
   });
 
   it('matches multiple finished sites to advertiser TXT files by domain', () => {

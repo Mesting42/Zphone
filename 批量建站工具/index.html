@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20260929-ad-template-default-1">
+    <link rel="stylesheet" href="css/tool.css?v=20261001-ad-source-export-1">
     <link rel="stylesheet" href="css/liquid-glass.css?v=20260929-workflow-mode-card-5">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
@@ -1270,9 +1270,17 @@
                     <div><span class="section-kicker">第三步 · 导出新副本</span><h3 id="ad-injection-export-title">加入广告并导出网站</h3></div>
                     <span class="injection-local-badge">源压缩包保持不变</span>
                 </div>
-                <p class="ad-injection-intro">系统会重新校验每个站点与广告 TXT 的域名配对、广告路径、DOM ID 和位置策略。纯静态站加入广告后可直接导出部署；React 源码站则导出加入广告后的完整工程，由你在项目环境完成安装依赖与生产构建。</p>
+                <p class="ad-injection-intro">选择导出内容后，系统会重新校验广告代码、页面引用和广告位。静态副本用于直接部署；源码副本保留原工程文件，方便继续修改和重新构建。</p>
+                <fieldset class="injection-export-content" aria-describedby="injection-export-content-help">
+                    <legend>导出内容</legend>
+                    <div class="normal-ad-mode-grid">
+                        <label class="normal-ad-mode-card"><input type="radio" name="injection-export-content" value="static" checked><span><strong>静态站点副本</strong><small>导出加入广告后的页面、脚本和资源，解压后即可部署。</small></span></label>
+                        <label class="normal-ad-mode-card"><input type="radio" name="injection-export-content" value="source"><span><strong>含广告的完整源码</strong><small>保留原工程结构；修改源码后重新构建，仍会带上广告配置。</small></span></label>
+                    </div>
+                    <p class="injection-action-help" id="injection-export-content-help" aria-live="polite">当前导出静态副本。若需继续修改原工程，请选择完整源码。</p>
+                </fieldset>
                 <div class="injection-actions">
-                    <button type="button" class="injection-run-button" id="injection-run" disabled>下载加广告 ZIP</button>
+                    <button type="button" class="injection-run-button" id="injection-run" disabled>下载静态站点 ZIP</button>
                     <button type="button" class="injection-run-button" id="injection-run-directory" disabled>写入新目录</button>
                     <div class="injection-progress" id="injection-progress" hidden><div><span id="injection-progress-fill"></span></div><p id="injection-progress-text">准备中…</p></div>
                 </div>
@@ -1376,17 +1384,17 @@
     <script src="js/ad-migration.js?v=20260925-domain-zip-naming-1"></script>
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
     <script src="js/ad-template-catalog.js?v=20260929-ad-template-default-1"></script>
-<script src="js/export-preflight.js?v=20260928-ad-manifest-paths-3"></script>
-    <script src="js/finished-site-ads.js?v=20260928-scroll-progress-offset-1"></script>
+    <script src="js/export-preflight.js?v=20261001-ad-source-export-1"></script>
+    <script src="js/finished-site-ads.js?v=20260930-finished-site-export-scope-1"></script>
     <script type="module" src="js/rar-import.js?v=20260928-rar-timeout-fallback-2"></script>
     <script src="js/generator.js?v=20260929-batch-code-placement-1"></script>
     <script src="js/zip-archive-worker-client.js?v=20260928-zip-worker-progress-1"></script>
-    <script src="js/ad-restoration.js?v=20260928-scroll-progress-offset-1"></script>
+    <script src="js/ad-restoration.js?v=20261001-ad-source-export-1"></script>
     <script src="js/batch-ad-builder.js?v=20260929-batch-code-placement-1"></script>
 <script src="js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
 <script src="js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
 <script src="js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-<script type="module" src="js/app.js?v=20260929-workflow-mode-indicator-1"></script>
+<script type="module" src="js/app.js?v=20261001-ad-source-export-1"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
   <script src="js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
 </body>

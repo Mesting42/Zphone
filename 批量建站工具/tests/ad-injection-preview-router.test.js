@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isPreviewInternalHref,
+  isPreviewDetailEntry,
   previewPageTypeForEntry,
   resolvePreviewHtmlEntry,
 } from '../js/ad-injection-preview-router.js';
@@ -33,11 +35,38 @@ describe('finished-site preview routing', () => {
     expect(resolvePreviewHtmlEntry(entries, '/missing-page', 'dist/client/index.html', 'dist/client/')).toBeNull();
   });
 
+  it('routes same-site absolute URLs and rejects lookalike external routes', () => {
+    const hosts = ['pocket-parlor.example'];
+    expect(isPreviewInternalHref('/games/', hosts)).toBe(true);
+    expect(isPreviewInternalHref('https://www.pocket-parlor.example/games/', hosts)).toBe(true);
+    expect(isPreviewInternalHref('https://external.example/games/', hosts)).toBe(false);
+    expect(resolvePreviewHtmlEntry(
+      entries,
+      'https://pocket-parlor.example/games/space-runner/',
+      'dist/client/index.html',
+      'dist/client/',
+      hosts
+    )?.path).toBe('dist/client/games/space-runner/index.html');
+    expect(resolvePreviewHtmlEntry(
+      entries,
+      'https://external.example/games/space-runner/',
+      'dist/client/index.html',
+      'dist/client/',
+      hosts
+    )).toBeNull();
+  });
+
   it('maps only known utility pages to toolbar tabs and treats arbitrary content as detail', () => {
     expect(previewPageTypeForEntry('dist/client/index.html', 'dist/client/')).toBe('home');
     expect(previewPageTypeForEntry('dist/client/about/index.html', 'dist/client/')).toBe('about');
     expect(previewPageTypeForEntry('dist/client/tools/swr/index.html', 'dist/client/')).toBe('detail');
     expect(previewPageTypeForEntry('dist/client/blog/how-antennas-work/index.html', 'dist/client/')).toBe('detail');
     expect(previewPageTypeForEntry('dist/client/games/space-runner/index.html', 'dist/client/')).toBe('detail');
+  });
+
+  it('selects concrete game pages as details without treating the games index as one', () => {
+    expect(isPreviewDetailEntry('dist/client/games/space-runner/index.html', 'dist/client/')).toBe(true);
+    expect(isPreviewDetailEntry('dist/client/games/index.html', 'dist/client/')).toBe(false);
+    expect(isPreviewDetailEntry('dist/client/blog/how-antennas-work/index.html', 'dist/client/')).toBe(true);
   });
 });

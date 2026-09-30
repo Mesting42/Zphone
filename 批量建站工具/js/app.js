@@ -1,21 +1,26 @@
 import './differentiated-builder.js?v=20260915-industrial-catalog-1';
 import { injectReactSource } from './react-source-ad-injector.js?v=20260923-export-parity-2';
-import { previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection-preview-router.js';
+import { isPreviewDetailEntry, previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection-preview-router.js?v=20260928-preview-navigation-2';
 import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-builder.js?v=20260923-artifact-first-1';
+import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data.js?v=20260928-rar-timeout-fallback-2';
 
 /**
  * 主应用逻辑
  * 管理步骤导航、状态、UI交互、实时预览
  */
 
-(function() {
+(async function() {
     'use strict';
+
+    // Load the local template catalog before defaults and radio listeners initialize.
+    if (window.AdTemplateCatalog) await window.AdTemplateCatalog.ready;
 
     var REQUIRED_DIFFERENTIATED_BUILDER_VERSION = '20260914-template-library-13';
 
     // ========== 应用状态 ==========
     var appState = {
         currentStep: 1,
+        workflowStepProgress: {},
         selectedTheme: null,
         data: [],
         jsonFields: [],
@@ -33,8 +38,9 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         previewSectionSlug: '',
         adPlacementMode: null,  // null or 'adv1'|'adv2'|'adv3'
         normalAdMode: 'code',   // code: 上传 TXT 自动接入；reserve: 先导出空 ad.js 与预留广告位
-        adJsVersion: 'v1.0.2',
+        adJsVersion: 'v1.0.2.1',
         reservePlacementMode: 'manual',
+        directAdPlacementMode: 'fixed', // 上传广告代码后默认沿用自动位置，可切换手动调整
         siteBuildMode: 'normal',
         legacyAdMigration: null,
         adCodeMigration: null,
@@ -43,6 +49,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         adPolicySourceMode: '',
         adPolicyGlobal: null,
         adPolicyOverrides: {},
+        adPolicyAdJsVersion: 'original', // original: 保留各站原版；其他值用于批量统一升级模板
         adInjectionSites: [],
         adInjectionSourceMode: '',
         adInjectionArchiveFiles: [],
@@ -51,13 +58,17 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         adInjectionAllowPartial: false,
         adInjectionPolicy: null,
         adInjectionPlacementModeDefault: 'fixed',
-        adInjectionAdJsVersion: 'v1.0.2',
+        adInjectionAdJsVersion: 'v1.0.2.1',
         adInjectionSiteOverrides: {},
         adInjectionPreviewSiteId: '',
         adInjectionPreviewEntryPath: '',
         adInjectionPreviewEffectsEnabled: false,
         adInjectionPlacementMode: null,
-        batchAdBuild: { sites: [], codes: [], activeSiteIndex: 0 },
+        batchAdBuild: {
+            sites: [], codes: [], activeSiteIndex: 0, adMode: 'code',
+            reserveDefaults: { placementMode: 'manual', adJsVersion: 'v1.0.2.1', adPlacements: {} },
+            codePlacementDefaults: { placementMode: 'fixed', adPlacements: null }
+        },
         differentiated: {
             siteType: 'editorial', vertical: '', audience: '', scope: '', baseUrl: '',
             contactEmail: '', contactLayout: 'split', contactFields: ['name', 'email', 'subject', 'message'], footerStyle: 'simple', footerLinks: ['privacy', 'terms', 'contact', 'about'], siteTitle: '', brandMark: 'auto', logoIcon: '', typography: 'auto', designFamily: 'auto', domainId: 'auto', seed: '', cardAlignment: 'compact', homeIntro: 'compact', featuredCard: 'highlight', navCategoryLimit: 4, homeCategoryLayout: false, homeCategoryLimit: 4, categoryOverrides: [], summaryMode: 'standard', tone: 'auto', themePreset: 'auto', themePalette: {}, contentDensity: 'comfortable', cardRadius: 'auto', cardHover: 'lift', cardColumns: 'template', categoryCardColumns: 'inherit', cardViewMode: 'auto', cardBorder: 'auto', cardSpacing: 'auto', cardExcerptLines: 'auto', cardImageHeight: 'auto', cardHeight: 'template', coverFit: 'smart', contentMaxWidth: 'auto', metaBg: 'auto', detailImgStyle: 'auto', categoryTitleStyle: 'auto', categoryTitleAlign: 'auto', heroStyle: 'auto', detailLayout: 'auto', fontStyle: 'auto', logoStyle: 'mark-text', navLayout: 'split', navStyle: 'glass', navHeight: 'regular', gridGap: 'regular', buttonStyle: 'solid', buttonSize: 'auto', backLinkStyle: 'arrow', animationEnter: 'fade', transitionSpeed: 'normal', exportVariant: 'draft'
@@ -68,6 +79,12 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         _previewBlobUrls: []    // 预览中本地图片的blob URL，用于清理
     };
 
+    if (window.AdTemplateCatalog) {
+        var defaultAdJsVersion = window.AdTemplateCatalog.getDefaultVersion();
+        appState.adJsVersion = defaultAdJsVersion;
+        appState.adInjectionAdJsVersion = defaultAdJsVersion;
+    }
+
     // ========== DOM引用 ==========
     var stepPanels = document.querySelectorAll('.step-panel');
     var stepItems = document.querySelectorAll('.step-item');
@@ -76,6 +93,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     var btnReupload = document.getElementById('btn-reupload');
     var btnNext = document.getElementById('btn-next');
     var workflowActionMessage = document.getElementById('workflow-action-message');
+    var workflowActionDock = document.querySelector('.workflow-action-dock');
     var previewFrame = document.getElementById('preview-frame');
     var previewRefreshTimer = null;
     var previewDocumentRevision = 0;
@@ -186,6 +204,60 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         return injectionWorkflowSteps().indexOf(step) + 1;
     }
 
+    function currentWorkflowSteps() {
+        return isAdInjectionWorkflow() ? injectionWorkflowSteps() : [1, 2, 3, 4, 5];
+    }
+
+    function currentWorkflowProgressKey() {
+        return appState.siteBuildMode || 'normal';
+    }
+
+    function getWorkflowHighestReachedStep(workflowKey, steps) {
+        var key = workflowKey || currentWorkflowProgressKey();
+        var sequence = steps || currentWorkflowSteps();
+        var progress = appState.workflowStepProgress || (appState.workflowStepProgress = {});
+        progress[key] = window.WorkflowStepNavigation.normalizeHighestReachedStep(sequence, progress[key]);
+        return progress[key];
+    }
+
+    function recordWorkflowStepReached(step, workflowKey, steps) {
+        var key = workflowKey || currentWorkflowProgressKey();
+        var sequence = steps || currentWorkflowSteps();
+        var progress = appState.workflowStepProgress || (appState.workflowStepProgress = {});
+        progress[key] = window.WorkflowStepNavigation.recordHighestReachedStep(sequence, progress[key], step);
+        return progress[key];
+    }
+
+    function resetWorkflowStepProgress(workflowKey, steps) {
+        var key = workflowKey || currentWorkflowProgressKey();
+        var sequence = steps || (key === 'ad-injection' ? injectionWorkflowSteps() : [1, 2, 3, 4, 5]);
+        var progress = appState.workflowStepProgress || (appState.workflowStepProgress = {});
+        progress[key] = window.WorkflowStepNavigation.getFirstStep(sequence);
+        if (key === currentWorkflowProgressKey()) syncWorkflowNavigation();
+    }
+
+    function syncStepProgressState() {
+        var steps = currentWorkflowSteps();
+        var highestStep = getWorkflowHighestReachedStep(currentWorkflowProgressKey(), steps);
+        var highestIndex = window.WorkflowStepNavigation.getStepIndex(steps, highestStep);
+
+        stepItems.forEach(function(item, index) {
+            var step = steps[index];
+            var stepIndex = window.WorkflowStepNavigation.getStepIndex(steps, step);
+            if (stepIndex === -1) return;
+
+            item.classList.toggle('active', step === appState.currentStep);
+            item.classList.toggle('completed', stepIndex < highestIndex);
+            item.classList.toggle('is-visited', stepIndex <= highestIndex || step === appState.currentStep);
+            if (step === appState.currentStep) item.setAttribute('aria-current', 'step');
+            else item.removeAttribute('aria-current');
+
+            // Keep the active item operable even if another workflow was just
+            // selected; only steps beyond this workflow's high-water mark lock.
+            item.disabled = stepIndex > highestIndex && step !== appState.currentStep;
+        });
+    }
+
     function nextWorkflowStep() {
         if (!isAdInjectionWorkflow()) return appState.currentStep < 5 ? appState.currentStep + 1 : 0;
         var steps = injectionWorkflowSteps();
@@ -208,6 +280,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var injection = isAdInjectionWorkflow();
         var step = appState.currentStep;
         var visualPosition = injection ? injectionWorkflowPosition(step) : step;
+        syncStepProgressState();
         btnPrev.style.display = visualPosition > 1 ? 'inline-block' : 'none';
         if (btnReupload) {
             var canReupload = injection ? (appState.adInjectionSites || []).length > 0 : appState.data && appState.data.length;
@@ -224,6 +297,8 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var labels = active
             ? ['上传过审网站', '配置网站', '导出新副本']
             : ['上传数据', '识别领域', '字段匹配', '配置网站', '导出网站'];
+        var stepProgress = document.querySelector('.step-progress');
+        if (stepProgress) stepProgress.classList.toggle('is-ad-injection', active);
         stepItems.forEach(function(item, index) {
             var visible = !active || index < 3;
             item.hidden = !visible;
@@ -347,6 +422,12 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var isInjection = appState.siteBuildMode === 'ad-injection';
         var isBatchAdBuild = appState.siteBuildMode === 'batch-ad-build';
         var isStandaloneTool = isRestoration;
+        // Keep the visible label in sync with the selected mode; this helper only touches presentation.
+        if (window.WorkflowModeIndicator) {
+            window.WorkflowModeIndicator.sync(document.getElementById('workflow-mode-label'), appState.siteBuildMode, 'main');
+        }
+        var workflowCommandBar = document.querySelector('.workflow-command-bar');
+        if (workflowCommandBar) workflowCommandBar.classList.toggle('is-mode-only', isStandaloneTool);
         syncInjectionWorkflowChrome();
         document.querySelectorAll('[data-build-mode]').forEach(function(button) {
             var selected = button.dataset.buildMode === appState.siteBuildMode;
@@ -367,7 +448,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (dataOverview) dataOverview.hidden = isStandaloneTool || isInjection || isBatchAdBuild;
         var stepProgress = document.querySelector('.step-progress');
         if (stepProgress) stepProgress.hidden = isStandaloneTool;
-        if (btnNext && appState.currentStep === 1) btnNext.style.display = isStandaloneTool ? 'none' : 'inline-block';
+        if (workflowActionDock) workflowActionDock.hidden = isStandaloneTool;
         if (btnReupload) {
             var hasUploadForMode = isInjection
                 ? (appState.adInjectionSites || []).length > 0
@@ -393,13 +474,27 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (adJsVersionGroup) adJsVersionGroup.hidden = isInjection || isRestoration || isDifferentiated;
         var batchCodeWorkspace = document.getElementById('batch-ad-code-workspace');
         if (batchCodeWorkspace) batchCodeWorkspace.hidden = !isBatchAdBuild;
+        // 批量流程先选择接入方式，再显示共用的 ad.js 版本和广告位控件；
+        // 离开批量流程时恢复普通建站原有顺序。
+        if (adsSection && batchCodeWorkspace && adJsVersionGroup) {
+            if (isBatchAdBuild && batchCodeWorkspace.nextElementSibling !== adJsVersionGroup) {
+                adsSection.insertBefore(batchCodeWorkspace, adJsVersionGroup);
+            } else if (!isBatchAdBuild && adJsVersionGroup.nextElementSibling !== batchCodeWorkspace) {
+                adsSection.insertBefore(adJsVersionGroup, batchCodeWorkspace);
+            }
+        }
         var legacyExport = document.getElementById('legacy-export-options');
         var differentiatedExport = document.getElementById('differentiated-export-options');
         var defaultExportButton = document.getElementById('btn-export');
         var injectionExport = document.getElementById('ad-injection-export-options');
         if (legacyExport) legacyExport.hidden = isDifferentiated || isBatchAdBuild || isInjection;
         if (differentiatedExport) differentiatedExport.hidden = !isDifferentiated;
-        if (defaultExportButton) defaultExportButton.hidden = isDifferentiated || isInjection;
+        if (defaultExportButton) {
+            defaultExportButton.hidden = isDifferentiated || isInjection;
+            var exportButtonLabel = defaultExportButton.querySelector('.export-button-label');
+            if (exportButtonLabel) exportButtonLabel.textContent = isBatchAdBuild ? '分别导出各站 ZIP' : '导出网站 ZIP';
+            defaultExportButton.title = isBatchAdBuild ? '会为每个站点分别下载 ZIP；若浏览器询问，请允许多个文件下载。' : '';
+        }
         if (injectionExport) injectionExport.hidden = !isInjection;
         var uploadHint = document.getElementById('upload-hint');
         if (uploadHint) uploadHint.textContent = isDifferentiated
@@ -438,8 +533,10 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (nextMode !== appState.siteBuildMode) markWorkflowModeTransition();
         appState.siteBuildMode = nextMode;
         appState.adPlacementMode = null;
+        appState.directAdPlacementMode = 'fixed';
         if (appState.config) {
             appState.config.adPlacements = {};
+            appState.config.adCodePlacements = null;
             appState.config.adPaths = {};
         }
         if (appState.siteBuildMode !== 'ad-migration') appState.legacyAdMigration = null;
@@ -458,6 +555,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (input) input.addEventListener('change', async function() {
             var file = input.files && input.files[0];
             if (!file) return;
+            resetWorkflowStepProgress('ad-migration');
             appState.legacyAdMigration = { valid: false, errors: [], warnings: [], config: {}, detectedFiles: {} };
             var result = document.getElementById('legacy-site-result');
             if (result) {
@@ -519,6 +617,11 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             target = target[key];
         });
         target[keys[keys.length - 1]] = value;
+    }
+
+    function normalizePolicyAdJsVersion(value) {
+        // 版本白名单由恢复核心统一维护，避免界面新增版本后与导出逻辑不一致。
+        return AdRestoration.normalizeBatchAdJsVersionMode(value);
     }
 
     function policyPositionOptions(page, selected) {
@@ -622,9 +725,14 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             var valid = !!metadata.valid;
             var policyCompatible = valid && !!metadata.adJsVersion;
             var override = appState.adPolicyOverrides[site.id];
+            var selectedVersion = normalizePolicyAdJsVersion(appState.adPolicyAdJsVersion);
+            var outputVersion = selectedVersion === 'original' ? metadata.adJsVersion : selectedVersion;
+            var versionText = metadata.adJsVersion
+                ? ' · ad.js ' + metadata.adJsVersion + (outputVersion !== metadata.adJsVersion ? ' → 输出 ' + outputVersion : '')
+                : ' · ad.js 版本无法识别，不能批量恢复/限流';
             var meta = valid
                 ? (metadata.detectedHost || '已识别广告路径') + ' · ' + metadata.detailPaths.length + ' 个详情页' +
-                    (metadata.adJsVersion ? ' · ad.js ' + metadata.adJsVersion : ' · ad.js 版本无法识别，不能批量恢复/限流')
+                    versionText
                 : (metadata.errors || []).map(function(item) { return item.message; }).join('；');
             return '<article class="ad-policy-site' + (policyCompatible ? '' : ' is-invalid') + '">' +
                 '<div class="ad-policy-site-summary"><span class="ad-policy-site-index">' + (index + 1) + '</span><div class="ad-policy-site-copy"><strong>' + escapeHtml(site.name) + '</strong><small>' + escapeHtml(meta) + '</small></div>' +
@@ -688,6 +796,27 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (codeExportButton) codeExportButton.disabled = adRestorationRunning || validCount === 0;
     }
 
+    async function inspectExportBlob(blob, siteName) {
+        if (typeof SiteExportPreflight === 'undefined') throw new Error('导出前全站体检组件未加载，请刷新页面后重试。');
+        var report = await SiteExportPreflight.inspectBlob(blob, window.JSZip, { siteName: siteName || '当前站点' });
+        SiteExportPreflight.assertValid(report);
+        return report;
+    }
+
+    function inspectOutputSites(output) {
+        if (typeof SiteExportPreflight === 'undefined') throw new Error('导出前全站体检组件未加载，请刷新页面后重试。');
+        var report = SiteExportPreflight.inspectSites(output && output.sites || []);
+        if (output) output.preflightReport = report;
+        SiteExportPreflight.assertValid(report);
+        return report;
+    }
+
+    function renderExportPreflight(report, targetId) {
+        if (typeof SiteExportPreflight === 'undefined' || !report) return;
+        var target = typeof targetId === 'string' ? document.getElementById(targetId) : targetId;
+        SiteExportPreflight.renderInto(target, report);
+    }
+
     function renderAdRestorationResult(results, outputName, failedMessage, isFolder) {
         var target = document.getElementById('restoration-result');
         if (!target) return;
@@ -695,16 +824,19 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var successful = results.filter(function(item) { return item.valid; });
         var failed = results.filter(function(item) { return !item.valid; });
         target.hidden = false;
-        target.className = 'restoration-result ' + (successful.length ? 'is-success' : 'is-error');
-        var heading = successful.length
+        target.className = 'restoration-result ' + (successful.length && !failedMessage ? 'is-success' : 'is-error');
+        var heading = failedMessage || (successful.length
             ? '已处理 ' + successful.length + ' 个站点' + (failed.length ? '，' + failed.length + ' 个未通过校验' : '')
-            : (failedMessage || '策略处理未完成');
+            : '策略处理未完成');
         var html = '<h4>' + escapeHtml(heading) + '</h4>';
         if (outputName) html += '<p>' + (isFolder ? '已生成新的站点总目录：' : '已开始下载：') + '<strong>' + escapeHtml(outputName) + '</strong></p>';
         if (results.length) {
             html += '<ul>' + results.map(function(item) {
+                var versionLabel = item.sourceAdJsVersion && item.adJsVersion && item.sourceAdJsVersion !== item.adJsVersion
+                    ? item.sourceAdJsVersion + ' → ' + item.adJsVersion
+                    : (item.adJsVersion || '版本未知');
                 var detail = item.valid
-                    ? '成功：' + (item.siteName || item.archiveName) + '（ad.js ' + (item.adJsVersion || '版本未知') + '，' + (item.overridden ? '单站覆盖' : '全局方案') + '，共 ' + item.changedPages + ' 个页面）'
+                    ? '成功：' + (item.siteName || item.archiveName) + '（ad.js ' + versionLabel + '，' + (item.overridden ? '单站覆盖' : '全局方案') + '，共 ' + item.changedPages + ' 个页面）'
                     : '失败：' + (item.siteName || item.archiveName) + (item.adJsVersion ? '（ad.js ' + item.adJsVersion + '）' : '') + '—' + (item.errors || []).map(function(error) { return error.message; }).join('；');
                 return '<li>' + escapeHtml(detail) + '</li>';
             }).join('') + '</ul>';
@@ -848,6 +980,16 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             populatePolicyEditor(globalEditor, appState.adPolicyGlobal);
             updateAdRestorationControls();
         });
+        var adVersionSelect = document.getElementById('ad-policy-ad-version');
+        if (adVersionSelect) {
+            adVersionSelect.value = appState.adPolicyAdJsVersion;
+            adVersionSelect.addEventListener('change', function() {
+                // 版本选择只控制输出模板，广告路径与页面策略继续使用各站已识别配置。
+                appState.adPolicyAdJsVersion = normalizePolicyAdJsVersion(this.value);
+                renderAdPolicySites();
+                updateAdRestorationControls();
+            });
+        }
         runButton.addEventListener('click', async function() {
             if (adRestorationRunning || typeof AdRestoration === 'undefined') return;
             var destinationHandle = null;
@@ -876,8 +1018,11 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                     function(percent, message) {
                         if (fill) fill.style.width = Math.min(percent, 88) + '%';
                         if (textTarget) textTarget.textContent = message;
-                    }
+                    },
+                    { adJsVersionMode: appState.adPolicyAdJsVersion }
                 );
+                if (textTarget) textTarget.textContent = '正在进行导出前全站体检…';
+                var preflightReport = inspectOutputSites(output);
                 if (destinationHandle) {
                     await AdRestoration.writePolicyBatchToDirectory(output, destinationHandle, function(percent, message) {
                         if (fill) fill.style.width = (88 + Math.round(percent * .12)) + '%';
@@ -892,9 +1037,11 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                     if (fill) fill.style.width = '100%';
                     renderAdRestorationResult(output.results, fileName, '', false);
                 }
+                renderExportPreflight(preflightReport, 'restoration-result');
             } catch (error) {
                 if (textTarget) textTarget.textContent = '策略处理未完成';
                 renderAdRestorationResult(error.results || [], '', error.message, false);
+                renderExportPreflight(error.preflightReport, 'restoration-result');
             } finally {
                 adRestorationRunning = false;
                 updateAdRestorationControls();
@@ -1129,6 +1276,19 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             : site && site.entries || [];
     }
 
+    function adInjectionPreviewAllowedHosts(site) {
+        var hosts = typeof AdRestoration !== 'undefined' && AdRestoration.siteHostCandidates
+            ? AdRestoration.siteHostCandidates(site)
+            : [];
+        if (typeof AdRestoration !== 'undefined' && AdRestoration.matchAdCodesToSites) {
+            var mapping = AdRestoration.matchAdCodesToSites([site], appState.adInjectionCodes || []).mappings[0];
+            if (mapping && mapping.host) hosts.push(mapping.host);
+        }
+        return hosts.map(function(host) {
+            return String(host || '').trim().toLowerCase().replace(/^www\./, '').replace(/\.$/, '');
+        }).filter(function(host, index, values) { return !!host && values.indexOf(host) === index; });
+    }
+
     function adInjectionUploadedPreviewArtifact(site, entries) {
         var sourceEntries = entries || [];
         var htmlEntries = sourceEntries.filter(function(entry) { return /\.html?$/i.test(entry.path || ''); });
@@ -1164,7 +1324,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (!pageType || pageType === 'home') return preferred || entries.find(function(entry) { return /(?:^|\/)index\.html?$/i.test(entry.path || ''); }) || entries[0];
         var namedPage = entries.filter(function(entry) {
             var path = normalizeAdInjectionPreviewPath(entry.path).toLowerCase();
-            if (pageType === 'detail') return /\/(?:details?|articles?|news|posts?|stories?|guides?|blog|tools)\/[^/]+\/index\.html?$/.test('/' + path) || /\/(?:detail|article|post|story|news)[^/]*\.html?$/.test('/' + path);
+            if (pageType === 'detail') return isPreviewDetailEntry(path, adInjectionPreviewRoot(preferredPath));
             return new RegExp('/' + pageType + '(?:/index)?\\.html?$').test('/' + path);
         }).sort(function(a, b) { return String(a.path).split('/').length - String(b.path).split('/').length; })[0];
         return namedPage || preferred || entries[0];
@@ -1569,10 +1729,18 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         mountAdInjectionPlacementOverlay(doc, page, candidatesForOverlay);
     }
 
-    function addAdInjectionPreviewNavigation(doc, entryPath) {
+    function addAdInjectionPreviewNavigation(doc, entryPath, allowedHosts) {
         var navigationScript = doc.createElement('script');
-        navigationScript.type = 'module';
-        navigationScript.textContent = "(function(){var fromPath=" + JSON.stringify(normalizeAdInjectionPreviewPath(entryPath)) + ";document.addEventListener('click',function(event){var link=event.target&&event.target.closest?event.target.closest('a[href]'):null;if(!link)return;var href=String(link.getAttribute('href')||'').trim();if(!href||href.charAt(0)==='#'||/^(?:mailto|tel|javascript|data):/i.test(href))return;event.preventDefault();event.stopPropagation();window.parent.postMessage({type:'ad-injection-preview-navigate',href:href,fromPath:fromPath},'*');});})();";
+        navigationScript.setAttribute('data-sitefoundry-preview-navigation', '');
+        // Use a classic capture-phase listener. It runs reliably in a sandboxed
+        // srcdoc and sees link clicks before an uploaded theme can stop bubbling.
+        navigationScript.textContent = "(function(){var fromPath=" + JSON.stringify(normalizeAdInjectionPreviewPath(entryPath))
+            + ",allowedHosts=" + JSON.stringify(allowedHosts || []) + ";"
+            + "function host(value){return String(value||'').trim().toLowerCase().replace(/^www\\./,'').replace(/\\.$/,'');}"
+            + "function linkFor(event){var path=typeof event.composedPath==='function'?event.composedPath():[];for(var i=0;i<path.length;i++){if(path[i]&&path[i].tagName==='A'&&path[i].hasAttribute('href'))return path[i];}return event.target&&event.target.closest?event.target.closest('a[href]'):null;}"
+            + "function block(event){event.preventDefault();event.stopPropagation();if(event.stopImmediatePropagation)event.stopImmediatePropagation();}"
+            + "function internal(href){if(!/^(?:https?:)?\\/\\//i.test(href))return true;try{var url=new URL(href,'https://sitefoundry-preview.invalid/');return /^https?:$/i.test(url.protocol)&&allowedHosts.indexOf(host(url.hostname))!==-1;}catch(error){return false;}}"
+            + "document.addEventListener('click',function(event){var link=linkFor(event);if(!link)return;var href=String(link.getAttribute('href')||'').trim();if(!href||href.charAt(0)==='#')return;if(link.hasAttribute('download')||/^(?:mailto|tel|javascript|data|blob):/i.test(href)||!internal(href)){block(event);return;}block(event);window.parent.postMessage({type:'ad-injection-preview-navigate',href:href,fromPath:fromPath},'*');},true);})();";
         doc.body.appendChild(navigationScript);
     }
 
@@ -1635,7 +1803,8 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             }
             var label = doc.createElement('div');
             label.textContent = 'advertisement' + unitNumber;
-            label.style.cssText = 'text-align:center;color:black;font-size:13px;';
+            // 继承页面文字颜色，避免深色主题中的预览占位文字看不见。
+            label.style.cssText = 'display:block!important;position:relative;z-index:1;text-align:center;color:inherit!important;-webkit-text-fill-color:currentColor!important;font:13px/1.4 system-ui,sans-serif!important;visibility:visible!important;opacity:1!important;';
             var area = doc.createElement('div');
             area.id = 'div-gpt-ad-banner' + unitNumber;
             area.style.cssText = 'min-width:300px;min-height:250px;';
@@ -1648,7 +1817,12 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             var sections = main ? Array.from(main.querySelectorAll(':scope > section, :scope > article, section')) : [];
             var content = adInjectionDetailContentTarget(doc, main);
             var related = doc.querySelector('.related-section, [class*="related"], [id*="related"]');
-            if (slot.position === 'after-navbar') insertAfter(navigation, node);
+            if (slot.position === 'after-navbar') {
+                if (slot.unit === 'banner1' && typeof FinishedSiteAds !== 'undefined' && FinishedSiteAds.applyAfterNavigationOffset) {
+                    FinishedSiteAds.applyAfterNavigationOffset(doc, node, navigation);
+                }
+                insertAfter(navigation, node);
+            }
             else if (slot.position === 'after-hero') insertAfter(doc.querySelector('.hero, [class*="hero"], main > section'), node);
             else if (slot.position === 'content-top' && main) main.insertBefore(node, main.firstChild);
             else if (/^after-section-\d+$/.test(slot.position)) insertAfter(sections[Number(slot.position.split('-').pop())], node);
@@ -1810,7 +1984,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (getAdInjectionSettings().mode === 'manual' && (typeof FinishedSiteAds === 'undefined' || FinishedSiteAds.isContentPath(entry.path))) {
             addAdInjectionPlacementMarkers(doc, pageType);
         }
-        addAdInjectionPreviewNavigation(doc, entry.path);
+        addAdInjectionPreviewNavigation(doc, entry.path, adInjectionPreviewAllowedHosts(site));
         return '<!doctype html>\n' + doc.documentElement.outerHTML;
     }
 
@@ -1949,6 +2123,52 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         return state.promise;
     }
 
+    /**
+     * 将源码包在隔离预览环境中生成的静态产物转换为广告注入输入。
+     * 预览和最终导出必须使用同一份构建结果，否则源码包里的审计目录、
+     * 示例游戏或旧产物可能被误识别为成品站根目录。
+     */
+    async function prepareAdInjectionExportSites(sites) {
+        var prepared = [];
+        for (const site of Array.from(sites || [])) {
+            var sourceEntries = adInjectionPreviewSourceEntries(site);
+            if (!previewBuildPlan(sourceEntries)) {
+                prepared.push(site);
+                continue;
+            }
+
+            var pendingBuild = ensureAdInjectionPreviewBuild(site);
+            if (pendingBuild) await pendingBuild;
+            var build = site && site._previewBuild;
+            if (!build || build.status !== 'ready' || !build.entries || !build.entries.length) {
+                throw new Error((site && site.name || '当前站点') + ' 的静态生成结果不可用，无法安全加入广告。' + (build && build.error ? ' ' + build.error : ''));
+            }
+
+            var outputRoot = normalizeAdInjectionPreviewPath(build.outputRoot || adInjectionPreviewRoot(build.entryPath || ''));
+            var entries = build.entries.filter(function(entry) {
+                var path = normalizeAdInjectionPreviewPath(entry.path || '');
+                return !outputRoot || path.indexOf(outputRoot) === 0;
+            }).map(function(entry) {
+                var path = normalizeAdInjectionPreviewPath(entry.path || '');
+                return {
+                    path: outputRoot ? path.slice(outputRoot.length) : path,
+                    bytes: entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes || [])
+                };
+            }).filter(function(entry) { return !!entry.path; });
+            var project = AdRestoration.classifyInjectableSiteEntries(entries, site.name);
+            if (!project.valid) {
+                throw new Error((site.name || '当前站点') + ' 的静态生成结果无法识别为可部署网站。');
+            }
+            prepared.push(Object.assign({}, site, {
+                entries: entries,
+                previewSourceEntries: null,
+                sourceRoot: String(site.sourceRoot || '') + outputRoot,
+                project: project
+            }));
+        }
+        return prepared;
+    }
+
     function updateAdInjectionPreview(pageType, entryPath) {
         if (!isAdInjectionWorkflow() || appState.currentStep !== 4) return;
         syncAdInjectionPreviewEffectsControl();
@@ -2019,15 +2239,15 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 updateAdInjectionPreview();
             });
         });
-        document.querySelectorAll('input[name="injection-ad-version"]').forEach(function(input) {
-            input.addEventListener('change', function() {
-                if (!this.checked) return;
-                var version = typeof FinishedSiteAds !== 'undefined' ? FinishedSiteAds.normalizeVersion(this.value) : this.value;
-                var override = appState.adInjectionSiteOverrides[appState.adInjectionPreviewSiteId];
-                if (override) override.version = version;
-                else appState.adInjectionAdJsVersion = version;
-                syncAdInjectionSettingsControls();
-            });
+        var injectionVersionGroup = panel.querySelector('input[name="injection-ad-version"]')?.closest('.ad-js-version-grid');
+        if (injectionVersionGroup) injectionVersionGroup.addEventListener('change', function(event) {
+            var input = event.target;
+            if (!input.matches('input[name="injection-ad-version"]') || !input.checked) return;
+            var version = typeof FinishedSiteAds !== 'undefined' ? FinishedSiteAds.normalizeVersion(input.value) : input.value;
+            var override = appState.adInjectionSiteOverrides[appState.adInjectionPreviewSiteId];
+            if (override) override.version = version;
+            else appState.adInjectionAdJsVersion = version;
+            syncAdInjectionSettingsControls();
         });
         var policyGrid = document.getElementById('injection-policy-grid');
         if (policyGrid) policyGrid.addEventListener('click', function(event) {
@@ -2064,7 +2284,10 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 if (!site) return;
                 var homeEntry = findAdInjectionPreviewEntry(site, 'home');
                 var root = adInjectionPreviewRoot(homeEntry ? homeEntry.path : event.data.fromPath);
-                var targetEntry = resolvePreviewHtmlEntry(site.entries || [], event.data.href, event.data.fromPath, root);
+                var targetEntry = resolvePreviewHtmlEntry(
+                    adInjectionPreviewEntries(site), event.data.href, event.data.fromPath, root,
+                    adInjectionPreviewAllowedHosts(site)
+                );
                 if (!targetEntry) return;
                 var targetPage = previewPageTypeForEntry(targetEntry.path, root);
                 document.querySelectorAll('.preview-tab').forEach(function(tab) {
@@ -2098,10 +2321,10 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var successful = results.filter(function(item) { return item.valid; });
         var failed = results.filter(function(item) { return !item.valid; });
         target.hidden = false;
-        target.className = 'injection-result ' + (successful.length ? 'is-success' : 'is-error');
-        var heading = successful.length
+        target.className = 'injection-result ' + (successful.length && !failedMessage ? 'is-success' : 'is-error');
+        var heading = failedMessage || (successful.length
             ? '已为 ' + successful.length + ' 个成品站完成广告与部署产物核验' + (failed.length ? '，' + failed.length + ' 个未通过校验' : '')
-            : (failedMessage || '成品站广告注入未完成');
+            : '成品站广告注入未完成');
         var html = '<h4>' + escapeHtml(heading) + '</h4>';
         if (outputName) html += '<p>' + (isFolder ? '已生成新目录：' : '已开始下载：') + '<strong>' + escapeHtml(outputName) + '</strong></p>';
         if (results.length) html += '<ul>' + results.map(function(item) {
@@ -2168,17 +2391,36 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             var fill = document.getElementById('injection-scan-progress-fill');
             var textTarget = document.getElementById('injection-scan-progress-text');
             var resultTarget = document.getElementById('injection-result');
+            var lastProgress = 0;
             if (progress) progress.hidden = false;
+            if (progress) progress.classList.remove('is-indeterminate');
             if (fill) fill.style.width = '0%';
             if (resultTarget) resultTarget.hidden = true;
+            resetWorkflowStepProgress('ad-injection');
             adInjectionRunning = true;
             updateAdInjectionControls();
             try {
-                var progressCallback = function(percent, message) { if (fill) fill.style.width = percent + '%'; if (textTarget) textTarget.textContent = message; };
+                // 解析器不可量化的阶段显示不定向动画；可量化进度只增不减，避免回退造成误导。
+                var progressCallback = function(percent, message, state) {
+                    var indeterminate = percent === null || percent === undefined || (state && state.indeterminate === true);
+                    if (progress) progress.classList.toggle('is-indeterminate', indeterminate);
+                    if (fill) {
+                        if (indeterminate) {
+                            fill.style.width = '';
+                        } else {
+                            var nextProgress = Number(percent);
+                            if (!Number.isFinite(nextProgress)) nextProgress = lastProgress;
+                            nextProgress = Math.max(lastProgress, Math.max(0, Math.min(100, nextProgress)));
+                            lastProgress = nextProgress;
+                            fill.style.width = nextProgress + '%';
+                        }
+                    }
+                    if (textTarget) textTarget.textContent = message;
+                };
                 var selectedArchives = mode === 'archives' ? Array.from(source || []) : [];
                 var needsArchiveRuntime = selectedArchives.some(function(file) { return /\.(?:rar|7z)$/i.test(String(file && file.name || '')); });
                 if (needsArchiveRuntime) {
-                    progressCallback(4, '正在加载 RAR / 7Z 本地解析组件…');
+                    progressCallback(null, '正在加载 RAR / 7Z 本地解析组件…', { indeterminate: true });
                     var archiveRuntime = await ensureArchiveRuntime();
                     // readRarArchive 通过同一 Promise 获取实例，避免重复加载或竞态。
                     window.ArchiveRuntimeReady = Promise.resolve(archiveRuntime);
@@ -2193,11 +2435,13 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 appState.adInjectionPreviewSiteId = scan.sites[0] ? scan.sites[0].id : '';
                 appState.adInjectionPolicy = typeof AdRestoration !== 'undefined' ? AdRestoration.createPolicy() : null;
                 appState.adInjectionSiteOverrides = {};
+                if (progress) progress.classList.remove('is-indeterminate');
                 if (fill) fill.style.width = '100%';
                 if (textTarget) textTarget.textContent = '已识别 ' + scan.sites.length + ' 个成品站、' + scan.fileCount + ' 个文件';
             } catch (error) {
                 appState.adInjectionSites = [];
                 appState.adInjectionSourceMode = '';
+                if (progress) progress.classList.remove('is-indeterminate');
                 var scanError = formatUiError(error, '压缩包解析器未返回错误详情，请刷新页面后重试；RAR 文件会自动切换 RAR5 解析器。');
                 if (textTarget) textTarget.textContent = '成品站识别失败：' + scanError;
                 renderAdInjectionResult([], '', scanError, false);
@@ -2275,7 +2519,9 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             if (fill) fill.style.width = '0%';
             if (resultTarget) resultTarget.hidden = true;
             try {
-                var output = await AdRestoration.applyAdCodeBatch(appState.adInjectionSites, appState.adInjectionCodes, function(percent, message) {
+                if (textTarget) textTarget.textContent = '正在准备可部署的静态站产物…';
+                var exportSites = await prepareAdInjectionExportSites(appState.adInjectionSites);
+                var output = await AdRestoration.applyAdCodeBatch(exportSites, appState.adInjectionCodes, function(percent, message) {
                     if (fill) fill.style.width = Math.min(percent, 88) + '%';
                     if (textTarget) textTarget.textContent = message;
                 }, {
@@ -2284,6 +2530,8 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                     policy: appState.adInjectionPolicy,
                     overrides: appState.adInjectionSiteOverrides
                 }, injectReactSource);
+                if (textTarget) textTarget.textContent = '正在进行导出前全站体检…';
+                var preflightReport = inspectOutputSites(output);
                 if (destinationHandle) {
                     await AdRestoration.writePolicyBatchToDirectory(output, destinationHandle, function(percent, message) {
                         if (fill) fill.style.width = (88 + Math.round(percent * .12)) + '%';
@@ -2298,9 +2546,11 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                     if (fill) fill.style.width = '100%';
                     renderAdInjectionResult(output.results, fileName, '', false);
                 }
+                renderExportPreflight(preflightReport, 'injection-result');
             } catch (error) {
                 if (textTarget) textTarget.textContent = '成品站广告注入未完成';
                 renderAdInjectionResult(error.results || [], '', error.message, false);
+                renderExportPreflight(error.preflightReport, 'injection-result');
             } finally {
                 adInjectionRunning = false;
                 updateAdInjectionControls();
@@ -2407,12 +2657,15 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
 
     // 随机组合只会读取 theme.iconPool；这里仅为人工逐个挑选补充全量 Emoji，
     // 并始终把当前领域的图标放在前面，方便快速选择。
-    function getCategoryIconPickerChoices(domainPool, activeIcon) {
+    function getCategoryIconPickerChoices(domainPool, activeIcon, categoryName, domainId) {
         var choices = [];
         var addIcon = function(icon) {
             icon = getCompatibleCategoryEmoji(icon);
             if (icon && choices.indexOf(icon) === -1) choices.push(icon);
         };
+        if (typeof getRecommendedCategoryEmojiOptions === 'function') {
+            getRecommendedCategoryEmojiOptions(domainId, categoryName).forEach(addIcon);
+        }
         (domainPool || []).forEach(addIcon);
         (typeof ALL_CATEGORY_EMOJI_ICONS !== 'undefined' ? ALL_CATEGORY_EMOJI_ICONS : []).forEach(addIcon);
         activeIcon = getCompatibleCategoryEmoji(activeIcon);
@@ -2439,7 +2692,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (value) value.textContent = String(limit);
         var visible = config.categories.slice(0, limit);
         function iconChoices(category, index) {
-            var choices = getCategoryIconPickerChoices(pool, category.icon);
+            var choices = getCategoryIconPickerChoices(pool, category.icon, category.name, config.domain.id);
             var active = getCompatibleCategoryEmoji(category.icon || choices[index % Math.max(1, choices.length)] || '📌');
             return { active: active, choices: choices.length ? choices : ['📌', '✦', '◆', '●', '■', '▲'] };
         }
@@ -2569,6 +2822,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     }
 
     function applyDifferentiatedImport(imported, fileName) {
+        resetWorkflowStepProgress('differentiated');
         appState.differentiatedPackage = imported.packageData || {};
         appState.packageAssets = imported.packageAssets || {};
         appState.differentiatedImportName = fileName || '本次数据源';
@@ -2638,12 +2892,15 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     }
 
     function clearDifferentiatedImport() {
+        resetWorkflowStepProgress('differentiated');
         appState.differentiatedPackage = null;
         appState.packageAssets = {};
         appState.differentiatedImportName = '';
         appState.adCodeMigration = null;
+        appState.directAdPlacementMode = 'fixed';
         if (appState.config) {
             appState.config.adPlacements = {};
+            appState.config.adCodePlacements = null;
             appState.config.adPaths = {};
         }
         appState.domainDetection = null;
@@ -2795,6 +3052,48 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         return JSON.parse(JSON.stringify(value || {}));
     }
 
+    function defaultBatchReserveSettings() {
+        return { placementMode: 'manual', adJsVersion: appState.adJsVersion || 'v1.0.2.1', adPlacements: {} };
+    }
+
+    // 老会话或热更新可能没有新字段；在一个入口补齐，避免 UI、预览和导出各自猜测默认值。
+    function ensureBatchAdBuildState() {
+        if (!appState.batchAdBuild) appState.batchAdBuild = { sites: [], codes: [], activeSiteIndex: 0 };
+        var batch = appState.batchAdBuild;
+        batch.adMode = batch.adMode === 'reserve' ? 'reserve' : 'code';
+        if (!batch.reserveDefaults) batch.reserveDefaults = defaultBatchReserveSettings();
+        if (!batch.reserveDefaults.adPlacements) batch.reserveDefaults.adPlacements = {};
+        batch.reserveDefaults.placementMode = batch.reserveDefaults.placementMode === 'fixed' ? 'fixed' : 'manual';
+        batch.reserveDefaults.adJsVersion = batch.reserveDefaults.adJsVersion || 'v1.0.2.1';
+        if (!batch.codePlacementDefaults) batch.codePlacementDefaults = { placementMode: 'fixed', adPlacements: null };
+        batch.codePlacementDefaults.placementMode = batch.codePlacementDefaults.placementMode === 'manual' ? 'manual' : 'fixed';
+        if (batch.codePlacementDefaults.adPlacements !== null && (!batch.codePlacementDefaults.adPlacements || typeof batch.codePlacementDefaults.adPlacements !== 'object' || Array.isArray(batch.codePlacementDefaults.adPlacements))) {
+            batch.codePlacementDefaults.adPlacements = null;
+        }
+        return batch;
+    }
+
+    function getBatchReserveEditingTarget(site) {
+        var batch = ensureBatchAdBuildState();
+        if (site && site.reserveOverrideEnabled) {
+            if (!site.reserveSettings) site.reserveSettings = cloneBatchConfig(batch.reserveDefaults);
+            if (!site.reserveSettings.adPlacements) site.reserveSettings.adPlacements = {};
+            return site.reserveSettings;
+        }
+        return batch.reserveDefaults;
+    }
+
+    // 上传代码的手动广告位置使用独立状态；默认位置在各站间共享，单站覆盖则只作用于当前站。
+    function getBatchCodePlacementEditingTarget(site) {
+        var batch = ensureBatchAdBuildState();
+        if (site && site.codePlacementOverrideEnabled) {
+            if (!site.codePlacementSettings) site.codePlacementSettings = cloneBatchConfig(batch.codePlacementDefaults);
+            site.codePlacementSettings.placementMode = site.codePlacementSettings.placementMode === 'manual' ? 'manual' : 'fixed';
+            return site.codePlacementSettings;
+        }
+        return batch.codePlacementDefaults;
+    }
+
     function getActiveBatchSite() {
         var batch = appState.batchAdBuild || { sites: [] };
         var sites = batch.sites || [];
@@ -2809,6 +3108,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     // 否则归档包内的相对图片路径会被当成在线 URL，从而在 iframe 中显示为破图。
     function syncBatchActiveSiteToApp() {
         if (!isBatchAdBuild()) return null;
+        var batch = ensureBatchAdBuildState();
         var site = getActiveBatchSite();
         if (!site) return null;
         if (!site.config) site.config = cloneBatchConfig(appState.config);
@@ -2823,9 +3123,31 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         appState.isLocalImages = !!site.isLocalImages;
         appState.localImages = site.localImages || {};
         appState.config = site.config;
-        appState.adCodeMigration = (appState.batchAdBuild.codes || []).find(function(code) {
-            return code.id === site.codeId && code.valid;
-        }) || null;
+        if (batch.adMode === 'reserve') {
+            var reserveTarget = getBatchReserveEditingTarget(site);
+            var reserveDomain = BatchAdBuilder.normalizeDomainInput(site.adDomain);
+            appState.normalAdMode = 'reserve';
+            appState.reservePlacementMode = reserveTarget.placementMode;
+            appState.adJsVersion = reserveTarget.adJsVersion;
+            // 保持同一个对象引用，手动放置器的增删会直接写回全局方案或当前单站覆盖。
+            appState.config.adPlacements = reserveTarget.adPlacements;
+            appState.config.adPaths = {};
+            appState.config.contactEmail = 'contact@' + reserveDomain.effective;
+            appState.adCodeMigration = null;
+        } else {
+            appState.normalAdMode = 'code';
+            var codePlacementTarget = getBatchCodePlacementEditingTarget(site);
+            appState.directAdPlacementMode = codePlacementTarget.placementMode;
+            // 保持相同对象引用，让预览中的移动立即写回全局位置或当前站点覆盖。
+            appState.config.adCodePlacements = codePlacementTarget.adPlacements;
+            appState.adCodeMigration = (batch.codes || []).find(function(code) {
+                return code.id === site.codeId && code.valid;
+            }) || null;
+            if (appState.adCodeMigration) {
+                appState.config.adPaths = cloneBatchConfig(appState.adCodeMigration.config);
+                if (appState.adCodeMigration.detectedHost) appState.config.contactEmail = 'contact@' + String(appState.adCodeMigration.detectedHost).toLowerCase();
+            }
+        }
         return site;
     }
 
@@ -2941,6 +3263,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         syncBatchActiveSiteToApp();
         renderBatchPreviewSiteTabs();
         renderBatchDataList();
+        renderBatchAdCodeWorkspace();
         if (appState.currentStep === 4) {
             initTemplateGrid();
             applyConfigToUI();
@@ -3080,7 +3403,14 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 loaded.push(site);
                 setBatchDataImportProgress(((index + 1) / list.length) * 100, '已完成第 ' + (index + 1) + '/' + list.length + ' 份：' + file.name, 'loading');
             }
-            appState.batchAdBuild = { sites: loaded, codes: [], activeSiteIndex: 0 };
+            appState.batchAdBuild = {
+                sites: loaded,
+                codes: [],
+                activeSiteIndex: 0,
+                adMode: 'code',
+                reserveDefaults: defaultBatchReserveSettings()
+            };
+            resetWorkflowStepProgress('batch-ad-build');
             appState.adCodeMigration = null;
             // 每个数据源独立分析，严禁把第一份数据的医疗/科技等结果套用给同批其他站点。
             loaded.forEach(function(site) {
@@ -3097,6 +3427,64 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         } catch (error) {
             setBatchDataImportProgress(100, '解析失败：' + (error && error.message ? error.message : '请检查数据源后重试。'), 'error');
             showNotice(error.message, '无法读取批量数据源');
+        }
+    }
+
+    // Archive parser calls are bounded so an unresponsive worker cannot leave the batch UI busy forever.
+    function waitForBatchArchiveOperation(operation, timeoutMessage, worker, timeoutMs) {
+        if (typeof setTimeout !== 'function' || typeof clearTimeout !== 'function') return Promise.resolve(operation);
+        var timeoutDuration = Number(timeoutMs);
+        if (!Number.isFinite(timeoutDuration) || timeoutDuration < 1) timeoutDuration = 90000;
+        function terminateWorker() {
+            if (!worker || typeof worker.terminate !== 'function') return;
+            try { worker.terminate(); } catch (_) {}
+        }
+        var timer = 0;
+        var timeout = new Promise(function(_, reject) {
+            timer = setTimeout(function() {
+                terminateWorker();
+                reject(new Error(timeoutMessage));
+            }, timeoutDuration);
+        });
+        var workerError = null;
+        var onWorkerError = null;
+        if (worker && typeof worker.addEventListener === 'function') {
+            workerError = new Promise(function(_, reject) {
+                onWorkerError = function(event) {
+                    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+                    var detail = event && (event.message || event.type);
+                    terminateWorker();
+                    reject(new Error('压缩包解析 Worker 出错' + (detail ? '：' + detail : '。')));
+                };
+                worker.addEventListener('error', onWorkerError, { once: true });
+                worker.addEventListener('messageerror', onWorkerError, { once: true });
+            });
+        }
+        var operations = [Promise.resolve(operation), timeout];
+        if (workerError) operations.push(workerError);
+        return Promise.race(operations).finally(function() {
+            if (timer) clearTimeout(timer);
+            if (onWorkerError && worker && typeof worker.removeEventListener === 'function') {
+                worker.removeEventListener('error', onWorkerError);
+                worker.removeEventListener('messageerror', onWorkerError);
+            }
+        });
+    }
+
+    // Never let archive cleanup keep the batch import controls disabled indefinitely.
+    async function closeBatchArchiveSafely(archive, fileName) {
+        if (!archive || typeof archive.close !== 'function') return;
+        try {
+            await waitForBatchArchiveOperation(
+                archive.close(),
+                String(fileName || '压缩包') + ' 关闭解析 Worker 超时。',
+                archive.worker,
+                5000
+            );
+        } catch (_) {
+            if (archive.worker && typeof archive.worker.terminate === 'function') {
+                try { archive.worker.terminate(); } catch (_) {}
+            }
         }
     }
 
@@ -3125,18 +3513,41 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 report(0.55 + (imageIndex / Math.max(1, imagePaths.length)) * 0.38, '正在读取图片 ' + (imageIndex + 1) + '/' + imagePaths.length);
                 localImages[imagePath] = await zip.files[imagePath].async('blob');
             }
-        } else if (ext === 'rar' || ext === '7z') {
-            report(0.08, '正在加载 ' + ext.toUpperCase() + ' 解析组件');
-            var Archive = await ensureArchiveRuntime();
-            report(0.22, '正在打开 ' + ext.toUpperCase() + ' 压缩包');
-            var archive = await Archive.open(file);
+        } else if (ext === 'rar') {
+            if (typeof AdRestoration === 'undefined' || typeof AdRestoration.readRarArchiveEntries !== 'function') {
+                throw new Error('RAR 回退解析组件未加载，请刷新页面后重试。');
+            }
+            report(0.08, '正在加载 RAR 解析组件');
+            var latestRarProgress = 0.08;
+            var rarEntries = await AdRestoration.readRarArchiveEntries(file, function(stage) {
+                latestRarProgress = batchRarStageProgress(stage, latestRarProgress);
+                report(latestRarProgress, stage);
+            });
+            var rarData = await readBatchRarEntries(file, rarEntries, {
+                normalizeData: BatchAdBuilder.normalizeData,
+                parseUploadedJson: parseUploadedJson,
+                onProgress: report
+            });
+            data = rarData.data;
+            localImages = rarData.localImages;
+        } else if (ext === '7z') {
+            report(0.08, '正在加载 7Z 解析组件');
+            var Archive = await waitForBatchArchiveOperation(ensureArchiveRuntime(), file.name + ' 加载解析组件超过 90 秒，请刷新页面后重试。');
+            report(0.22, '正在打开 7Z 压缩包');
+            var archive = null;
             var entries;
             try {
+                var openOperation = typeof window.openArchiveWithTimeout === 'function'
+                    ? window.openArchiveWithTimeout(Archive, file, 90000, file.name + ' 打开 7Z 压缩包超时。')
+                    : Archive.open(file);
+                archive = await waitForBatchArchiveOperation(openOperation, file.name + ' 打开 7Z 压缩包超过 90 秒。');
                 report(0.42, '正在解压文件目录');
-                await archive.extractFiles();
-                entries = await archive.getFilesArray();
+                await waitForBatchArchiveOperation(archive.extractFiles(), file.name + ' 解压 7Z 文件目录超过 90 秒。', archive.worker);
+                entries = await waitForBatchArchiveOperation(archive.getFilesArray(), file.name + ' 读取 7Z 文件目录超过 90 秒。', archive.worker);
+            } catch (error) {
+                throw new Error(file.name + ' 读取失败：' + formatUiError(error, '7Z 压缩包无法解析。'));
             } finally {
-                archive.close();
+                if (archive) await closeBatchArchiveSafely(archive, file.name);
             }
             var jsonEntry = entries.find(function(entry) { return entry.file && /\.json$/i.test(String(entry.path || '') + String(entry.file.name || '')); });
             if (!jsonEntry) throw new Error(file.name + ' 中没有找到 JSON 数据文件。');
@@ -3154,7 +3565,9 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             id: 'batch-site-' + index + '-' + Date.now(), fileName: file.name, data: data,
             jsonFields: BatchAdBuilder.collectFields(data), fieldMapping: {}, codeId: '',
             isLocalImages: Object.keys(localImages).length > 0, localImages: localImages,
-            themeId: '', domainDetection: null, domainSelectionSource: null, config: null
+            themeId: '', domainDetection: null, domainSelectionSource: null, config: null,
+            adDomain: '', reserveOverrideEnabled: false, reserveSettings: null,
+            codePlacementOverrideEnabled: false, codePlacementSettings: null
         };
     }
 
@@ -3162,31 +3575,118 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var target = document.getElementById('batch-ad-code-list');
         var summary = document.getElementById('batch-ad-code-summary');
         if (!target || !summary || !isBatchAdBuild()) return;
-        var batch = appState.batchAdBuild || { sites: [], codes: [] };
+        var batch = ensureBatchAdBuildState();
+        var reservePanel = document.getElementById('batch-ad-reserve-panel');
+        var codePanel = document.getElementById('batch-ad-code-panel');
+        var reserveList = document.getElementById('batch-reserve-site-list');
+        var activeSite = getActiveBatchSite();
         if (!batch.sites.length) {
             target.innerHTML = '<p class="batch-ad-empty">请先完成第一步的数据源导入。</p>';
             summary.textContent = '等待数据源';
             return;
         }
-        var report = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(batch.sites, batch.codes) : { valid: false, errors: [] };
+        var report = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(batch.sites, batch.codes, batch) : { valid: false, errors: [] };
+        document.querySelectorAll('input[name="batch-ad-mode"]').forEach(function(input) {
+            input.checked = input.value === batch.adMode;
+        });
+        if (codePanel) codePanel.hidden = batch.adMode !== 'code';
+        if (reservePanel) reservePanel.hidden = batch.adMode !== 'reserve';
+
+        if (batch.adMode === 'reserve') {
+            var placeholderCount = report.assignments.filter(function(item) { return item.domain && item.domain.placeholder; }).length;
+            summary.textContent = report.valid
+                ? (batch.sites.length + ' 站可预留' + (placeholderCount ? ' · ' + placeholderCount + ' 站使用占位域名' : ''))
+                : (report.errors.length + ' 项需要处理');
+            summary.className = report.valid ? 'is-valid' : '';
+            target.innerHTML = '';
+            var scopeTitle = document.getElementById('batch-reserve-scope-title');
+            var scopeNote = document.getElementById('batch-reserve-scope-note');
+            var overrideToggle = document.getElementById('batch-reserve-site-override');
+            if (scopeTitle) scopeTitle.textContent = activeSite && activeSite.reserveOverrideEnabled ? '正在编辑当前站点的单独方案' : '正在编辑全局广告位方案';
+            if (scopeNote) scopeNote.textContent = activeSite
+                ? (activeSite.reserveOverrideEnabled ? '仅影响“' + batchSiteDisplayName(activeSite) + '”。' : '未开启覆盖的站点统一使用这套位置与 ad.js 版本。')
+                : '选择站点后可设置是否单独覆盖。';
+            if (overrideToggle) {
+                overrideToggle.checked = !!(activeSite && activeSite.reserveOverrideEnabled);
+                overrideToggle.disabled = !activeSite;
+            }
+            var codeScope = document.getElementById('batch-code-placement-scope');
+            if (codeScope) codeScope.hidden = true;
+            if (reserveList) {
+                reserveList.innerHTML = batch.sites.map(function(site, index) {
+                    var domain = BatchAdBuilder.normalizeDomainInput(site.adDomain);
+                    var selected = site === activeSite;
+                    var state = domain.valid ? ('将导出到 ' + domain.normalized) : domain.warning;
+                    return '<article class="batch-ad-code-item batch-reserve-site ' + (domain.valid ? 'is-ready' : '') + (selected ? ' is-active-preview' : '') + '">' +
+                        '<button type="button" class="batch-ad-item-index" data-batch-reserve-site-index="' + index + '" aria-label="配置站点 ' + (index + 1) + '" title="切换到此站配置">' + (index + 1) + '</button>' +
+                        '<div><strong>' + escapeHtml(site.fileName) + '</strong><span>' + escapeHtml(state) + (site.reserveOverrideEnabled ? ' · 单站覆盖' : ' · 使用全局方案') + '</span></div>' +
+                        '<label><span>站点域名</span><input type="text" inputmode="url" autocomplete="off" placeholder="例如 news.example.com" value="' + escapeHtml(site.adDomain || '') + '" data-batch-domain-site="' + escapeHtml(site.id) + '"></label></article>';
+                }).join('') +
+                    (report.errors.length ? '<div class="batch-ad-validation invalid"><strong>尚不能导出</strong><ul>' + report.errors.map(function(error) { return '<li>' + escapeHtml(error.message) + '</li>'; }).join('') + '</ul></div>' :
+                        '<div class="batch-ad-validation"><strong>预留广告位配置可导出</strong><span>' + (report.warnings.length ? '存在占位域名提示，但不会阻止导出。' : '所有有效域名均唯一。') + '</span></div>');
+                reserveList.querySelectorAll('[data-batch-domain-site]').forEach(function(input) {
+                    input.addEventListener('input', function() {
+                        var site = batch.sites.find(function(candidate) { return candidate.id === input.dataset.batchDomainSite; });
+                        if (site) site.adDomain = input.value;
+                    });
+                    input.addEventListener('change', function() {
+                        var site = batch.sites.find(function(candidate) { return candidate.id === input.dataset.batchDomainSite; });
+                        if (site) site.adDomain = input.value.trim().toLowerCase();
+                        if (site === getActiveBatchSite()) {
+                            syncBatchActiveSiteToApp();
+                            var contactEmailInput = document.getElementById('contact-email');
+                            if (contactEmailInput) contactEmailInput.value = appState.config.contactEmail;
+                            updatePreview();
+                        }
+                        renderBatchAdCodeWorkspace();
+                    });
+                });
+                reserveList.querySelectorAll('[data-batch-reserve-site-index]').forEach(function(button) {
+                    button.addEventListener('click', function() {
+                        switchBatchPreviewSite(Number(button.dataset.batchReserveSiteIndex), false);
+                        renderBatchAdCodeWorkspace();
+                    });
+                });
+            }
+            return;
+        }
+
         var validCodes = batch.codes.filter(function(code) { return code.valid; }).length;
         summary.textContent = batch.codes.length ? (validCodes + '/' + batch.codes.length + ' 份代码可用') : '尚未上传';
         summary.className = report.valid ? 'is-valid' : '';
+        var codeScope = document.getElementById('batch-code-placement-scope');
+        var codeScopeTitle = document.getElementById('batch-code-placement-scope-title');
+        var codeScopeNote = document.getElementById('batch-code-placement-scope-note');
+        var codeOverrideToggle = document.getElementById('batch-code-placement-override');
+        if (codeScope) codeScope.hidden = false;
+        if (codeScopeTitle) codeScopeTitle.textContent = activeSite && activeSite.codePlacementOverrideEnabled ? '正在编辑当前站点的单独广告位置' : '正在编辑全局广告位置';
+        if (codeScopeNote) codeScopeNote.textContent = activeSite
+            ? (activeSite.codePlacementOverrideEnabled ? '仅影响“' + batchSiteDisplayName(activeSite) + '”；未修改广告代码与广告单元 ID。' : '未开启覆盖的站点共用这套位置；每个站仍使用各自分配的广告代码。')
+            : '选择站点后可设置是否单独覆盖。';
+        if (codeOverrideToggle) {
+            codeOverrideToggle.checked = !!(activeSite && activeSite.codePlacementOverrideEnabled);
+            codeOverrideToggle.disabled = !activeSite;
+        }
         var options = '<option value="">-- 请选择独占代码 --</option>' + batch.codes.map(function(code) {
             var label = (code.valid ? '✓ ' : '✕ ') + code.fileName + (code.detectedHost ? ' · ' + code.detectedHost : '');
-            return '<option value="' + escapeHtml(code.id) + '">' + escapeHtml(label) + '</option>';
+            return '<option value="' + escapeHtml(code.id) + '" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</option>';
         }).join('');
         target.innerHTML = batch.sites.map(function(site, index) {
             var assigned = batch.codes.find(function(code) { return code.id === site.codeId; });
             var problem = !THEMES[site.themeId] ? '领域待确认' : (batchSiteIssues(site).length ? '字段未完成' : (assigned && assigned.valid ? '等待导出复检' : '需要有效广告代码'));
             var selectedOptions = options.replace('value="' + escapeHtml(site.codeId) + '"', 'value="' + escapeHtml(site.codeId) + '" selected');
-            return '<article class="batch-ad-code-item ' + (assigned && assigned.valid ? 'is-ready' : 'is-invalid') + '"><span class="batch-ad-item-index">' + (index + 1) + '</span><div><strong>' + escapeHtml(site.fileName) + '</strong><span>' + escapeHtml(problem) + '</span></div><label><span>广告 TXT</span><select data-batch-ad-site="' + escapeHtml(site.id) + '">' + selectedOptions + '</select></label></article>';
+            return '<article class="batch-ad-code-item ' + (assigned && assigned.valid ? 'is-ready' : 'is-invalid') + '"><span class="batch-ad-item-index">' + (index + 1) + '</span><div><strong>' + escapeHtml(site.fileName) + '</strong><span>' + escapeHtml(problem) + '</span></div><label><span>广告 TXT</span><select class="batch-ad-code-select" data-batch-ad-site="' + escapeHtml(site.id) + '">' + selectedOptions + '</select></label></article>';
         }).join('') + (report.errors.length ? '<div class="batch-ad-validation invalid"><strong>尚不能导出</strong><ul>' + report.errors.map(function(error) { return '<li>' + escapeHtml(error.message) + '</li>'; }).join('') + '</ul></div>' : '<div class="batch-ad-validation"><strong>一对一分配校验通过</strong><span>导出时还会检查每个生成站的首页、详情页与广告运行时。</span></div>');
         target.querySelectorAll('[data-batch-ad-site]').forEach(function(select) {
             select.addEventListener('change', function() {
                 var site = batch.sites.find(function(candidate) { return candidate.id === select.dataset.batchAdSite; });
                 if (site) site.codeId = select.value;
-                if (site === getActiveBatchSite()) syncBatchActiveSiteToApp();
+                if (site === getActiveBatchSite()) {
+                    syncBatchActiveSiteToApp();
+                    syncDirectAdPlacementUI();
+                    updateAdPlacementUI();
+                    updatePreview();
+                }
                 renderBatchAdCodeWorkspace();
             });
         });
@@ -3205,6 +3705,9 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             sites.forEach(function(site, index) { site.codeId = codes[index] ? codes[index].id : ''; });
             syncBatchActiveSiteToApp();
             renderBatchAdCodeWorkspace();
+            syncDirectAdPlacementUI();
+            updateAdPlacementUI();
+            updatePreview();
         } catch (error) {
             showNotice(error.message, '无法读取广告代码');
         }
@@ -3224,6 +3727,56 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             codeButton.dataset.ready = 'true';
             codeButton.addEventListener('click', function() { codeInput.value = ''; codeInput.click(); });
             codeInput.addEventListener('change', function() { importBatchAdCodes(codeInput.files); });
+        }
+        document.querySelectorAll('input[name="batch-ad-mode"]').forEach(function(input) {
+            if (input.dataset.ready) return;
+            input.dataset.ready = 'true';
+            input.addEventListener('change', function() {
+                if (!input.checked) return;
+                var batch = ensureBatchAdBuildState();
+                batch.adMode = input.value === 'reserve' ? 'reserve' : 'code';
+                appState.adPlacementMode = null;
+                syncBatchActiveSiteToApp();
+                renderBatchAdCodeWorkspace();
+                syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
+        });
+        var overrideToggle = document.getElementById('batch-reserve-site-override');
+        if (overrideToggle && !overrideToggle.dataset.ready) {
+            overrideToggle.dataset.ready = 'true';
+            overrideToggle.addEventListener('change', function() {
+                var site = getActiveBatchSite();
+                if (!site) return;
+                var batch = ensureBatchAdBuildState();
+                site.reserveOverrideEnabled = overrideToggle.checked;
+                // 开启时复制当前全局方案，确保用户从眼前所见的状态继续微调。
+                if (site.reserveOverrideEnabled) site.reserveSettings = cloneBatchConfig(batch.reserveDefaults);
+                appState.adPlacementMode = null;
+                syncBatchActiveSiteToApp();
+                renderBatchAdCodeWorkspace();
+                syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
+        }
+        var codeOverrideToggle = document.getElementById('batch-code-placement-override');
+        if (codeOverrideToggle && !codeOverrideToggle.dataset.ready) {
+            codeOverrideToggle.dataset.ready = 'true';
+            codeOverrideToggle.addEventListener('change', function() {
+                var site = getActiveBatchSite();
+                if (!site) return;
+                var batch = ensureBatchAdBuildState();
+                site.codePlacementOverrideEnabled = codeOverrideToggle.checked;
+                if (site.codePlacementOverrideEnabled) site.codePlacementSettings = cloneBatchConfig(batch.codePlacementDefaults);
+                appState.adPlacementMode = null;
+                syncBatchActiveSiteToApp();
+                renderBatchAdCodeWorkspace();
+                syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
         }
     }
 
@@ -3252,17 +3805,31 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
 
     // ========== 步骤导航 ==========
     function goToStep(step) {
-        if (isAdInjectionWorkflow()) {
-            if (injectionWorkflowSteps().indexOf(step) === -1) return;
-        } else if (step < 1 || step > 5) return;
+        var steps = currentWorkflowSteps();
+        var targetIndex = window.WorkflowStepNavigation.getStepIndex(steps, step);
+        if (targetIndex === -1) return;
 
         var previousStep = appState.currentStep;
+        var highestReachedStep = getWorkflowHighestReachedStep(currentWorkflowProgressKey(), steps);
+        var isUnlocked = window.WorkflowStepNavigation.canNavigateToStep(steps, highestReachedStep, step);
+        var isNext = window.WorkflowStepNavigation.isNextStep(steps, appState.currentStep, step);
+        if (!isUnlocked && !isNext) return;
 
-        // 验证当前步骤是否完成
-        if (step > appState.currentStep) {
-            if (!validateStep(appState.currentStep)) return;
+        // A direct jump to a visited later step must not bypass validations for
+        // earlier steps whose data may have changed since the user went back.
+        var stepsToValidate = window.WorkflowStepNavigation.getStepsToValidate(steps, appState.currentStep, step);
+        for (var index = 0; index < stepsToValidate.length; index++) {
+            var validationStep = stepsToValidate[index];
+            if (validateStep(validationStep)) continue;
+            if (validationStep !== appState.currentStep) renderWorkflowStep(validationStep, previousStep);
+            return;
         }
 
+        recordWorkflowStepReached(step);
+        renderWorkflowStep(step, previousStep);
+    }
+
+    function renderWorkflowStep(step, previousStep) {
         appState.currentStep = step;
 
         // 更新面板显示
@@ -3270,25 +3837,12 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             panel.classList.remove('active');
         });
         var activePanel = document.getElementById('step-' + step);
+        if (!activePanel) return;
         if (step !== previousStep) {
             document.body.classList.add('has-workflow-transition');
             activePanel.dataset.transitionDirection = step > previousStep ? 'forward' : 'back';
         }
         activePanel.classList.add('active');
-
-        // 更新进度条
-        stepItems.forEach(function(item, idx) {
-            var s = isAdInjectionWorkflow() ? injectionWorkflowSteps()[idx] : idx + 1;
-            if (!s) return;
-            var visualStep = isAdInjectionWorkflow() ? injectionWorkflowPosition(step) : step;
-            var itemVisualStep = isAdInjectionWorkflow() ? idx + 1 : s;
-            item.classList.remove('active', 'completed');
-            if (itemVisualStep < visualStep) item.classList.add('completed');
-            if (itemVisualStep === visualStep) item.classList.add('active');
-            if (itemVisualStep === visualStep) item.setAttribute('aria-current', 'step');
-            else item.removeAttribute('aria-current');
-            item.disabled = itemVisualStep >= visualStep;
-        });
 
         // 更新按钮
         var injectionStep = isAdInjectionWorkflow();
@@ -3392,9 +3946,9 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                     return true;
                 }
                 if (isBatchAdBuild()) {
-                    var batchReport = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(appState.batchAdBuild.sites, appState.batchAdBuild.codes) : { valid: false, errors: [{ message: '批量建站组件未加载。' }] };
+                    var batchReport = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(appState.batchAdBuild.sites, appState.batchAdBuild.codes, appState.batchAdBuild) : { valid: false, errors: [{ message: '批量建站组件未加载。' }] };
                     if (!batchReport.valid) {
-                        showNotice(batchReport.errors[0] ? batchReport.errors[0].message : '请完成每站一份广告代码的独占分配。', '广告代码尚未完成');
+                        showNotice(batchReport.errors[0] ? batchReport.errors[0].message : '请完成批量广告配置。', '广告配置尚未完成');
                         return false;
                     }
                 }
@@ -3433,9 +3987,9 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     stepItems.forEach(function(item) {
         item.addEventListener('click', function() {
             var step = parseInt(this.dataset.step);
-            if (step < appState.currentStep) {
-                goToStep(step);
-            }
+            var steps = currentWorkflowSteps();
+            var highestReachedStep = getWorkflowHighestReachedStep(currentWorkflowProgressKey(), steps);
+            if (window.WorkflowStepNavigation.canNavigateToStep(steps, highestReachedStep, step)) goToStep(step);
         });
     });
 
@@ -3854,11 +4408,18 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (window.ArchiveRuntimeReady) return window.ArchiveRuntimeReady;
         if (window.__archiveRuntimeFallbackLoad) return window.__archiveRuntimeFallbackLoad;
 
+        // Prefer the shared loader so Archive.open() captures its Worker for timeout cleanup.
+        if (typeof window.loadArchiveRuntime === 'function') {
+            window.__archiveRuntimeFallbackLoad = Promise.resolve(window.loadArchiveRuntime());
+            return window.__archiveRuntimeFallbackLoad;
+        }
+
         // 某些静态服务器会命中旧的 index 缓存而漏载初始化脚本。
         // 此处直接按绝对地址导入模块，不再依赖动态 script 标签的 currentScript 状态。
         var moduleUrl = new URL('js/vendor/libarchive/libarchive.js?v=20260912-archive-runtime-2', document.baseURI).href;
         var workerUrl = new URL('js/vendor/libarchive/worker-bundle.js?v=20260912-archive-runtime-2', document.baseURI).href;
         window.__archiveRuntimeFallbackLoad = import(moduleUrl).then(function(module) {
+            if (typeof window.configureArchiveRuntime === 'function') return window.configureArchiveRuntime(module);
             module.Archive.init({ workerUrl: workerUrl });
             return module.Archive;
         });
@@ -3947,6 +4508,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         }
 
         appState.data = data;
+        resetWorkflowStepProgress(currentWorkflowProgressKey());
         appState.isLocalImages = isLocalImages;
         appState.localImages = localImages;
         if (appState.siteBuildMode === 'differentiated') renderDifferentiatedPackageStatus();
@@ -4425,9 +4987,9 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             var owner = isBatchAdBuild() ? getBatchTemplateOwner(template.id, activeSite) : null;
             var unavailable = !!owner;
             html += '<div class="template-card' + selected + (unavailable ? ' is-unavailable' : '') + '" data-template-id="' + template.id + '"' + (unavailable ? ' data-template-unavailable="true" tabindex="-1" aria-disabled="true" aria-label="' + escapeHtml(template.name + '模板已用于' + owner.fileName) + '"' : ' tabindex="0" role="button" aria-label="应用' + template.name + '模板"') + '>';
-            html += '<div class="template-icon">' + template.icon + '</div>';
+            html += TemplateLayouts.thumbnail(template.structure.homeLayout) || '<div class="template-icon">' + template.icon + '</div>';
             html += '<div><div class="template-name">' + template.name + (index === 0 ? '<span class="recommended-badge">首选</span>' : '') + '</div>' +
-                '<div class="template-domain">' + (unavailable ? '已用于站点 ' + ((appState.batchAdBuild.sites || []).indexOf(owner) + 1) : profile.label + '专属') + '</div></div>';
+                '<div class="template-domain">' + (unavailable ? '已用于站点 ' + ((appState.batchAdBuild.sites || []).indexOf(owner) + 1) : (template.description || profile.label + '专属')) + '</div></div>';
             html += '</div>';
         });
         grid.innerHTML = html;
@@ -4461,8 +5023,15 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var iconSet = getIconSetById(iconSetId);
         if (!iconSet) return;
         appState.config.iconSetId = iconSet.id;
+        var setMatch = iconSet.id.match(/-icons-(\d+)$/);
+        var setIndex = setMatch ? Number.parseInt(setMatch[1], 10) - 1 : 0;
+        var semanticRecommendations = typeof getDomainRecommendedCategoryIconSet === 'function'
+            ? getDomainRecommendedCategoryIconSet(appState.selectedTheme, appState.config.categories || [], setIndex)
+            : null;
         (appState.config.categories || []).forEach(function(category, index) {
-            if (iconSet.icons[index]) category.icon = iconSet.icons[index];
+            var recommended = semanticRecommendations && semanticRecommendations[index];
+            var icon = recommended || iconSet.icons[index];
+            if (icon) category.icon = icon;
         });
         if (shouldRender !== false) {
             updateCategoryConfig(appState.config.categories.length);
@@ -4535,18 +5104,34 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         }
     }
 
-    // 将配置区原生下拉框替换为统一的轻量菜单，避免系统弹层破坏左侧布局。
+    // 保留原生 select 作为数据源，用自定义菜单统一各工作流的展开样式。
+    function getStyledSelectAccessibleLabel(select) {
+        var explicitLabel = select.getAttribute('aria-label');
+        if (explicitLabel) return explicitLabel;
+        var labels = select.labels;
+        if (labels && labels.length) {
+            var clone = labels[0].cloneNode(true);
+            clone.querySelectorAll('select, .select-shell').forEach(function(control) { control.remove(); });
+            var labelText = clone.textContent.replace(/\s+/g, ' ').trim();
+            if (labelText) return labelText;
+        }
+        return '选择选项';
+    }
+
     function syncStyledSelects() {
-        document.querySelectorAll('.config-panel select.select-native').forEach(function(select) {
-            var shell = select.closest('.select-shell');
-            if (!shell) return;
-            var trigger = shell.querySelector('.select-trigger');
+        document.querySelectorAll('select.select-native').forEach(function(select) {
+            var control = select._styledSelectControl;
+            if (!control) return;
             var selected = select.options[select.selectedIndex];
-            if (trigger) {
-                trigger.textContent = selected ? selected.textContent : '请选择';
-                trigger.title = selected ? selected.textContent : '请选择';
-            }
-            shell.querySelectorAll('.select-option').forEach(function(optionButton) {
+            var selectedText = selected ? selected.textContent.trim() : '请选择';
+            control.trigger.textContent = selectedText;
+            control.trigger.title = selectedText;
+            control.trigger.disabled = !!select.disabled;
+            control.trigger.setAttribute('aria-disabled', select.disabled ? 'true' : 'false');
+            var accessibleLabel = getStyledSelectAccessibleLabel(select);
+            control.trigger.setAttribute('aria-label', accessibleLabel);
+            control.menu.setAttribute('aria-label', accessibleLabel);
+            control.menu.querySelectorAll('.select-option').forEach(function(optionButton) {
                 var active = optionButton.dataset.value === select.value;
                 optionButton.classList.toggle('selected', active);
                 optionButton.setAttribute('aria-selected', active ? 'true' : 'false');
@@ -4651,6 +5236,39 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         document.querySelectorAll('.cat-icon-picker.open').forEach(positionCategoryPickerMenu);
     }
 
+    function getOpenStyledDropdownInteractionElements() {
+        return Array.from(document.querySelectorAll('.select-shell.open, .select-menu.is-open, .cat-icon-picker.open, .cat-icon-menu.is-portal-open'));
+    }
+
+    function isStyledDropdownInteraction(event) {
+        var guards = window.SiteFoundryDropdownEventGuards;
+        return !!(guards && guards.isInteractionWithinAny(event, getOpenStyledDropdownInteractionElements()));
+    }
+
+    function isStyledDropdownScroll(event) {
+        var guards = window.SiteFoundryDropdownEventGuards;
+        if (!guards) return false;
+        var menus = document.querySelectorAll('.select-menu.is-open, .cat-icon-picker.open .cat-icon-menu, .cat-icon-menu.is-portal-open');
+        return guards.isScrollWithinAny(event, menus);
+    }
+
+    function closeStyledSelectsOnOutsideClick(event) {
+        if (isStyledDropdownInteraction(event)) return;
+        closeStyledSelects();
+    }
+
+    function closeStyledSelectsOnPageScroll(event) {
+        if (isStyledDropdownScroll(event)) return;
+        closeStyledSelects();
+    }
+
+    function closeCategoryPickersOnOutsideClick(event) {
+        var guards = window.SiteFoundryDropdownEventGuards;
+        var openPickers = document.querySelectorAll('.cat-icon-picker.open, .cat-icon-menu.is-portal-open');
+        if (guards && guards.isInteractionWithinAny(event, openPickers)) return;
+        closeCategoryIconPickers();
+    }
+
     function closeStyledSelects() {
         closeCategoryIconPickers();
         document.querySelectorAll('.select-shell.open').forEach(function(shell) {
@@ -4659,8 +5277,12 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             if (configItem) configItem.classList.remove('select-open');
             var configGroup = shell.closest('.config-group');
             if (configGroup) configGroup.classList.remove('select-open-group');
-            var trigger = shell.querySelector('.select-trigger');
-            if (trigger) trigger.setAttribute('aria-expanded', 'false');
+            var select = shell.querySelector('select.select-native');
+            var control = select && select._styledSelectControl;
+            if (control) {
+                control.menu.classList.remove('is-open');
+                control.trigger.setAttribute('aria-expanded', 'false');
+            }
         });
     }
 
@@ -4673,30 +5295,111 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         });
     }
 
-    function rebuildStyledSelect(select) {
-        var shell = select.closest('.select-shell');
-        if (!shell) {
-            shell = document.createElement('div');
-            shell.className = 'select-shell';
-            select.parentNode.insertBefore(shell, select);
-            shell.appendChild(select);
-            select.classList.add('select-native');
+    function positionStyledSelectMenu(select) {
+        var control = select && select._styledSelectControl;
+        if (!control) return;
+        var rect = control.trigger.getBoundingClientRect();
+        var maxHeight = control.maxHeight || 245;
+        var preferredWidth = select.classList.contains('batch-ad-code-select') ? Math.max(rect.width, 340) : rect.width;
+        var menuWidth = Math.min(preferredWidth, Math.max(0, window.innerWidth - 24));
+        var menuLeft = Math.max(12, Math.min(rect.left, window.innerWidth - menuWidth - 12));
 
+        // 先应用最终宽度，再测量内容高度，确保长选项换行后的高度被完整计算。
+        control.menu.style.left = Math.round(menuLeft) + 'px';
+        control.menu.style.width = Math.round(menuWidth) + 'px';
+        var naturalHeight = control.menu.scrollHeight;
+        var topBelow = rect.bottom + 6;
+        var spaceBelow = window.innerHeight - topBelow - 12;
+        var spaceAbove = rect.top - 18;
+        var openAbove = spaceBelow < Math.min(150, naturalHeight) && spaceAbove > spaceBelow;
+        var availableSpace = openAbove ? spaceAbove : spaceBelow;
+        var visibleHeight = Math.min(naturalHeight, maxHeight, Math.max(0, availableSpace));
+        var menuTop = openAbove ? Math.max(12, rect.top - visibleHeight - 6) : topBelow;
+        control.menu.style.top = Math.round(menuTop) + 'px';
+        control.menu.style.maxHeight = Math.max(0, Math.round(visibleHeight)) + 'px';
+    }
+
+    function focusStyledSelectOption(select, direction) {
+        var control = select && select._styledSelectControl;
+        if (!control) return;
+        var options = Array.from(control.menu.querySelectorAll('.select-option:not(:disabled)'));
+        if (!options.length) return;
+        var activeIndex = options.indexOf(document.activeElement);
+        var selectedIndex = options.findIndex(function(option) { return option.dataset.value === select.value; });
+        var nextIndex = activeIndex >= 0
+            ? activeIndex + direction
+            : selectedIndex >= 0 ? selectedIndex : (direction > 0 ? 0 : options.length - 1);
+        nextIndex = (nextIndex + options.length) % options.length;
+        options[nextIndex].focus();
+    }
+
+    function releaseStyledSelect(select) {
+        if (!select || select.isConnected) return;
+        var control = select._styledSelectControl;
+        if (!control) return;
+        if (control.menu.parentNode) control.menu.remove();
+        if (control.changeHandler) select.removeEventListener('change', control.changeHandler);
+        select.classList.remove('select-native');
+        if (control.originalTabIndex === null) select.removeAttribute('tabindex');
+        else select.setAttribute('tabindex', control.originalTabIndex);
+        if (control.originalAriaHidden === null) select.removeAttribute('aria-hidden');
+        else select.setAttribute('aria-hidden', control.originalAriaHidden);
+        delete select._styledSelectControl;
+    }
+
+    function rebuildStyledSelect(select) {
+        if (!select || select.multiple || select.size > 1) return;
+        var control = select._styledSelectControl;
+        if (!control) {
+            var shell = select.closest('.select-shell');
+            if (!shell) {
+                shell = document.createElement('div');
+                shell.className = 'select-shell';
+                select.parentNode.insertBefore(shell, select);
+                shell.appendChild(select);
+            }
+
+            if (!select.id) {
+                appState._styledSelectSequence = (appState._styledSelectSequence || 0) + 1;
+                select.id = 'workflow-select-' + appState._styledSelectSequence;
+            }
             var trigger = document.createElement('button');
             trigger.type = 'button';
             trigger.className = 'select-trigger';
             trigger.setAttribute('aria-haspopup', 'listbox');
             trigger.setAttribute('aria-expanded', 'false');
+            trigger.setAttribute('aria-controls', 'styled-select-menu-' + select.id);
+            trigger.setAttribute('aria-label', getStyledSelectAccessibleLabel(select));
 
-            var newMenu = document.createElement('div');
-            newMenu.className = 'select-menu';
-            newMenu.setAttribute('role', 'listbox');
-
+            var menu = document.createElement('div');
+            menu.id = 'styled-select-menu-' + select.id;
+            menu.className = 'select-menu';
+            menu.setAttribute('role', 'listbox');
+            menu.setAttribute('aria-label', getStyledSelectAccessibleLabel(select));
+            var injectionSiteSelect = shell.closest('.injection-site-select');
+            if (injectionSiteSelect) menu.classList.add('injection-site-select-menu');
+            if (select.classList.contains('batch-ad-code-select')) menu.classList.add('batch-ad-code-select-menu');
+            document.body.appendChild(menu);
             shell.appendChild(trigger);
-            shell.appendChild(newMenu);
+
+            var originalTabIndex = select.getAttribute('tabindex');
+            var originalAriaHidden = select.getAttribute('aria-hidden');
+            select.classList.add('select-native');
+            select.tabIndex = -1;
+            select.setAttribute('aria-hidden', 'true');
+            control = {
+                shell: shell,
+                trigger: trigger,
+                menu: menu,
+                maxHeight: injectionSiteSelect ? 210 : 245,
+                originalTabIndex: originalTabIndex,
+                originalAriaHidden: originalAriaHidden
+            };
+            select._styledSelectControl = control;
 
             trigger.addEventListener('click', function(event) {
                 event.stopPropagation();
+                if (trigger.disabled) return;
                 var willOpen = !shell.classList.contains('open');
                 closeStyledSelects();
                 shell.classList.toggle('open', willOpen);
@@ -4705,24 +5408,62 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 var configGroup = shell.closest('.config-group');
                 if (configGroup) configGroup.classList.toggle('select-open-group', willOpen);
                 trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                menu.classList.toggle('is-open', willOpen);
+                if (willOpen) positionStyledSelectMenu(select);
             });
-            select.addEventListener('change', syncStyledSelects);
+            trigger.addEventListener('keydown', function(event) {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    if (!shell.classList.contains('open')) trigger.click();
+                    focusStyledSelectOption(select, event.key === 'ArrowDown' ? 1 : -1);
+                } else if (event.key === 'Escape' && shell.classList.contains('open')) {
+                    event.preventDefault();
+                    closeStyledSelects();
+                } else if (event.key === 'Tab' && shell.classList.contains('open')) {
+                    closeStyledSelects();
+                }
+            });
+            menu.addEventListener('keydown', function(event) {
+                if (event.key === 'Tab') closeStyledSelects();
+            });
+            control.changeHandler = syncStyledSelects;
+            select.addEventListener('change', control.changeHandler);
         }
 
-        var menu = shell.querySelector('.select-menu');
+        var menu = control.menu;
         menu.innerHTML = '';
         var addOption = function(option) {
             var optionButton = document.createElement('button');
             optionButton.type = 'button';
             optionButton.className = 'select-option';
             optionButton.dataset.value = option.value;
-            optionButton.textContent = option.textContent;
+            optionButton.textContent = option.textContent.trim();
+            optionButton.title = option.title || optionButton.textContent;
             optionButton.setAttribute('role', 'option');
+            optionButton.setAttribute('aria-label', option.title || optionButton.textContent);
+            optionButton.setAttribute('aria-selected', 'false');
+            optionButton.disabled = !!option.disabled || !!(option.parentElement && option.parentElement.disabled);
             optionButton.addEventListener('click', function(event) {
                 event.stopPropagation();
+                if (optionButton.disabled) return;
                 select.value = option.value;
                 select.dispatchEvent(new Event('change', { bubbles: true }));
                 closeStyledSelects();
+                control.trigger.focus();
+            });
+            optionButton.addEventListener('keydown', function(event) {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    focusStyledSelectOption(select, event.key === 'ArrowDown' ? 1 : -1);
+                } else if (event.key === 'Home' || event.key === 'End') {
+                    event.preventDefault();
+                    var options = menu.querySelectorAll('.select-option:not(:disabled)');
+                    if (options.length) options[event.key === 'Home' ? 0 : options.length - 1].focus();
+                } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeStyledSelects();
+                    control.trigger.focus();
+                }
             });
             menu.appendChild(optionButton);
         };
@@ -4738,16 +5479,44 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 addOption(child);
             }
         });
+        syncStyledSelects();
     }
 
     function initStyledSelects() {
-        var panel = document.querySelector('.config-panel');
-        if (!panel) return;
-
-        panel.querySelectorAll('select').forEach(rebuildStyledSelect);
+        document.querySelectorAll('select:not([multiple])').forEach(rebuildStyledSelect);
 
         if (!appState._styledSelectDocumentBound) {
-            document.addEventListener('click', closeStyledSelects);
+            document.addEventListener('click', closeStyledSelectsOnOutsideClick);
+            window.addEventListener('resize', closeStyledSelects);
+            window.addEventListener('scroll', closeStyledSelectsOnPageScroll, true);
+            appState._styledSelectMutationObserver = new MutationObserver(function(records) {
+                var changedSelects = new Set();
+                records.forEach(function(record) {
+                    var target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+                    var targetSelect = target && target.closest && target.closest('select.select-native');
+                    if (targetSelect) changedSelects.add(targetSelect);
+                    Array.from(record.addedNodes).forEach(function(node) {
+                        if (node.nodeType !== 1) return;
+                        if (node.matches && node.matches('select:not([multiple])')) changedSelects.add(node);
+                        node.querySelectorAll('select:not([multiple])').forEach(function(select) { changedSelects.add(select); });
+                    });
+                    Array.from(record.removedNodes).forEach(function(node) {
+                        if (node.nodeType !== 1) return;
+                        if (node.matches && node.matches('select.select-native')) releaseStyledSelect(node);
+                        node.querySelectorAll('select.select-native').forEach(releaseStyledSelect);
+                    });
+                });
+                changedSelects.forEach(function(select) {
+                    if (select.isConnected && !select.multiple && select.size <= 1) rebuildStyledSelect(select);
+                });
+            });
+            appState._styledSelectMutationObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+                attributes: true,
+                attributeFilter: ['disabled', 'selected', 'aria-label']
+            });
             appState._styledSelectDocumentBound = true;
         }
         syncStyledSelects();
@@ -4772,7 +5541,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         appState.config.categories.forEach(function(cat, i) {
             cat.icon = getCompatibleCategoryEmoji(cat.icon || '📌');
             var iconPool = theme.iconPool || [cat.icon || '📌'];
-            var pickerIcons = getCategoryIconPickerChoices(iconPool, cat.icon);
+            var pickerIcons = getCategoryIconPickerChoices(iconPool, cat.icon, cat.name, appState.selectedTheme);
             html += '<div class="category-config-item">';
             html += '<div class="cat-icon-picker" data-cat-idx="' + i + '">';
             html += '<button type="button" class="cat-icon-trigger" title="当前领域图标优先，也可选择全部 Emoji" aria-label="选择第' + (i + 1) + '个分类图标（当前领域图标优先，可选择全部 Emoji）" aria-expanded="false" data-cat-idx="' + i + '">' + (cat.icon || '📌') + '</button>';
@@ -4790,16 +5559,27 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
 
         // 文本和数量字段
         container.querySelectorAll('input').forEach(function(input) {
-            input.addEventListener('change', function() {
+            function commitCategoryInput() {
                 var idx = parseInt(this.dataset.catIdx);
                 var field = this.dataset.catField;
                 if (field === 'count') {
-                    appState.config.categories[idx][field] = parseInt(this.value) || 1;
+                    var normalizedCount = Math.max(1, Math.min(20, parseInt(this.value, 10) || 1));
+                    this.value = normalizedCount;
+                    appState.config.categories[idx][field] = normalizedCount;
                 } else {
                     appState.config.categories[idx][field] = this.value;
+                    // 分类改名后重建语义候选；预设图标跟随新名称，自定义图标则保留用户选择。
+                    var iconSetId = appState.config.iconSetId;
+                    if (iconSetId && iconSetId !== 'custom') applyIconSet(iconSetId, false);
+                    updateCategoryConfig(appState.config.categories.length);
                 }
                 updatePreview();
-            });
+            }
+            // 数量必须在键入时立即进入站点配置，不能等失焦后才写入，否则用户
+            // 直接点“下一步/导出”时可能仍打包旧数量。名称继续在 change 时提交，
+            // 避免输入过程中重建整行导致光标丢失。
+            if (input.dataset.catField === 'count') input.addEventListener('input', commitCategoryInput);
+            input.addEventListener('change', commitCategoryInput);
         });
 
         // 紧凑图标面板，避免原生下拉菜单撑开左栏
@@ -4839,9 +5619,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             });
         });
         if (!appState._iconPickerDocumentBound) {
-            document.addEventListener('click', function() {
-                closeCategoryIconPickers();
-            });
+            document.addEventListener('click', closeCategoryPickersOnOutsideClick);
             document.addEventListener('scroll', repositionOpenCategoryPickerMenus, true);
             window.addEventListener('resize', repositionOpenCategoryPickerMenus);
             appState._iconPickerDocumentBound = true;
@@ -4914,6 +5692,12 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         relatedSlider.addEventListener('input', function() {
             relatedValue.textContent = this.value;
             appState.config.relatedCount = parseInt(this.value);
+            updatePreview();
+        });
+
+        // 图标显隐只更新显示偏好，保留每个分类已有的图标选择。
+        document.getElementById('category-icons-enabled').addEventListener('change', function() {
+            appState.config.categoryIconsEnabled = this.checked;
             updatePreview();
         });
 
@@ -5087,6 +5871,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (c.transitionSpeed) document.getElementById('transition-speed').value = c.transitionSpeed;
         if (c.metaBg) document.getElementById('meta-bg').value = c.metaBg;
         if (c.detailImgStyle) document.getElementById('detail-img-style').value = c.detailImgStyle;
+        document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
         if (c.categoryTitleStyle) document.getElementById('category-title-style').value = c.categoryTitleStyle;
         if (c.categoryTitleAlign) document.getElementById('category-title-align').value = c.categoryTitleAlign;
         if (c.cardImageHeight) document.getElementById('card-image-height').value = c.cardImageHeight;
@@ -5301,13 +6086,16 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 var position = e.data.position;
                 var page = e.data.page || 'home';
                 // 保存广告放置信息（每个广告可分别在首页和详情页放置）
-                if (!appState.config.adPlacements) appState.config.adPlacements = {};
-                if (!appState.config.adPlacements[adId]) appState.config.adPlacements[adId] = {};
-                appState.config.adPlacements[adId][page] = position;
+                var placements = getEditableAdPlacements();
+                if (!placements[adId]) placements[adId] = {};
+                placements[adId][page] = position;
+                persistBatchReserveUiState();
+                persistBatchCodePlacementUiState();
                 // 退出放置模式
                 exitAdPlacementMode();
                 // 更新UI显示
                 updateAdPlacementUI();
+                if (isBatchAdBuild()) renderBatchAdCodeWorkspace();
                 // 重新生成预览（不带标记）
                 updatePreview();
             }
@@ -5327,11 +6115,72 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     }
 
     function hasValidatedDirectAdCode() {
-        return appState.siteBuildMode !== 'ad-migration' && appState.normalAdMode !== 'reserve' && !!(appState.adCodeMigration && appState.adCodeMigration.valid);
+        var directCodeWorkflow = (appState.siteBuildMode === 'normal' && appState.normalAdMode !== 'reserve') ||
+            (isBatchAdBuild() && ensureBatchAdBuildState().adMode === 'code');
+        return directCodeWorkflow && !!(appState.adCodeMigration && appState.adCodeMigration.valid);
     }
 
     function isReservedDirectAdMode() {
-        return appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
+        return (appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve') ||
+            (isBatchAdBuild() && ensureBatchAdBuildState().adMode === 'reserve');
+    }
+
+    function isDirectCodeAdPlacementMode() {
+        return hasValidatedDirectAdCode();
+    }
+
+    function isManualAdPlacementModeActive() {
+        if (isReservedDirectAdMode()) return appState.reservePlacementMode !== 'fixed';
+        return isDirectCodeAdPlacementMode() && appState.directAdPlacementMode === 'manual';
+    }
+
+    function getEditableAdPlacements() {
+        var config = appState.config || (appState.config = {});
+        // 上传代码与预留模式分开保存，切换接入方式时不会串用位置配置。
+        var key = isDirectCodeAdPlacementMode() && appState.directAdPlacementMode === 'manual'
+            ? 'adCodePlacements'
+            : 'adPlacements';
+        var placements = config[key];
+        if (!placements || typeof placements !== 'object' || Array.isArray(placements)) {
+            placements = {};
+            config[key] = placements;
+        }
+        return placements;
+    }
+
+    function getDisplayedAdPlacements() {
+        if (isDirectCodeAdPlacementMode()) {
+            if (appState.directAdPlacementMode !== 'manual') {
+                return typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+            }
+            return appState.config && appState.config.adCodePlacements || {};
+        }
+        return appState.config && appState.config.adPlacements || {};
+    }
+
+    function initializeDirectManualPlacements() {
+        var config = appState.config || (appState.config = {});
+        // Null means manual positions have not been initialized. An empty object is
+        // preserved because it may reflect a user's deliberate removal of all slots.
+        if (config.adCodePlacements !== null && config.adCodePlacements !== undefined) return;
+        config.adCodePlacements = typeof AdMigration !== 'undefined'
+            ? AdMigration.fixedPlacements()
+            : {};
+    }
+
+    function persistBatchReserveUiState() {
+        if (!isBatchAdBuild() || ensureBatchAdBuildState().adMode !== 'reserve') return;
+        var target = getBatchReserveEditingTarget(getActiveBatchSite());
+        target.placementMode = appState.reservePlacementMode === 'fixed' ? 'fixed' : 'manual';
+        target.adJsVersion = appState.adJsVersion || 'v1.0.2.1';
+        target.adPlacements = appState.config.adPlacements || {};
+    }
+
+    function persistBatchCodePlacementUiState() {
+        if (!isBatchAdBuild() || ensureBatchAdBuildState().adMode !== 'code') return;
+        var target = getBatchCodePlacementEditingTarget(getActiveBatchSite());
+        target.placementMode = appState.directAdPlacementMode === 'manual' ? 'manual' : 'fixed';
+        target.adPlacements = appState.config.adCodePlacements || target.adPlacements || null;
     }
 
     function reservedAdPlacementCount() {
@@ -5343,23 +6192,52 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         }, 0);
     }
 
-    // 代码模式使用 TXT 自动广告位；预留模式可在固定位置和手动位置之间切换。
+    // 上传代码默认使用固定位置；手动模式复用预留广告位的预览选择器并单独保存位置。
     function syncDirectAdPlacementUI() {
         var automatic = hasValidatedDirectAdCode();
         var reserved = isReservedDirectAdMode();
+        var directCodeMode = isDirectCodeAdPlacementMode() && automatic && !reserved;
+        var reserveFixed = reserved && appState.reservePlacementMode === 'fixed';
+        var directCodeFixed = directCodeMode && appState.directAdPlacementMode !== 'manual';
+        var manualPlacementActive = (reserved && appState.reservePlacementMode !== 'fixed') ||
+            (directCodeMode && appState.directAdPlacementMode === 'manual');
         var manualGroup = document.getElementById('ad-placement-group');
         var codePanel = document.getElementById('ad-code-mode-panel');
         var automaticNote = document.getElementById('ad-auto-placement-note');
         var modeGroup = document.getElementById('normal-ad-mode-group');
+        var directModeGroup = document.getElementById('direct-ad-placement-mode-group');
+        var reserveModeGroup = document.getElementById('reserve-placement-mode-group');
+        var description = document.getElementById('ad-placement-description');
         var manualControls = document.getElementById('ad-manual-placement-controls');
+        var manualDescription = document.getElementById('ad-manual-placement-description');
         var fixedNote = document.getElementById('ad-fixed-placement-note');
         var normalWorkflow = appState.siteBuildMode === 'normal';
+        var batchCodeWorkflow = isBatchAdBuild() && ensureBatchAdBuildState().adMode === 'code';
         if (modeGroup) modeGroup.hidden = !normalWorkflow;
-        if (manualGroup) manualGroup.hidden = !reserved;
+        if (manualGroup) manualGroup.hidden = !(reserved || directCodeMode);
+        var codePlacementScope = document.getElementById('batch-code-placement-scope');
+        if (codePlacementScope) codePlacementScope.hidden = !batchCodeWorkflow;
         if (codePanel) codePanel.hidden = reserved || !normalWorkflow;
-        if (automaticNote) automaticNote.hidden = !automatic;
-        if (manualControls) manualControls.hidden = appState.reservePlacementMode === 'fixed';
-        if (fixedNote) fixedNote.hidden = appState.reservePlacementMode !== 'fixed';
+        if (automaticNote) automaticNote.hidden = !directCodeFixed;
+        if (directModeGroup) directModeGroup.hidden = !directCodeMode;
+        if (reserveModeGroup) reserveModeGroup.hidden = !reserved;
+        if (manualControls) manualControls.hidden = !manualPlacementActive;
+        if (fixedNote) fixedNote.hidden = !(reserveFixed || directCodeFixed);
+        if (description) {
+            description.textContent = directCodeMode
+                ? '上传代码模式可沿用自动固定位置，也可手动调整；手动调整会保留广告单元 ID 与广告位的对应关系。'
+                : '选择预留位置方式。导出会保留广告容器、GPT 引用和空配置的 js/ad.js；以后只需填写广告单元路径与 GA ID。';
+        }
+        if (manualDescription) {
+            manualDescription.textContent = directCodeMode
+                ? '选择广告容器后，切换首页或详情页，再点击预览中的常用广告位或自定义位置；“全部文章”页沿用详情页位置。每个广告会先带入当前自动位置。'
+                : '选择广告容器后，切换首页或详情页，再点击预览中的常用广告位或自定义位置；“全部文章”页沿用详情页位置。';
+        }
+        if (fixedNote) {
+            fixedNote.textContent = directCodeFixed
+                ? '固定位置已生效，预览会显示三个广告容器；切换到手动放置时，会带入当前自动位置供你调整。'
+                : '固定位置已生效，预览会显示三个广告容器；切回手动放置后，原有手动位置仍会保留。';
+        }
         document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
             input.checked = input.value === appState.normalAdMode;
         });
@@ -5369,7 +6247,10 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         document.querySelectorAll('input[name="reserve-placement-mode"]').forEach(function(input) {
             input.checked = input.value === appState.reservePlacementMode;
         });
-        if (!reserved || appState.reservePlacementMode === 'fixed') appState.adPlacementMode = null;
+        document.querySelectorAll('input[name="direct-ad-placement-mode"]').forEach(function(input) {
+            input.checked = input.value === appState.directAdPlacementMode;
+        });
+        if (!manualPlacementActive) appState.adPlacementMode = null;
     }
 
     function initAdConfig() {
@@ -5378,18 +6259,21 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var adCodeBtn = document.getElementById('ad-code-btn');
         var adCodeStatus = document.getElementById('ad-code-status');
         var adCodePreview = document.getElementById('ad-code-preview');
-        document.querySelectorAll('input[name="ad-js-version"]').forEach(function(input) {
-            input.addEventListener('change', function() {
-                if (!this.checked) return;
-                appState.adJsVersion = this.value;
+        document.querySelectorAll('.ad-js-version-grid').forEach(function(versionGroup) {
+            versionGroup.addEventListener('change', function(event) {
+                var input = event.target;
+                if (!input.matches('input[name="ad-js-version"]') || !input.checked) return;
+                appState.adJsVersion = input.value;
+                persistBatchReserveUiState();
+                if (isBatchAdBuild()) renderBatchAdCodeWorkspace();
                 updatePreview();
             });
         });
         document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
             input.addEventListener('change', function() {
                 if (!this.checked) return;
+                exitAdPlacementMode();
                 appState.normalAdMode = this.value === 'reserve' ? 'reserve' : 'code';
-                if (appState.normalAdMode !== 'reserve') exitAdPlacementMode();
                 syncDirectAdPlacementUI();
                 updateAdPlacementUI();
                 updatePreview();
@@ -5400,7 +6284,22 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 if (!this.checked) return;
                 exitAdPlacementMode();
                 appState.reservePlacementMode = this.value === 'fixed' ? 'fixed' : 'manual';
+                persistBatchReserveUiState();
+                if (isBatchAdBuild()) renderBatchAdCodeWorkspace();
                 syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
+        });
+        document.querySelectorAll('input[name="direct-ad-placement-mode"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                exitAdPlacementMode();
+                if (this.value === 'manual') initializeDirectManualPlacements();
+                appState.directAdPlacementMode = this.value === 'manual' ? 'manual' : 'fixed';
+                persistBatchCodePlacementUiState();
+                syncDirectAdPlacementUI();
+                if (isBatchAdBuild()) renderBatchAdCodeWorkspace();
                 updateAdPlacementUI();
                 updatePreview();
             });
@@ -5472,9 +6371,13 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         document.querySelectorAll('.ad-remove-btn').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var adId = this.dataset.ad;
-                if (appState.config.adPlacements && appState.config.adPlacements[adId]) {
-                    delete appState.config.adPlacements[adId];
+                var placements = getEditableAdPlacements();
+                if (placements[adId]) {
+                    delete placements[adId];
+                    persistBatchReserveUiState();
+                    persistBatchCodePlacementUiState();
                     updateAdPlacementUI();
+                    if (isBatchAdBuild()) renderBatchAdCodeWorkspace();
                     updatePreview();
                 }
             });
@@ -5484,13 +6387,8 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     }
 
     function enterAdPlacementMode(adId) {
-        if (!isReservedDirectAdMode()) {
-            showNotice('请先选择“先预留广告位”模式，再手动设置首页和详情页的位置。', '请选择广告接入方式');
-            return;
-        }
-        if (appState.reservePlacementMode === 'fixed') return;
-        if (hasValidatedDirectAdCode()) {
-            showNotice('广告 TXT 已通过校验，系统会自动插入三个广告位，无需手动选择位置。', '已自动放置广告');
+        if (!isManualAdPlacementModeActive()) {
+            showNotice('请切换到“手动放置”后，再调整首页和详情页的广告位置。', '请选择广告位放置方式');
             return;
         }
 
@@ -5504,13 +6402,12 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             if (detailTab) detailTab.classList.add('active');
             currentPage = 'detail';
         }
-        var placements = appState.config.adPlacements || {};
+        var placements = getEditableAdPlacements();
         var currentPlacement = placements[adId];
         if (currentPlacement && currentPlacement[currentPage]) {
             delete currentPlacement[currentPage];
             if (Object.keys(currentPlacement).length === 0) delete placements[adId];
         }
-        appState.config.adPlacements = placements;
         updateAdPlacementUI();
         appState.adPlacementMode = adId;
         // 更新按钮状态
@@ -5547,7 +6444,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     }
 
     function updateAdPlacementUI() {
-        var placements = appState.config.adPlacements || {};
+        var placements = getDisplayedAdPlacements();
         var currentPage = 'home';
         var activeTab = document.querySelector('.preview-tab.active');
         if (activeTab) currentPage = activeTab.dataset.page;
@@ -5666,6 +6563,17 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                         categorySlug: appState.previewSectionSlug
                     })
                     : Generator.generatePreviewHtml(appState, pageType, appState.previewDetailIndex);
+                // 记录这次真正写入 iframe 的配置签名。普通与批量导出会核对该值，
+                // 防止界面显示一套配置、ZIP 却从另一个站点或旧状态读取配置。
+                if (appState.siteBuildMode !== 'differentiated' && typeof Generator.getBuildSignature === 'function') {
+                    var previewSignature = Generator.getBuildSignature(appState);
+                    if (isBatchAdBuild()) {
+                        var previewSite = getActiveBatchSite();
+                        if (previewSite) previewSite.previewSignature = previewSignature;
+                    } else {
+                        appState._lastPreviewSignature = previewSignature;
+                    }
+                }
                 previewFrame.removeAttribute('sandbox');
                 previewFrame.removeAttribute('src');
                 setPreviewDocument(html);
@@ -5676,7 +6584,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
     }
 
     // ========== Step 5: 导出 ==========
-    function generateExportSummary() {
+    function generateExportSummary(afterRender) {
         if (isAdInjectionWorkflow()) {
             var injectionSites = appState.adInjectionSites || [];
             var injectionCodes = appState.adInjectionCodes || [];
@@ -5696,24 +6604,29 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 '</div><section class="migration-validation ' + (injectionReady ? '' : 'invalid') + '"><h5>' + (injectionReady ? '广告代码与站点配对校验通过' : '导出仍被阻止') + '</h5><p>' + (injectionReady ? '导出只向新副本增加广告脚本和已确认广告位；上传的已过审源站保持不变。' : '请返回“配置网站”上传广告代码 TXT，并确保每个站点都有一份有效且域名匹配的代码。') + '</p></section>';
             if (summary && reactSourceSites.length) summary.innerHTML += '<section class="migration-validation"><h5>React 源码将完整导出</h5><p>浏览器不会执行 npm install 或 npm run build；工具会导出加入广告后的完整工程。请下载后在项目环境安装依赖并执行生产构建，再部署新生成的 dist、build 或框架输出目录。</p></section>';
             updateAdInjectionControls();
+            if (typeof afterRender === 'function') afterRender();
             return;
         }
         if (isBatchAdBuild()) {
             var batchTarget = document.getElementById('export-summary');
-            var batch = appState.batchAdBuild || { sites: [], codes: [] };
-            var batchReport = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(batch.sites, batch.codes) : { valid: false, errors: [{ message: '批量建站组件未加载。' }] };
-            var ready = batch.sites.filter(function(site) {
-                return !batchSiteIssues(site).length && batch.codes.some(function(code) { return code.id === site.codeId && code.valid; });
-            }).length;
+            var batch = ensureBatchAdBuildState();
+            var batchReport = typeof BatchAdBuilder !== 'undefined' ? BatchAdBuilder.validateAssignments(batch.sites, batch.codes, batch) : { valid: false, errors: [{ message: '批量建站组件未加载。' }], warnings: [] };
+            var reserveMode = batch.adMode === 'reserve';
+            var ready = reserveMode
+                ? batchReport.assignments.filter(function(item) { return !batchSiteIssues(item.site).length && BatchAdBuilder.countReservedPlacements(item.reserveSettings); }).length
+                : batch.sites.filter(function(site) { return !batchSiteIssues(site).length && batch.codes.some(function(code) { return code.id === site.codeId && code.valid; }); }).length;
+            var validDomains = reserveMode ? batchReport.assignments.filter(function(item) { return item.domain.valid; }).length : 0;
             batchTarget.innerHTML = '<h4>批量广告建站导出前检查</h4><div class="summary-grid">' +
                 makeSummaryItem('站点数量', batch.sites.length + ' 个') +
-                makeSummaryItem('有效广告代码', batch.codes.filter(function(code) { return code.valid; }).length + '/' + batch.codes.length + ' 份') +
-                makeSummaryItem('字段与代码就绪', ready + '/' + batch.sites.length + ' 站') +
+                (reserveMode ? makeSummaryItem('广告接入', '先预留广告位，后填 ID') : makeSummaryItem('有效广告代码', batch.codes.filter(function(code) { return code.valid; }).length + '/' + batch.codes.length + ' 份')) +
+                (reserveMode ? makeSummaryItem('有效唯一域名', validDomains + '/' + batch.sites.length + ' 站') : '') +
+                makeSummaryItem(reserveMode ? '字段与广告位就绪' : '字段与代码就绪', ready + '/' + batch.sites.length + ' 站') +
                 makeSummaryItem('模板与样式', '逐站独立配置') +
-                makeSummaryItem('导出格式', '一个批量 ZIP，站点独立文件夹') +
-                '</div><section class="migration-validation ' + (batchReport.valid ? '' : 'invalid') + '"><h5>' + (batchReport.valid ? '一对一广告代码校验通过' : '导出已阻止') + '</h5>' +
-                (batchReport.valid ? '<p>导出期间会逐站重新生成，然后验证首页、全部详情页、GPT 脚本、三个广告容器以及 js/ad.js 中的对应广告路径。</p>' : '<ul>' + batchReport.errors.map(function(error) { return '<li>' + escapeHtml(error.message) + '</li>'; }).join('') + '</ul>') + '</section>';
+                makeSummaryItem('导出格式', '每个站点独立 ZIP') +
+                '</div><section class="migration-validation ' + (batchReport.valid ? '' : 'invalid') + '"><h5>' + (batchReport.valid ? (reserveMode ? '预留广告位校验通过' : '一对一广告代码校验通过') : '导出已阻止') + '</h5>' +
+                (batchReport.valid ? '<p>' + (reserveMode ? '导出期间会逐站验证 GPT、广告容器和空配置 js/ad.js；占位域名提示不会阻止导出。' : '导出期间会逐站重新生成，然后验证首页、全部详情页、GPT 脚本、三个广告容器以及 js/ad.js 中的对应广告路径。') + '</p>' : '<ul>' + batchReport.errors.map(function(error) { return '<li>' + escapeHtml(error.message) + '</li>'; }).join('') + '</ul>') + '</section>';
             document.getElementById('btn-export').disabled = !batchReport.valid;
+            if (typeof afterRender === 'function') afterRender();
             return;
         }
         if (appState.siteBuildMode === 'differentiated' && typeof DifferentiatedBuilder !== 'undefined') {
@@ -5735,9 +6648,11 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
                 document.querySelectorAll('[data-diff-export]').forEach(function(button) {
                     button.disabled = button.dataset.diffExport !== 'draft' && outcome.report.counts.blockers > 0;
                 });
+                if (typeof afterRender === 'function') afterRender();
             }).catch(function(error) {
                 target.innerHTML = '<section class="migration-validation invalid"><h5>审计无法完成</h5><p>' + escapeHtml(error.message) + '</p></section>';
                 document.querySelectorAll('[data-diff-export]').forEach(function(button) { button.disabled = button.dataset.diffExport !== 'draft'; });
+                if (typeof afterRender === 'function') afterRender();
             });
             return;
         }
@@ -5773,7 +6688,14 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var isMigration = appState.siteBuildMode === 'ad-migration';
         var isReservedAds = appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
         summaryHtml += makeSummaryItem('建站方式', isMigration ? '广告移植建站' : '普通建站');
-        if (!isMigration) summaryHtml += makeSummaryItem('广告接入', isReservedAds ? '先预留广告位（' + (appState.reservePlacementMode === 'fixed' ? '固定位置' : '手动放置') + '），后填 ID' : '上传代码自动添加');
+        if (!isMigration) {
+            var adModeSummary = isReservedAds
+                ? '先预留广告位（' + (appState.reservePlacementMode === 'fixed' ? '固定位置' : '手动放置') + '），后填 ID'
+                : (appState.siteBuildMode === 'normal'
+                    ? '上传代码自动添加（' + (appState.directAdPlacementMode === 'manual' ? '手动放置' : '固定位置') + '）'
+                    : '上传代码自动添加');
+            summaryHtml += makeSummaryItem('广告接入', adModeSummary);
+        }
         summaryHtml += '</div>';
         var adCode = appState.adCodeMigration;
         var isAdCodeBuild = !isMigration && !isReservedAds && !!adCode;
@@ -5791,6 +6713,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
 
         document.getElementById('export-summary').innerHTML = summaryHtml;
         document.getElementById('btn-export').disabled = (isMigration && !(migration && migration.valid)) || (!isMigration && isAdCodeBuild && !adCodeValid) || (isReservedAds && !reservedCount);
+        if (typeof afterRender === 'function') afterRender();
     }
 
     function makeSummaryItem(label, value) {
@@ -5817,10 +6740,27 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         if (progressText) progressText.textContent = message;
     }
 
+    // Resolve the ad-code host once for the ZIP filename and its site directory.
+    function getGeneratedSiteAdSource() {
+        var adSource = null;
+        if (appState.siteBuildMode === 'ad-migration') {
+            adSource = appState.legacyAdMigration;
+        } else if (appState.siteBuildMode === 'normal' && appState.normalAdMode !== 'reserve') {
+            adSource = appState.adCodeMigration;
+        }
+        return adSource;
+    }
+
+    function getGeneratedSiteArchiveDescriptor(exportTitle) {
+        var adSource = getGeneratedSiteAdSource();
+        var fallbackName = String(exportTitle || 'website').replace(/\s+/g, '-').toLowerCase() + '-website.zip';
+        return ArchiveNaming.siteZipDescriptor(adSource && adSource.detectedHost, fallbackName);
+    }
+
     // 导出按钮
     document.getElementById('btn-export').addEventListener('click', function() {
         if (isBatchAdBuild()) {
-            var report = BatchAdBuilder.validateAssignments(appState.batchAdBuild.sites, appState.batchAdBuild.codes);
+            var report = BatchAdBuilder.validateAssignments(appState.batchAdBuild.sites, appState.batchAdBuild.codes, appState.batchAdBuild);
             if (!report.valid) {
                 showNotice(report.errors[0] ? report.errors[0].message : '请完成广告代码分配。', '暂时不能导出');
                 generateExportSummary();
@@ -5829,19 +6769,24 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
             var batchButton = this;
             batchButton.disabled = true;
             batchButton.setAttribute('aria-busy', 'true');
-            updateExportProgress(3, '正在准备批量站点与广告代码…', 'loading');
+            updateExportProgress(3, appState.batchAdBuild.adMode === 'reserve' ? '正在准备批量站点与预留广告位…' : '正在准备批量站点与广告代码…', 'loading');
+            var batchPreflightReport = null;
             BatchAdBuilder.exportBatch(appState, function(percent, text) {
                 updateExportProgress(percent, text, 'loading');
             }, window.JSZip).then(function(result) {
-                saveAs(result.blob, 'batch-ad-websites.zip');
-                updateExportProgress(100, result.reports.length + ' 个站点已完成运行时广告检查，ZIP 已开始下载。', 'success');
+                batchPreflightReport = result.preflightReport || null;
+                var downloads = result.downloads || [];
+                if (!downloads.length) throw new Error('批量导出没有生成可下载的站点 ZIP。');
+                downloads.forEach(function(file) { saveAs(file.blob, file.fileName); });
+                updateExportProgress(100, result.reports.length + ' 个站点已完成运行时广告检查，并分别下载域名 ZIP。若浏览器拦截，请允许多个文件下载。', 'success');
             }).catch(function(error) {
+                batchPreflightReport = error.preflightReport || null;
                 updateExportProgress(null, '批量导出失败：' + error.message, 'error');
                 showNotice(error.message, '批量导出未完成');
             }).finally(function() {
                 batchButton.disabled = false;
                 batchButton.removeAttribute('aria-busy');
-                generateExportSummary();
+                generateExportSummary(function() { renderExportPreflight(batchPreflightReport, 'export-summary'); });
             });
             return;
         }
@@ -5861,17 +6806,22 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         btn.disabled = true;
         btn.setAttribute('aria-busy', 'true');
         updateExportProgress(3, '正在准备导出文件…', 'loading');
+        var theme = THEMES[appState.selectedTheme];
+        var exportTitle = appState.config.siteTitle || theme.siteTitle;
+        var archiveDescriptor = getGeneratedSiteArchiveDescriptor(exportTitle);
 
         Generator.exportWebsite(appState, function(percent, text) {
             updateExportProgress(percent, text, 'loading');
-        }).then(function(blob) {
-            var theme = THEMES[appState.selectedTheme];
-            var exportTitle = appState.config.siteTitle || theme.siteTitle;
-            saveAs(blob, exportTitle.replace(/\s+/g, '-').toLowerCase() + '-website.zip');
+        }, { siteFolderName: archiveDescriptor.siteFolderName }).then(async function(blob) {
+            updateExportProgress(96, '正在进行导出前全站体检…', 'loading');
+            var preflightReport = await inspectExportBlob(blob, exportTitle || '普通建站');
+            renderExportPreflight(preflightReport, 'export-summary');
+            saveAs(blob, archiveDescriptor.fileName);
             updateExportProgress(100, '导出成功，ZIP 文件已开始下载。', 'success');
             btn.disabled = false;
             btn.removeAttribute('aria-busy');
         }).catch(function(err) {
+            renderExportPreflight(err.preflightReport, 'export-summary');
             updateExportProgress(null, '导出失败：' + err.message, 'error');
             btn.disabled = false;
             btn.removeAttribute('aria-busy');
@@ -5886,15 +6836,20 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         updateExportProgress(3, '正在准备差异化站点的导出文件…', 'loading');
         DifferentiatedBuilder.exportWebsite(appState, function(percent, text) {
             updateExportProgress(percent, text, 'loading');
-        }, { variant: variant, siteType: appState.differentiated.siteType, JSZip: window.JSZip }).then(function(blob) {
+        }, { variant: variant, siteType: appState.differentiated.siteType, JSZip: window.JSZip }).then(async function(blob) {
             var config = DifferentiatedBuilder.buildConfig(appState, { variant: variant, siteType: appState.differentiated.siteType });
+            updateExportProgress(96, '正在进行导出前全站体检…', 'loading');
+            var preflightReport = await inspectExportBlob(blob, config.siteTitle || '差异化站点');
             saveAs(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'static-site') + '-' + variant + '.zip');
             updateExportProgress(100, '差异化静态站导出成功，ZIP 已开始下载。', 'success');
-            generateExportSummary();
+            generateExportSummary(function() { renderExportPreflight(preflightReport, 'export-summary'); });
         }).catch(function(error) {
+            if (error.preflightReport) {
+                generateExportSummary(function() { renderExportPreflight(error.preflightReport, 'export-summary'); });
+            }
             updateExportProgress(null, '导出失败：' + error.message, 'error');
             showNotice(error.message, '差异化导出未完成');
-            generateExportSummary();
+            if (!error.preflightReport) generateExportSummary();
         }).finally(function() {
             if (button) button.removeAttribute('aria-busy');
         });
@@ -5953,6 +6908,8 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         var templateId = randomPickWithoutRecent(domainTemplates.map(function(t) { return t.id; }), appState.randomTemplateHistory, 3);
         applyTemplatePreset(templateId, false);
         applyRandomIconSet(false);
+        // 新模板保留完整的领域设计，防止随机配色、字体和列数破坏布局。
+        if (TemplateCatalog.getLayout(c.homeLayout)) return;
         // 每次都从完整配色主题库抽取，模板和配色共同构成随机结果。
         c.selectedStyle = randomPick(STYLE_PRESETS.map(function(s) { return s.id; }));
 
@@ -5974,6 +6931,7 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
 
     function applyConfigToUI() {
         var c = appState.config;
+        document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
 
         // 同步模板选择和首页开关，避免随机组装后面板仍显示旧值
         var templateCards = document.querySelectorAll('.template-card');
@@ -6063,7 +7021,20 @@ import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-build
         }, 400);
     });
 
+    window.addEventListener('sitefoundry-ad-template-default-changed', function(event) {
+        var version = event.detail && event.detail.version;
+        if (!version) return;
+        appState.adJsVersion = version;
+        appState.adInjectionAdJsVersion = version;
+        persistBatchReserveUiState();
+        if (isBatchAdBuild()) renderBatchAdCodeWorkspace();
+        syncDirectAdPlacementUI();
+        syncAdInjectionSettingsControls();
+        updatePreview();
+    });
+
     // 初始化
     goToStep(1);
+    initStyledSelects();
 
 })();

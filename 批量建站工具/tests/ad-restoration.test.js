@@ -6,12 +6,13 @@ import { injectReactSource } from '../js/react-source-ad-injector.js';
 
 const context = { TextEncoder, TextDecoder, Blob, Response, DecompressionStream, JSZip, window: {} };
 const source = (name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8');
-vm.runInNewContext(source('data.js') + '\nthis.__themes = THEMES;', context);
+vm.runInNewContext(source('template-catalog.js') + source('template-layouts.js') + source('navbar-layout.js') + source('data.js') + '\nthis.__themes = THEMES;', context);
 vm.runInNewContext(source('domain.js'), context);
 vm.runInNewContext(source('ad-migration.js') + '\nthis.__migration = AdMigration;', context);
 vm.runInNewContext(source('ad.js'), context);
 vm.runInNewContext(source('generator.js') + '\nthis.__generator = Generator;', context);
 vm.runInNewContext(source('finished-site-ads.js') + '\nthis.__fixed = FinishedSiteAds;', context);
+vm.runInNewContext(source('zip-archive-worker-client.js'), context);
 vm.runInNewContext(source('ad-restoration.js') + '\nthis.__restoration = AdRestoration;', context);
 
 const oldAdJs = `
@@ -202,6 +203,55 @@ describe('batch ad restoration', () => {
     expect(restoredRuntime).toContain('function delayLoadBanner');
     expect(restoredRuntime).toMatch(/^const bannerPath1 = "\/23334460889\/version-0\.example-banner1";/m);
     expect(() => new Function(restoredRuntime)).not.toThrow();
+  });
+
+  it('can switch an initial site to every selectable template while preserving its own ad paths and policy', async () => {
+    const host = 'upgrade-initial.example';
+    const entries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'details/article1.html', text: detailHtml },
+      { path: 'js/ad.js', text: versionedAdJs(host, 'initial') }
+    ];
+    const metadata = context.__restoration.inspectSiteEntries(entries, host);
+    expect(metadata.adJsVersion).toBe('initial');
+
+    for (const targetVersion of ['v1.0.0', 'v1.0.1', 'v1.0.2']) {
+      const output = await context.__restoration.applyPolicyBatch(
+        [{ id: host, name: host, entries, metadata }],
+        context.__restoration.createPolicy(),
+        {},
+        undefined,
+        { adJsVersionMode: targetVersion }
+      );
+
+      expect(output.results[0]).toMatchObject({
+        valid: true,
+        sourceAdJsVersion: 'initial',
+        adJsVersion: targetVersion
+      });
+      const files = Object.fromEntries(output.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+      const runtime = files['js/ad.js'];
+      const manifest = JSON.parse(files['ad-policy.json']);
+
+      expect(runtime).toContain('ad.js ' + targetVersion);
+      expect(runtime).not.toContain('function delayLoadBanner');
+      expect(runtime).toContain('/23334460889/' + host + '-banner1');
+      expect(runtime).toContain('/23334460889/' + host + '-banner2');
+      expect(runtime).toContain('/23334460889/' + host + '-banner3');
+      expect(runtime).toContain('/23334460889/' + host + '-INT');
+      expect(runtime).toContain('/23334460889/' + host + '-ANC');
+      expect(runtime).toContain('G-RESTORE123');
+      expect(runtime).toContain('if (adUnitInterstitial && (isIndex ? true : false))');
+      expect(runtime).toContain('if (adUnitAnchor && (isIndex ? true : true))');
+      expect(manifest).toMatchObject({
+        sourceAdJsVersion: 'initial',
+        adJsVersion: targetVersion
+      });
+      expect(output.report).toContain('ad.js 模板：统一切换到 ' + targetVersion);
+      expect(output.report).toContain('ad.js 版本：initial → ' + targetVersion);
+      expect(context.__restoration.inspectSiteEntries(output.sites[0].entries, host).adJsVersion).toBe(targetVersion);
+      expect(() => new Function(runtime)).not.toThrow();
+    }
   });
 
   it('blocks a batch policy export when the ad.js version cannot be identified', async () => {
@@ -506,6 +556,38 @@ describe('batch ad restoration', () => {
     expect(Array.from(files['website/images/cover.jpg'].bytes)).toEqual([1, 2, 3]);
   });
 
+  it('offsets only an after-navbar banner1 next to a custom scroll progress rail', () => {
+    const progressPage = `<!doctype html><html><head></head><body>
+      <header><nav><a href="/">Home</a><a href="/games/">Games</a></nav></header>
+      <div class="site-scroll-progress" data-scroll-progress><span></span></div>
+      <section class="hero"></section><main class="main-content"><div class="container">
+      <section class="category-section"></section><section class="category-section"></section>
+      </div></main><footer class="footer"></footer></body></html>`;
+    const ordinaryPage = progressPage.replace(
+      '<div class="site-scroll-progress" data-scroll-progress><span></span></div>',
+      '<div class="page-notice"></div><div class="site-scroll-progress" data-scroll-progress><span></span></div>'
+    );
+    const nestedProgressPage = progressPage.replace(
+      '</nav></header>\n      <div class="site-scroll-progress" data-scroll-progress><span></span></div>',
+      '</nav><div class="site-scroll-progress" data-scroll-progress><span></span></div></header>'
+    );
+
+    const shifted = context.__restoration.restoreHtml(progressPage, 'home', 'js/ad.js');
+    const shiftedNested = context.__restoration.restoreHtml(nestedProgressPage, 'home', 'js/ad.js');
+    const ordinary = context.__restoration.restoreHtml(ordinaryPage, 'home', 'js/ad.js');
+
+    expect(shifted.valid).toBe(true);
+    expect(shifted.html).toContain('data-sitefoundry-after-nav-offset');
+    expect(shifted.html).toContain('@media (min-width:720px){[data-sitefoundry-after-nav-offset]{margin-top:24px!important;}}');
+    const offsetMarker = shifted.html.indexOf(' data-sitefoundry-after-nav-offset>');
+    expect(shifted.html.indexOf('data-scroll-progress')).toBeLessThan(offsetMarker);
+    expect(offsetMarker).toBeLessThan(shifted.html.indexOf('class="hero"'));
+    expect(shiftedNested.valid).toBe(true);
+    expect(shiftedNested.html).toContain(' data-sitefoundry-after-nav-offset>');
+    expect(ordinary.valid).toBe(true);
+    expect(ordinary.html).not.toContain('data-sitefoundry-after-nav-offset');
+  });
+
   it('places the default second detail banner inside the content midpoint', () => {
     const page = `<!doctype html><html><head></head><body><nav></nav>
       <div class="detail-page"><h1>Title</h1><div class="detail-content">
@@ -711,6 +793,134 @@ describe('batch ad restoration', () => {
     expect(dependencyExtracted).toBe(false);
   });
 
+  it('reports monotonic ZIP extraction progress while preserving finished-site classification', async () => {
+    const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
+    const cleanDetail = detailHtml.replaceAll(wrongAd, '');
+    const archive = new JSZip();
+    archive.file('progress-site/index.html', cleanHome);
+    archive.file('progress-site/details/article.html', cleanDetail);
+    for (let index = 0; index < 8; index++) {
+      const bytes = new Uint8Array(96 * 1024);
+      for (let offset = 0; offset < bytes.length; offset++) bytes[offset] = (offset * 31 + index * 17) & 255;
+      archive.file('progress-site/assets/part-' + index + '.bin', bytes);
+    }
+    const packed = await archive.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 1 } });
+    Object.defineProperty(packed, 'name', { value: 'progress-site.zip' });
+    const updates = [];
+
+    const scan = await context.__restoration.readInjectableArchiveFiles([packed], (percent, message, state) => {
+      updates.push({ percent, message, state });
+    });
+    const numericUpdates = updates.filter((update) => Number.isFinite(update.percent) && !update.state?.indeterminate);
+
+    expect(numericUpdates.length).toBeGreaterThan(8);
+    expect(numericUpdates.every((update, index) => index === 0 || update.percent >= numericUpdates[index - 1].percent)).toBe(true);
+    expect(updates.some((update) => update.state?.indeterminate)).toBe(true);
+    expect(updates.some((update) => update.message.includes('正在解压源码文件'))).toBe(true);
+    expect(updates.at(-1)).toMatchObject({ percent: 100, state: { indeterminate: false } });
+    expect(scan.sites).toHaveLength(1);
+    expect(scan.sites[0].project).toMatchObject({ valid: true, kind: 'static-html' });
+    expect(scan.fileCount).toBe(10);
+  });
+
+  it('keeps ZIP parsing progress responsive in a background worker and reports truthful indeterminate state', async () => {
+    const packed = await siteArchive('worker-progress-site.zip');
+    const previousWorker = context.Worker;
+    const previousDocument = context.document;
+    const previousUrl = context.URL;
+    const updates = [];
+    let workerUrl = '';
+    let workerTerminated = false;
+
+    context.document = { baseURI: 'http://localhost/' };
+    context.URL = URL;
+    context.Worker = class FakeZipWorker {
+      constructor(url) {
+        workerUrl = url;
+        queueMicrotask(() => this.onmessage({ data: { type: 'ready' } }));
+      }
+
+      postMessage(message) {
+        const worker = this;
+        (async function() {
+          worker.onmessage({ data: { type: 'progress', message: '正在后台解析 ZIP 目录…', percent: null } });
+          const zip = await JSZip.loadAsync(message.buffer);
+          const paths = Object.keys(zip.files).filter((path) => !zip.files[path].dir);
+          worker.onmessage({ data: { type: 'progress', message: 'ZIP 目录读取完成：共 ' + paths.length + ' 个源码文件。', percent: 12 } });
+          const entries = await Promise.all(paths.map(async (path) => ({
+            path,
+            buffer: (await zip.files[path].async('uint8array')).buffer
+          })));
+          entries.forEach((entry, index) => worker.onmessage({
+            data: { type: 'progress', message: '正在解压源码文件：' + entry.path, percent: 12 + 84 * (index + 1) / entries.length }
+          }));
+          worker.onmessage({ data: { type: 'complete', entries } });
+        })().catch((error) => worker.onmessage({ data: { type: 'error', message: error.message } }));
+      }
+
+      terminate() { workerTerminated = true; }
+    };
+
+    try {
+      const scan = await context.__restoration.readInjectableArchiveFiles([packed], (percent, message, state) => {
+        updates.push({ percent, message, state });
+      });
+      const determinateUpdates = updates.filter((update) => Number.isFinite(update.percent) && !update.state?.indeterminate);
+
+      expect(workerUrl).toBe('http://localhost/js/zip-archive-worker.js');
+      expect(workerTerminated).toBe(true);
+      expect(updates.some((update) => update.state?.indeterminate && update.message.includes('后台解析 ZIP 目录'))).toBe(true);
+      expect(updates.some((update) => update.message.includes('正在解压源码文件'))).toBe(true);
+      expect(determinateUpdates.every((update, index) => index === 0 || update.percent >= determinateUpdates[index - 1].percent)).toBe(true);
+      expect(updates.at(-1)).toMatchObject({ percent: 100, state: { indeterminate: false } });
+      expect(scan.sites).toHaveLength(1);
+      expect(scan.sites[0].project).toMatchObject({ valid: true, kind: 'static-html' });
+    } finally {
+      if (previousWorker === undefined) delete context.Worker;
+      else context.Worker = previousWorker;
+      if (previousDocument === undefined) delete context.document;
+      else context.document = previousDocument;
+      if (previousUrl === undefined) delete context.URL;
+      else context.URL = previousUrl;
+    }
+  });
+
+  it('reports per-file RAR extraction progress without changing site files or classification', async () => {
+    const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
+    const cleanDetail = detailHtml.replaceAll(wrongAd, '');
+    const sourceFiles = {
+      'progress-rar/index.html': cleanHome,
+      'progress-rar/details/article.html': cleanDetail
+    };
+    for (let index = 0; index < 8; index++) sourceFiles['progress-rar/assets/part-' + index + '.js'] = 'window.part' + index + ' = true;';
+    context.ArchiveRuntimeReady = Promise.resolve({
+      open: async () => ({
+        client: { listFiles: async () => Object.keys(sourceFiles).map((path) => ({ type: 'FILE', path })) },
+        extractSingleFile: async (path) => ({
+          arrayBuffer: async () => new TextEncoder().encode(sourceFiles[path]).buffer
+        }),
+        close: async () => {}
+      })
+    });
+    context.openArchiveWithTimeout = undefined;
+    const rar = new Blob(['mock-rar']);
+    Object.defineProperty(rar, 'name', { value: 'progress-site.rar' });
+    const updates = [];
+
+    const scan = await context.__restoration.readInjectableArchiveFiles([rar], (percent, message, state) => {
+      updates.push({ percent, message, state });
+    });
+    const numericUpdates = updates.filter((update) => Number.isFinite(update.percent) && !update.state?.indeterminate);
+
+    expect(numericUpdates.length).toBeGreaterThan(8);
+    expect(numericUpdates.every((update, index) => index === 0 || update.percent >= numericUpdates[index - 1].percent)).toBe(true);
+    expect(updates.some((update) => update.message.includes('正在提取源码文件'))).toBe(true);
+    expect(updates.at(-1)).toMatchObject({ percent: 100, state: { indeterminate: false } });
+    expect(scan.sites).toHaveLength(1);
+    expect(scan.sites[0].project).toMatchObject({ valid: true, kind: 'static-html' });
+    expect(scan.fileCount).toBe(10);
+  });
+
   it('falls back to the RAR5 parser when libarchive throws an empty error', async () => {
     const packageJson = JSON.stringify({ dependencies: { react: '^19', 'react-dom': '^19', '@tanstack/react-start': '^1' } });
     const sources = {
@@ -735,12 +945,139 @@ describe('batch ad restoration', () => {
     const rar = new Blob(['mock-rar5']);
     Object.defineProperty(rar, 'name', { value: 'approved.rar' });
     const stages = [];
+    const updates = [];
 
-    const scan = await context.__restoration.readInjectableArchiveFiles([rar], (_, stage) => stages.push(stage));
+    const scan = await context.__restoration.readInjectableArchiveFiles([rar], (percent, message, state) => {
+      stages.push(message);
+      updates.push({ percent, message, state });
+    });
+    const numericUpdates = updates.filter((update) => Number.isFinite(update.percent) && !update.state?.indeterminate);
 
     expect(scan.sites).toHaveLength(1);
     expect(scan.sites[0].project).toMatchObject({ valid: true, kind: 'react-source', framework: 'React + TanStack Start 源码工程' });
     expect(stages.some((stage) => stage.includes('RAR5 / solid RAR'))).toBe(true);
+    expect(updates.some((update) => update.state?.indeterminate)).toBe(true);
+    expect(numericUpdates.length).toBeGreaterThan(3);
+    expect(numericUpdates.every((update, index) => index === 0 || update.percent >= numericUpdates[index - 1].percent)).toBe(true);
+    expect(updates.at(-1)).toMatchObject({ percent: 100, state: { indeterminate: false } });
+    context.loadRarFallbackRuntime = undefined;
+  });
+
+  it('falls back after a RAR open timeout and returns JSON and image entries', async () => {
+    const json = new TextEncoder().encode('[{"title":"RAR fallback"}]');
+    const image = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const files = {
+      'batch/data.json': json,
+      'batch/images/cover.png': image
+    };
+    context.ArchiveRuntimeReady = Promise.resolve({});
+    context.openArchiveWithTimeout = async () => { throw new Error('打开 RAR 超时'); };
+    context.loadRarFallbackRuntime = async () => ({
+      wasmBinary: new ArrayBuffer(0),
+      createExtractorFromData: async () => ({
+        getFileList: () => ({ fileHeaders: Object.keys(files).map((name) => ({ name, flags: { directory: false } })) }),
+        extract: ({ files: names }) => ({ files: names.map((name) => ({ fileHeader: { name }, extraction: files[name] })) })
+      })
+    });
+    const rar = new Blob(['mock-rar5']);
+    Object.defineProperty(rar, 'name', { value: 'batch-source.rar' });
+    const stages = [];
+
+    const entries = await context.__restoration.readRarArchiveEntries(rar, (stage) => stages.push(stage));
+
+    expect(entries.map((entry) => entry.path)).toEqual(Object.keys(files));
+    expect(new TextDecoder().decode(entries[0].bytes)).toBe('[{"title":"RAR fallback"}]');
+    expect(Array.from(entries[1].bytes)).toEqual(Array.from(image));
+    expect(stages.some((stage) => stage.includes('正在切换 RAR5 / solid RAR'))).toBe(true);
+    context.openArchiveWithTimeout = undefined;
+    context.loadRarFallbackRuntime = undefined;
+  });
+
+  it('keeps 7Z failures on libarchive instead of invoking the RAR fallback', async () => {
+    let fallbackCalled = false;
+    context.ArchiveRuntimeReady = Promise.resolve({});
+    context.openArchiveWithTimeout = async () => ({
+      worker: null,
+      client: { listFiles: async () => { throw new Error('7Z 目录读取失败'); } },
+      extractSingleFile: async () => null,
+      close: async () => {}
+    });
+    context.loadRarFallbackRuntime = async () => {
+      fallbackCalled = true;
+      throw new Error('RAR fallback must not run for 7Z');
+    };
+    const sevenZip = new Blob(['mock-7z']);
+    Object.defineProperty(sevenZip, 'name', { value: 'valid-source.7z' });
+
+    try {
+      await expect(context.__restoration.readRarArchiveEntries(sevenZip))
+        .rejects.toThrow('valid-source.7z 读取失败：7Z 目录读取失败');
+      expect(fallbackCalled).toBe(false);
+    } finally {
+      context.openArchiveWithTimeout = undefined;
+      context.loadRarFallbackRuntime = undefined;
+      context.ArchiveRuntimeReady = null;
+    }
+  });
+
+  it('terminates stalled libarchive extraction and close workers before falling back', async () => {
+    const json = new TextEncoder().encode('[{"title":"Extraction timeout fallback"}]');
+    const image = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const files = { 'source/data.json': json, 'source/images/cover.png': image };
+    const originalSetTimeout = context.setTimeout;
+    const originalClearTimeout = context.clearTimeout;
+    let workerTerminated = false;
+    context.setTimeout = (callback) => globalThis.setTimeout(callback, 0);
+    context.clearTimeout = globalThis.clearTimeout;
+    context.ArchiveRuntimeReady = Promise.resolve({});
+    context.openArchiveWithTimeout = async () => ({
+      worker: {
+        addEventListener() {},
+        removeEventListener() {},
+        terminate() { workerTerminated = true; }
+      },
+      client: { listFiles: async () => Object.keys(files).map((path) => ({ type: 'FILE', path })) },
+      extractSingleFile: () => new Promise(() => {}),
+      close: () => new Promise(() => {})
+    });
+    context.loadRarFallbackRuntime = async () => ({
+      wasmBinary: new ArrayBuffer(0),
+      createExtractorFromData: async () => ({
+        getFileList: () => ({ fileHeaders: Object.keys(files).map((name) => ({ name, flags: { directory: false } })) }),
+        extract: ({ files: names }) => ({ files: names.map((name) => ({ fileHeader: { name }, extraction: files[name] })) })
+      })
+    });
+    const rar = new Blob(['mock-rar5']);
+    Object.defineProperty(rar, 'name', { value: 'extract-timeout.rar' });
+
+    try {
+      const entries = await context.__restoration.readRarArchiveEntries(rar);
+      expect(workerTerminated).toBe(true);
+      expect(entries.map((entry) => entry.path)).toEqual(Object.keys(files));
+      expect(new TextDecoder().decode(entries[0].bytes)).toContain('Extraction timeout fallback');
+    } finally {
+      context.setTimeout = originalSetTimeout;
+      context.clearTimeout = originalClearTimeout;
+      context.openArchiveWithTimeout = undefined;
+      context.loadRarFallbackRuntime = undefined;
+      context.ArchiveRuntimeReady = null;
+    }
+  });
+
+  it('reports both parser failures when an unreadable RAR times out and fallback rejects it', async () => {
+    context.ArchiveRuntimeReady = Promise.resolve({});
+    context.openArchiveWithTimeout = async () => { throw new Error('主解析器打开超时'); };
+    context.loadRarFallbackRuntime = async () => ({
+      wasmBinary: new ArrayBuffer(0),
+      createExtractorFromData: async () => ({
+        getFileList: () => { throw new Error('RAR 文件头校验失败'); }
+      })
+    });
+    const rar = new Blob(['broken-rar']);
+    Object.defineProperty(rar, 'name', { value: 'broken-source.rar' });
+
+    await expect(context.__restoration.readRarArchiveEntries(rar)).rejects.toThrow(/broken-source\.rar.*内置解析器：主解析器打开超时.*回退解析器：RAR5 文件清单读取失败：RAR 文件头校验失败/);
+    context.openArchiveWithTimeout = undefined;
     context.loadRarFallbackRuntime = undefined;
   });
 

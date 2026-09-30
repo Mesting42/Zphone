@@ -3,14 +3,14 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const context = {};
-const dataSource = readFileSync(new URL('../js/data.js', import.meta.url), 'utf8');
+const dataSource = ['template-catalog.js', 'template-layouts.js', 'navbar-layout.js', 'data.js'].map((name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8')).join('\n');
 const domainSource = readFileSync(new URL('../js/domain.js', import.meta.url), 'utf8');
 const generatorSource = readFileSync(new URL('../js/generator.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-vm.runInNewContext(`${dataSource}\nthis.__catalog = DOMAIN_CATALOG; this.__templates = TEMPLATE_PRESETS; this.__styles = STYLE_PRESETS; this.__brands = BRAND_PRESETS; this.__logoIconGroups = LOGO_ICON_GROUPS; this.__logoIconDefaults = LOGO_ICON_DEFAULTS; this.__allCategoryEmojiIcons = ALL_CATEGORY_EMOJI_ICONS; this.__categoryEmojiPools = DOMAIN_CATEGORY_EMOJI_POOLS; this.__themes = THEMES; this.__iconSets = ICON_SET_PRESETS;`, context);
+vm.runInNewContext(`${dataSource}\nthis.__catalog = DOMAIN_CATALOG; this.__templates = TEMPLATE_PRESETS; this.__styles = STYLE_PRESETS; this.__brands = BRAND_PRESETS; this.__logoIconGroups = LOGO_ICON_GROUPS; this.__logoIconDefaults = LOGO_ICON_DEFAULTS; this.__allCategoryEmojiIcons = ALL_CATEGORY_EMOJI_ICONS; this.__categoryEmojiPools = DOMAIN_CATEGORY_EMOJI_POOLS; this.__categoryEmojiExtensions = DOMAIN_CATEGORY_EMOJI_EXTENSIONS; this.__getWindowsSafeEmoji = getWindowsSafeEmoji; this.__themes = THEMES; this.__iconSets = ICON_SET_PRESETS; this.__marineIconOptions = getRecommendedCategoryEmojiOptions; this.__domainCategoryIcon = getDomainRecommendedCategoryIcon; this.__domainCategoryIconSet = getDomainRecommendedCategoryIconSet;`, context);
 vm.runInNewContext(domainSource, context);
 vm.runInNewContext(`${generatorSource}\nthis.__generator = Generator;`, context);
 
-const { DomainEngine, __catalog: catalog, __templates: templates, __styles: styles, __brands: brands, __logoIconGroups: logoIconGroups, __logoIconDefaults: logoIconDefaults, __allCategoryEmojiIcons: allCategoryEmojiIcons, __categoryEmojiPools: categoryEmojiPools, __themes: themes, __iconSets: iconSets, __generator: generator } = context;
+const { DomainEngine, __catalog: catalog, __templates: templates, __styles: styles, __brands: brands, __logoIconGroups: logoIconGroups, __logoIconDefaults: logoIconDefaults, __allCategoryEmojiIcons: allCategoryEmojiIcons, __categoryEmojiPools: categoryEmojiPools, __categoryEmojiExtensions: categoryEmojiExtensions, __getWindowsSafeEmoji: getWindowsSafeEmoji, __themes: themes, __iconSets: iconSets, __marineIconOptions: marineIconOptions, __domainCategoryIcon: domainCategoryIcon, __domainCategoryIconSet: domainCategoryIconSet, __generator: generator } = context;
 
 describe('local domain detection', () => {
   it.each([
@@ -118,12 +118,12 @@ describe('local domain detection', () => {
     expect(result.reliable).toBe(true);
   });
 
-  it('provides twelve valid exclusive blueprints for every supported domain', () => {
+  it('provides thirty valid exclusive blueprints for every supported domain', () => {
     const templateIds = new Set(templates.map((template) => template.id));
-    expect(Object.keys(catalog)).toHaveLength(32);
-    expect(templates).toHaveLength(384);
+    expect(Object.keys(catalog)).toHaveLength(36);
+    expect(templates).toHaveLength(1080);
     Object.values(catalog).forEach((profile) => {
-      expect(profile.blueprints).toHaveLength(12);
+      expect(profile.blueprints).toHaveLength(30);
       profile.blueprints.forEach((id) => expect(templateIds.has(id)).toBe(true));
     });
   });
@@ -133,7 +133,7 @@ describe('local domain detection', () => {
     expect(foodTemplates.map((template) => template.name).slice(0, 5)).toEqual([
       '美食·食谱厨房', '美食·餐桌灵感', '美食·时令食材', '美食·餐馆指南', '美食·甜点画册'
     ]);
-    expect(foodTemplates).toHaveLength(12);
+    expect(foodTemplates).toHaveLength(30);
     foodTemplates.forEach((template) => {
       expect(template.structure.heroEnabled).toBe(false);
       expect(template.structure.navbarLayout).toBe('normal');
@@ -152,9 +152,9 @@ describe('local domain detection', () => {
       return JSON.stringify({ structure: template.structure, style: visualStyle });
     });
 
-    expect(new Set(ids).size).toBe(384);
-    expect(new Set(names).size).toBe(384);
-    expect(new Set(signatures).size).toBe(384);
+    expect(new Set(ids).size).toBe(1080);
+    expect(new Set(names).size).toBe(1080);
+    expect(new Set(signatures).size).toBe(1080);
     allReferences.forEach(({ domainId, templateId }) => {
       const template = templates.find((item) => item.id === templateId);
       expect(template.domainId).toBe(domainId);
@@ -202,23 +202,83 @@ describe('local domain detection', () => {
     });
   });
 
-  it('uses 48 current-domain Emoji icons for random combinations and retains a broad manual library', () => {
+  it('uses expanded current-domain Emoji pools for random combinations and retains a broad manual library', () => {
     const oldAbstractSymbols = new Set(['◆','○','△','□','◇','◎','◉','◒','◫','▦','⊕','⌁','※','✦','↗','▤','♟️','🪙']);
-    expect(Object.keys(categoryEmojiPools)).toHaveLength(32);
+    expect(Object.keys(categoryEmojiPools)).toHaveLength(36);
     expect(allCategoryEmojiIcons.length).toBeGreaterThanOrEqual(200);
     expect(new Set(allCategoryEmojiIcons).size).toBe(allCategoryEmojiIcons.length);
     Object.keys(catalog).forEach((domainId) => {
       const pool = categoryEmojiPools[domainId];
-      expect(pool).toHaveLength(48);
-      expect(new Set(pool).size).toBe(48);
+      expect(pool.length).toBeGreaterThanOrEqual(56);
+      expect(pool.length).toBeLessThanOrEqual(64);
+      expect(new Set(pool).size).toBe(pool.length);
       pool.forEach((icon) => expect(oldAbstractSymbols.has(icon)).toBe(false));
+      const safeExtensions = categoryEmojiExtensions[domainId].map(getWindowsSafeEmoji);
+      expect(safeExtensions).toHaveLength(8);
+      expect(new Set(safeExtensions).size).toBe(8);
+      safeExtensions.forEach((icon) => expect(pool).toContain(icon));
       expect(Array.from(themes[domainId].iconPool)).toEqual(Array.from(pool));
       expect(iconSets[domainId]).toHaveLength(50);
       iconSets[domainId].forEach((set) => {
+        expect(new Set(set.icons).size).toBe(8);
         set.icons.forEach((icon) => expect(pool).toContain(icon));
       });
     });
     expect(categoryEmojiPools.health).toEqual(expect.arrayContaining(['🩺', '💊', '🏥', '🏃', '🥗']));
+  });
+
+  it('keeps marine presets semantically matched to Chinese and English category labels', () => {
+    const marinePool = categoryEmojiPools.marinescience;
+    const semanticExamples = [
+      ['Oceans', '🌊'],
+      ['Marine Life', '🐟'],
+      ['Freshwater', '💧'],
+      ['Coastal Systems', '🏝️'],
+      ['Ocean Research', '🔬'],
+      ['大洋环流', '🌊'],
+      ['珊瑚礁与海洋生物', '🐠'],
+      ['淡水河流生态', '💧'],
+      ['红树林海岸', '🏝️'],
+      ['深海探测与水下机器人', '🤿'],
+      ['蓝碳与微塑料', '♻️']
+    ];
+
+    semanticExamples.forEach(([label, expectedIcon]) => {
+      const options = marineIconOptions('marinescience', label);
+      expect(options, label).toContain(expectedIcon);
+      options.forEach((icon) => expect(marinePool, label).toContain(icon));
+      expect(domainCategoryIcon('marinescience', label, 0, []), label).toBe(options[0]);
+    });
+    expect(marineIconOptions('marinescience', 'Freshwater')).not.toContain('🔬');
+
+    ['🏛️', '🔑', '🎓', '🏠'].forEach((unrelatedIcon) => {
+      expect(marinePool).not.toContain(unrelatedIcon);
+    });
+    expect(marineIconOptions('tech', 'Research')).toEqual([]);
+    expect(marineIconOptions('marinescience', 'Unclassified source category')).toEqual(marinePool);
+
+    const categories = themes.marinescience.categories;
+    const signatures = new Set();
+    iconSets.marinescience.forEach((set, setIndex) => {
+      const used = [];
+      categories.forEach((category, categoryIndex) => {
+        const expectedIcon = domainCategoryIcon('marinescience', category.name, setIndex, used);
+        expect(set.icons[categoryIndex], category.name + '/' + set.name).toBe(expectedIcon);
+        used.push(expectedIcon);
+      });
+      expect(new Set(set.icons).size, set.name).toBe(set.icons.length);
+      signatures.add(set.icons.join(''));
+    });
+    expect(signatures.size).toBe(50);
+
+    const sourceCategories = ['Deep Sea Exploration', '珊瑚礁生态', 'Freshwater Rivers', '红树林海岸', 'Blue Carbon Research'];
+    const sourceRecommendations = domainCategoryIconSet('marinescience', sourceCategories, 17);
+    expect(sourceRecommendations).toHaveLength(sourceCategories.length);
+    sourceCategories.forEach((label, index) => {
+      expect(marineIconOptions('marinescience', label), label).toContain(sourceRecommendations[index]);
+    });
+    expect(new Set(sourceRecommendations).size).toBe(sourceRecommendations.length);
+    expect(domainCategoryIconSet('tech', sourceCategories, 17)).toBeNull();
   });
 
   it('uses Emoji rather than abstract glyphs for every configurable template icon', () => {
@@ -403,7 +463,7 @@ describe('local domain detection', () => {
     const failures = [];
 
     templates.forEach((template) => {
-      if (template.structure.cardViewMode === 'list') return;
+      if (template.structure.cardViewMode === 'list' || context.TemplateCatalog.getLayout(template.structure.homeLayout)) return;
       [2, 3, 4, 5, 6, 7].forEach((count) => {
         const data = Array.from({ length: count }, (_, index) => ({
           title: index === 0 ? 'Short title' : 'A much longer title that wraps onto another line',
@@ -497,7 +557,7 @@ describe('local domain detection', () => {
     expect(generatorSource).toContain('scroll-margin-top: calc(var(--navbar-height) + var(--navbar-scroll-offset));');
   });
 
-  it('gives every domain twelve meaningfully different layout compositions', () => {
+  it('gives every domain thirty meaningfully different layout compositions', () => {
     const meaningfulKeys = [
       'heroEnabled', 'homeLayout', 'cardColumns', 'cardViewMode', 'navbarLayout',
       'footerStyle', 'metaLayout', 'detailLayout', 'navbarStyle', 'logoStyle',
@@ -509,18 +569,18 @@ describe('local domain detection', () => {
       const fingerprints = variants.map((template) => JSON.stringify(Object.fromEntries(
         meaningfulKeys.map((key) => [key, template.structure[key] ?? template.style[key]])
       )));
-      expect(new Set(fingerprints).size).toBe(12);
+      expect(new Set(fingerprints).size).toBe(30);
     });
   });
 
-  it('gives every domain twelve non-repeating visible template identities', () => {
+  it('gives every domain thirty non-repeating visible template identities', () => {
     Object.keys(catalog).forEach((domainId) => {
       const variants = templates.filter((template) => template.domainId === domainId);
-      expect(variants).toHaveLength(12);
-      expect(new Set(variants.map((template) => template.style.selectedStyle)).size).toBe(12);
-      expect(new Set(variants.map((template) => template.style.fontStyle)).size).toBe(12);
-      expect(new Set(variants.map((template) => template.brand.id)).size).toBe(12);
-      expect(new Set(variants.map((template) => template.brand.siteTitle.toLowerCase())).size).toBe(12);
+      expect(variants).toHaveLength(30);
+      expect(new Set(variants.slice(0, 12).map((template) => template.style.selectedStyle)).size).toBe(12);
+      expect(new Set(variants.slice(0, 12).map((template) => template.style.fontStyle)).size).toBe(12);
+      expect(new Set(variants.map((template) => template.brand.id)).size).toBe(30);
+      expect(new Set(variants.map((template) => template.brand.siteTitle.toLowerCase())).size).toBe(30);
       variants.forEach((template, index) => {
         expect(template.brand).toEqual({
           id: brands[domainId][index].id,

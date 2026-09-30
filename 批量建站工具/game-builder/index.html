@@ -4,28 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>游戏建站工具 · 批量建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20260924-ad-version-wrap-2">
-  <link rel="stylesheet" href="../css/liquid-glass.css?v=20260918-liquid-glass-17">
+    <link rel="stylesheet" href="css/tool.css?v=20260929-ad-template-default-1">
+  <link rel="stylesheet" href="../css/liquid-glass.css?v=20260929-workflow-mode-card-5">
     <!-- 压缩包解析优先使用当前发布包的本地依赖，CDN 仅作旧环境回退。 -->
     <script src="../node_modules/jszip/dist/jszip.min.js"></script>
     <script>if (!window.JSZip) document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\\/script>');</script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 </head>
 <body>
-    <!-- 浮动游戏工作台控制台 -->
+    <!-- 步骤导航与当前工作流共用一张玻璃控制卡片。 -->
     <div class="game-workbench-command">
         <a class="tool-return-link" href="../index.html">← 返回批量建站工具</a>
-        <nav class="step-progress liquid-command-progress game-command-progress" aria-label="游戏建站步骤">
-            <div class="step-item active" data-step="1">
-                <div class="step-circle">1</div>
-                <span class="step-label">配置网站</span>
-            </div>
-            <div class="step-line"></div>
-            <div class="step-item" data-step="2">
-                <div class="step-circle">2</div>
-                <span class="step-label">导出网站</span>
-            </div>
-        </nav>
+        <div class="workflow-command-bar game-workflow-command-bar liquid-glass-surface">
+            <nav class="step-progress liquid-command-progress game-command-progress" aria-label="游戏建站步骤">
+                <button type="button" class="step-item active" data-step="1" aria-current="step">
+                    <span class="step-circle">1</span>
+                    <span class="step-label">配置网站</span>
+                </button>
+                <div class="step-line"></div>
+                <button type="button" class="step-item" data-step="2" disabled>
+                    <span class="step-circle">2</span>
+                    <span class="step-label">导出网站</span>
+                </button>
+            </nav>
+            <span class="workflow-mode-indicator" role="status" aria-live="polite" aria-atomic="true">
+                <span class="workflow-mode-caption">当前工作流</span>
+                <strong id="workflow-mode-label">游戏建站 · 普通建站</strong>
+            </span>
+        </div>
     </div>
 
     <!-- 主内容区域 -->
@@ -612,6 +618,14 @@
                                 </select>
                             </div>
                             <div class="config-item">
+                                <label for="category-icons-enabled">显示分类标题图标</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="category-icons-enabled" checked>
+                                    <span class="toggle-slider"></span>
+                                </div>
+                            </div>
+                            <p class="group-hint">全站统一显示或隐藏分类标题图标；关闭后保留已选图标。</p>
+                            <div class="config-item">
                                 <label>分类标题样式</label>
                                 <select id="category-title-style">
                                     <option value="single">单横线</option>
@@ -681,18 +695,43 @@
                         <section class="config-group" id="ad-js-version-group" aria-labelledby="ad-js-version-title">
                             <h4 class="group-title" id="ad-js-version-title">ad.js 模板版本</h4>
                             <p class="group-hint">导出时使用所选版本；预留广告位也会导出对应版本的空配置脚本。</p>
-                            <div class="normal-ad-mode-grid ad-js-version-grid" role="radiogroup" aria-label="ad.js 模板版本">
-                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.2" checked><span><strong>最新版 v1.0.2（默认）</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                            <div class="normal-ad-mode-grid ad-js-version-grid" role="group" aria-label="ad.js 模板版本">
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.2.1" checked><span><strong>最新版 v1.0.2.1（默认）</strong><small>开启 GPT 原生懒加载，关闭插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.2"><span><strong>旧版 v1.0.2</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.1"><span><strong>旧版 v1.0.1</strong><small>GPT 原生懒加载，含首页插页广告触发器。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.0"><span><strong>旧版 v1.0.0</strong><small>GPT 原生懒加载，无插页广告触发器。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="initial"><span><strong>初版</strong><small>IntersectionObserver 延迟加载 banner1–3；支持 banner4。</small></span></label>
+                            </div>
+                            <div class="ad-template-manager" data-ad-template-manager>
+                                <div class="ad-template-manager-actions">
+                                    <button class="injection-pick-button" type="button" data-ad-template-upload>上传新版 ad.js 模板</button>
+                                    <input type="file" accept=".js,text/javascript,application/javascript" data-ad-template-file hidden>
+                                    <span class="ad-template-status" data-ad-template-status role="status" aria-live="polite">识别到版本号和广告 ID 时自动保存；未识别时补填版本号或变量映射。</span>
+                                </div>
+                                <div class="ad-template-editor" data-ad-template-editor hidden>
+                                    <label class="ad-template-version-field">模板版本号<input type="text" data-ad-template-version placeholder="例如 v1.0.3" maxlength="40" autocomplete="off"></label>
+                                    <p class="group-hint">已自动匹配常见广告 ID 变量；请检查未识别项并完成对应。Banner 1–3、插屏 INT、锚点 ANC 和 GA ID 必须对应；Banner 4 可选。</p>
+                                    <div class="ad-template-mapping-grid">
+                                        <label>Banner 1<select data-ad-template-mapping="bannerPath1"></select></label>
+                                        <label>Banner 2<select data-ad-template-mapping="bannerPath2"></select></label>
+                                        <label>Banner 3<select data-ad-template-mapping="bannerPath3"></select></label>
+                                        <label>Banner 4（可选）<select data-ad-template-mapping="bannerPath4"></select></label>
+                                        <label>插屏 INT<select data-ad-template-mapping="interstitialPath"></select></label>
+                                        <label>锚点 ANC<select data-ad-template-mapping="anchorPath"></select></label>
+                                        <label>GA ID<select data-ad-template-mapping="analyticsID"></select></label>
+                                    </div>
+                                    <div class="ad-template-editor-actions">
+                                        <button class="injection-pick-button" type="button" data-ad-template-save>保存并设为默认</button>
+                                        <button class="injection-pick-button" type="button" data-ad-template-cancel>取消</button>
+                                    </div>
+                                </div>
                             </div>
                         </section>
                         <div class="config-group" id="normal-ad-mode-group">
                             <h4 class="group-title">广告接入方式</h4>
                             <div class="normal-ad-mode-grid" role="radiogroup" aria-label="游戏建站广告接入方式">
                                 <label class="normal-ad-mode-card"><input type="radio" name="normal-ad-mode" value="reserve"><span><strong>先预留广告位</strong><small>无需广告代码，选择固定位置或手动放置；导出空配置的 <code>js/ad.js</code>。</small></span></label>
-                                <label class="normal-ad-mode-card"><input type="radio" name="normal-ad-mode" value="code" checked><span><strong>上传代码自动添加</strong><small>上传并校验 TXT 后，自动接入三个固定广告位。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="normal-ad-mode" value="code" checked><span><strong>上传代码自动添加</strong><small>上传并校验 TXT 后默认固定添加，也可切换为手动调整位置。</small></span></label>
                             </div>
                         </div>
                         <div class="config-group" id="ad-code-mode-panel">
@@ -713,14 +752,18 @@
                         </div>
                         <div class="config-group" id="ad-placement-group">
                             <h4 class="group-title">📢 广告容器</h4>
-                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择预留位置方式。导出会保留广告容器、GPT 引用和空配置的 <code>js/ad.js</code>。</p>
+                            <p class="group-desc" id="ad-placement-description" style="font-size:12px;color:#888;margin-bottom:12px;">上传代码后默认固定添加广告位；也可切换到手动放置，在预览中调整位置。</p>
+                            <div class="normal-ad-mode-grid" id="direct-ad-placement-mode-group" role="radiogroup" aria-label="上传代码广告位放置方式" hidden>
+                                <label class="normal-ad-mode-card"><input type="radio" name="direct-ad-placement-mode" value="fixed" checked><span><strong>固定位置（默认）</strong><small>沿用上传代码后的自动位置；首页、详情页与“全部游戏”页按现有规则添加。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="direct-ad-placement-mode" value="manual"><span><strong>手动放置</strong><small>以当前自动位置为起点，分别调整每个广告在首页和详情页的位置。</small></span></label>
+                            </div>
                             <div class="normal-ad-mode-grid" role="radiogroup" aria-label="游戏站预留广告位定位方式">
                                 <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="fixed"><span><strong>固定位置</strong><small>自动放在首页导航下方、分类间和页面底部；分类不足时自动调整。详情页与“全部游戏”页同步放置。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="manual" checked><span><strong>手动放置</strong><small>自行选择每个广告容器在首页和详情页的位置。</small></span></label>
                             </div>
                             <p id="ad-fixed-placement-note" class="group-hint" hidden>固定位置已生效，预览会显示三个广告容器；切回手动放置后，原有手动位置仍会保留。</p>
                             <div id="ad-manual-placement-controls">
-                            <p class="group-desc" style="font-size:12px;color:#888;margin:12px 0;">选择广告容器后，在预览中点击常用广告位进行放置；“全部游戏”页沿用详情页位置。</p>
+                            <p class="group-desc" id="ad-manual-placement-description" style="font-size:12px;color:#888;margin:12px 0;">选择广告容器后，在预览中点击常用广告位进行放置；“全部游戏”页沿用详情页位置。</p>
 
                             <!-- 广告1 -->
                             <div class="ad-container-config">
@@ -967,17 +1010,26 @@
     <!-- JS脚本（顺序加载） -->
     <script src="js/games-data.js?v=20260910-6"></script>
     <script src="js/open-source-games-bundle.js?v=20260910-6"></script>
-    <script src="js/data.js?v=20260912-emoji-1"></script>
-    <script src="js/ad-migration.js?v=20260924-all-games-ads-1"></script>
+    <script src="../js/template-catalog.js?v=20260926-content-first-1"></script>
+    <script src="../js/template-layouts.js?v=20260928-heading-designs-1"></script>
+    <script src="../js/navbar-layout.js?v=20260926-nav-fit-1"></script>
+    <script src="js/data.js?v=20260926-templates-30"></script>
+    <script src="../js/archive-naming.js?v=20260926-domain-folder-1"></script>
+    <script src="js/ad-migration.js?v=20260925-domain-zip-naming-1"></script>
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
-    <script src="js/game-archive-runtime.js?v=20260912-feature-parity-1"></script>
+    <script src="../js/ad-template-catalog.js?v=20260929-ad-template-default-1"></script>
+    <script src="../js/export-preflight.js?v=20260925-export-preflight-1"></script>
+    <script type="module" src="js/game-archive-runtime.js?v=20260926-module-import-1"></script>
     <script src="js/game-zip-import.js?v=20260912-1"></script>
     <script src="js/built-in-game-sources.js?v=20260912-1"></script>
     <script src="js/saved-game-catalogs.js?v=20260912-content-identity-1"></script>
-    <script src="js/generator.js?v=20260924-ad-version-picker-1"></script>
+    <script src="js/generator.js?v=20260929-direct-manual-ad-placement-1"></script>
   <script src="js/differentiated-builder.js?v=20260914-v101-48"></script>
-  <script src="js/app.js?v=20260924-ad-version-picker-1"></script>
+  <script src="../js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
+  <script src="../js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
+  <script src="../js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
+  <script src="js/app.js?v=20260929-workflow-mode-indicator-1"></script>
   <script src="../js/jelly-button.js?v=20260918-9"></script>
-  <script src="../js/liquid-glass.js?v=20260918-liquid-glass-1"></script>
+  <script src="../js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
 </body>
 </html>

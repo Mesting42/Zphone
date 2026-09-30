@@ -138,7 +138,7 @@ body::after {
     background: rgba(255, 255, 255, 0.38);
 }
 .liquid-command-progress .step-item.active .step-circle {
-    background: linear-gradient(145deg, #4aa7ff, #1874db);
+    background: linear-gradient(145deg, #1f68b6, #155fbf);
     box-shadow: 0 7px 15px rgba(26, 115, 232, 0.28), inset 0 1px rgba(255, 255, 255, 0.56);
 }
 .liquid-command-progress .step-item.completed .step-circle {
@@ -169,6 +169,9 @@ body::after {
 .liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(2) { left: calc(30% + var(--step-rail-trim)); width: calc(20% - var(--step-rail-trim)); }
 .liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(3) { left: 50%; width: calc(20% - var(--step-rail-trim)); }
 .liquid-command-progress:not(.game-command-progress) > .step-line:nth-of-type(4) { left: calc(70% - var(--step-rail-trim)); width: calc(20% - var(--step-rail-trim)); }
+/* The finished-site workflow shows three flexed steps instead of the five-step default. */
+.liquid-command-progress.is-ad-injection > .step-line:nth-of-type(1) { left: 18%; width: 32%; }
+.liquid-command-progress.is-ad-injection > .step-line:nth-of-type(2) { left: 50%; width: 32%; }
 .game-command-progress > .step-line { left: calc(25% + 9px); width: calc(50% - 18px); }
 .liquid-command-progress .step-item.completed + .step-line {
     opacity: 1;
@@ -186,12 +189,87 @@ body::after {
     width: min(100%, 600px);
     margin: 0 auto;
 }
+.workflow-command-bar {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    width: min(calc(100% - 48px), 1120px);
+    min-height: 86px;
+    margin: clamp(24px, 4vh, 44px) auto 0;
+    padding: 4px 14px 4px 20px;
+    border: 1px solid rgba(255, 255, 255, 0.76);
+    border-radius: 24px;
+}
+.workflow-command-bar > .step-progress {
+    flex: 1 1 0;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    min-height: 78px;
+    margin: 0;
+    padding: 8px 18px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+.workflow-command-bar.is-mode-only {
+    flex: 0 0 auto;
+    justify-content: center;
+    width: fit-content;
+    max-width: calc(100% - 48px);
+    min-height: 0;
+    margin-inline: auto;
+    padding: 8px;
+}
+.workflow-mode-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex: 0 1 auto;
+    max-width: 320px;
+    min-height: 54px;
+    padding: 10px 15px;
+    border: 1px solid rgba(255, 255, 255, 0.58);
+    border-radius: 16px;
+    background: linear-gradient(145deg, #1f68b6, #155fbf);
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.44), 0 7px 16px rgba(26, 115, 232, 0.22);
+    color: #fff;
+    line-height: 1.35;
+}
+.workflow-mode-caption {
+    flex: 0 0 auto;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.workflow-mode-indicator strong {
+    min-width: 0;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 750;
+    line-height: 1.25;
+    text-wrap: balance;
+}
+.workflow-command-bar.is-mode-only > .workflow-mode-indicator { max-width: min(320px, calc(100vw - 64px)); }
+
+/* The game builder shares the same glass card while reserving room for its return control. */
+.game-workbench-command > .game-workflow-command-bar {
+    width: min(calc(100% - 440px), 880px);
+    margin: 0 auto;
+}
 .game-workbench-command .tool-return-link {
     --jelly-color: #2377d8;
     position: absolute;
     z-index: 2;
     top: 50%;
-    right: 0;
+    right: 38px;
     min-height: 38px;
     padding: 8px 14px;
     border: 1px solid rgba(101, 153, 210, 0.35) !important;
@@ -217,7 +295,6 @@ body::after {
 .game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active .jelly-explore-label { color: #fff; }
 .game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active .jelly-explore-body { opacity: 1; }
 .game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active .jelly-explore-shadow { opacity: 0.52; }
-
 .liquid-glass-surface {
     --liquid-x: 22%;
     --liquid-y: 2%;
@@ -256,7 +333,8 @@ body::after {
 .liquid-glass-surface:hover::before { opacity: 1; }
 
 /* Floating navigation and the outer work area are the two thickest glass layers. */
-.step-progress.liquid-glass-surface {
+.step-progress.liquid-glass-surface,
+.workflow-command-bar.liquid-glass-surface {
     border-color: rgba(255, 255, 255, 0.76) !important;
     background:
         radial-gradient(110% 130% at var(--liquid-x) var(--liquid-y), rgba(255, 255, 255, 0.78), transparent 58%),
@@ -529,14 +607,93 @@ body::after {
     .liquid-command-progress { --step-rail-trim: 3.2px; --step-rail-double-trim: 6.4px; width: calc(100% - 24px); margin-top: 18px; padding-inline: 8px; }
     .liquid-command-progress .step-item { min-width: 0; }
     .game-command-progress > .step-line { left: calc(25% + 4px); width: calc(50% - 8px); }
-    .game-workbench-command { width: calc(100% - 24px); min-height: 126px; margin-top: 18px; }
+    .game-workbench-command { width: calc(100% - 24px); min-height: 0; margin-top: 18px; }
     .game-workbench-command .game-command-progress { width: 100%; }
-    .game-workbench-command .tool-return-link { top: auto; right: 50%; bottom: 0; transform: translateX(50%) !important; }
-    .game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active { transform: translateX(50%) scale(1.02) !important; }
     .step-nav.workflow-action-dock { width: 100%; margin-top: 14px; padding: 10px; flex-direction: column; align-items: stretch; }
     .workflow-action-context { min-width: 0; padding: 0 2px 8px; border-right: 0; border-bottom: 1px solid rgba(109, 158, 207, 0.2); }
     .workflow-action-buttons { width: 100%; }
     .workflow-action-buttons > button { flex: 1 1 auto; min-width: 0; }
+}
+
+/* Stack the mode label above the step rail before the desktop layout gets cramped. */
+@media (max-width: 1100px) {
+    .workflow-command-bar {
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: 6px;
+        width: calc(100% - 48px);
+        min-height: 0;
+        padding: 10px;
+    }
+    .workflow-command-bar > .workflow-mode-indicator {
+        order: -1;
+        align-self: flex-end;
+        max-width: 100%;
+        margin: 0;
+    }
+    .workflow-command-bar > .step-progress {
+        width: 100%;
+        min-height: 78px;
+        margin: 0;
+    }
+    .workflow-command-bar.is-mode-only {
+        align-items: center;
+        width: fit-content;
+        max-width: calc(100% - 48px);
+    }
+    .workflow-command-bar.is-mode-only > .workflow-mode-indicator {
+        align-self: center;
+    }
+    .game-workbench-command {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        min-height: 0;
+    }
+    .game-workbench-command > .game-workflow-command-bar {
+        order: 1;
+        width: 100%;
+        margin: 0 auto;
+    }
+    .game-workbench-command .game-command-progress {
+        margin: 0;
+    }
+    .game-workbench-command .tool-return-link {
+        position: relative;
+        order: 2;
+        align-self: center;
+        width: max-content;
+        max-width: 100%;
+        top: auto;
+        right: auto;
+        bottom: auto;
+        margin: 0;
+        transform: none !important;
+    }
+    .game-workbench-command .tool-return-link.jelly-explore-button.is-jelly-active {
+        transform: none !important;
+    }
+}
+
+@media (max-width: 640px) {
+    .workflow-command-bar {
+        width: calc(100% - 24px);
+    }
+    .workflow-command-bar > .step-progress {
+        padding-inline: 8px;
+    }
+    .workflow-command-bar.is-mode-only {
+        max-width: calc(100% - 24px);
+    }
+    .workflow-command-bar > .workflow-mode-indicator {
+        max-width: calc(100% - 4px);
+        padding: 9px 12px;
+    }
+    .workflow-command-bar.is-mode-only > .workflow-mode-indicator {
+        max-width: calc(100vw - 48px);
+    }
 }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {

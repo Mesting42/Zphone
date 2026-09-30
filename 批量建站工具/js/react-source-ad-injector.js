@@ -33,7 +33,8 @@ export function Advertisement({ id, className = '' }${typed ? `: { id: Advertise
   useEffect(() => { window.refreshClarivoBanners?.(); }, []);
   return <div className={className}>
     <div id={containerId} style={{ textAlign: 'center', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', overflow: 'hidden', marginTop: '1px' }}>
-      <div style={{ textAlign: 'center', color: 'black', fontSize: '13px' }}>{label}</div>
+      {/* Inherit the page theme so this marker stays legible on dark and light pages. */}
+      <div style={{ textAlign: 'center', color: 'inherit', WebkitTextFillColor: 'currentColor', fontSize: '13px' }}>{label}</div>
       <div id={elementId} style={{ minWidth: '300px', minHeight: '250px' }} />
     </div>
   </div>;

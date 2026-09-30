@@ -1,3 +1,4 @@
+import { createArchiveWorkerTools } from './archive-worker-tools.js?v=20260928-rar-timeout-fallback-2';
 import { ExtractorData } from 'node-unrar-js/esm/js/ExtractorData.js';
 import { getUnrar } from 'node-unrar-js/esm/js/unrar.singleton.js';
 import unrarWasmUrl from 'node-unrar-js/esm/js/unrar.wasm?url';
@@ -20,18 +21,28 @@ async function createBrowserRarExtractor(options) {
     var workerUrl = new URL('js/vendor/libarchive/worker-bundle.js', document.baseURI).href;
     var archiveRuntimePromise = null;
     var unrarRuntimePromise = null;
+    var archiveWorkerTools = createArchiveWorkerTools(workerUrl, function(url, options) {
+        return new Worker(url, options);
+    });
+
+    function configureArchiveRuntime(module) {
+        module.Archive.init({ workerUrl: workerUrl, getWorker: archiveWorkerTools.createArchiveWorker });
+        return module.Archive;
+    }
+
+    global.openArchiveWithTimeout = archiveWorkerTools.openArchiveWithTimeout;
 
     global.loadArchiveRuntime = function() {
         if (!archiveRuntimePromise) {
-            archiveRuntimePromise = import(moduleUrl).then(function(module) {
-                module.Archive.init({ workerUrl: workerUrl });
-                return module.Archive;
-            });
+            archiveRuntimePromise = import(moduleUrl).then(configureArchiveRuntime);
             // 为旧调用方保留同一个 Promise，但不在页面初始化阶段创建它。
             global.ArchiveRuntimeReady = archiveRuntimePromise;
         }
         return archiveRuntimePromise;
     };
+
+    // Used by app.js when recovering from a stale HTML page that omitted this loader.
+    global.configureArchiveRuntime = configureArchiveRuntime;
 
     // libarchive 对部分 RAR5 / solid RAR 会给出没有错误文本的失败结果。
     // 此回退引擎来自官方 UnRAR C++ 源码的 WebAssembly 编译版，只处理 RAR；7Z 仍由 libarchive 处理。

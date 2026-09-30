@@ -14,7 +14,7 @@ const context = { JSZip: ZipMock, Blob, Response, DecompressionStream, TextDecod
 const source = (name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8');
 context.window = {};
 vm.runInNewContext(source('ad.js'), context);
-vm.runInNewContext(source('data.js') + '\nthis.__themes = THEMES;', context);
+vm.runInNewContext(source('template-catalog.js') + source('template-layouts.js') + source('navbar-layout.js') + source('data.js') + '\nthis.__themes = THEMES;', context);
 vm.runInNewContext(source('domain.js'), context);
 vm.runInNewContext(source('ad-migration.js') + '\nthis.__migration = AdMigration;', context);
 vm.runInNewContext(source('generator.js') + '\nthis.__generator = Generator;', context);
@@ -78,6 +78,18 @@ function createState(mode = 'normal', migration = null) {
 function count(source, pattern) { return (source.match(new RegExp(pattern, 'g')) || []).length; }
 
 describe('legacy ad migration', () => {
+  it('detects the domain in the old ad.js configuration for ZIP naming', () => {
+    const entries = legacyEntries.map((entry) => entry.path.endsWith('/js/ad.js')
+      ? { ...entry, text: entry.text
+        .replace('/100/banner-1', '/100/site.example.com-banner1')
+        .replace('/100/banner-2', '/100/site.example.com-banner2')
+        .replace('/100/banner-3', '/100/site.example.com-banner3') }
+      : entry);
+    const result = context.__migration.inspectEntries(entries);
+    expect(result.valid).toBe(true);
+    expect(result.detectedHost).toBe('site.example.com');
+  });
+
   it('uses the selected ad.js version for migration and reserved ordinary exports', async () => {
     const migration = context.__migration.inspectEntries(legacyEntries);
     const oldState = { ...createState('ad-migration', migration), adJsVersion: 'v1.0.0' };
@@ -95,6 +107,18 @@ describe('legacy ad migration', () => {
     const reserveState = { ...createState(), normalAdMode: 'reserve', adJsVersion: 'initial' };
     await context.__generator.exportWebsite(reserveState, () => {});
     expect(globalThis.__legacyGeneratedFiles['website/js/ad.js']).toContain('const bannerPath1 = "";');
+  });
+
+  it('wraps ad-domain site files in a directory named after the detected host', async () => {
+    const migration = context.__migration.inspectEntries(legacyEntries);
+    await context.__generator.exportWebsite(createState('ad-migration', migration), () => {}, { siteFolderName: 'site.example.com' });
+    const files = globalThis.__legacyGeneratedFiles;
+
+    expect(files['site.example.com/index.html']).toContain('div-gpt-ad-banner1');
+    expect(files['site.example.com/details/article1.html']).toContain('div-gpt-ad-banner3');
+    expect(files['site.example.com/css/style.css']).toContain('--color-bg:');
+    expect(files['site.example.com/js/ad.js']).toContain('const adUnitBanner1 = "/100/banner-1";');
+    expect(files['website/index.html']).toBeUndefined();
   });
 
   it('exports an optional all-articles page with every article and the detail ad placements in normal mode', async () => {
@@ -121,7 +145,7 @@ describe('legacy ad migration', () => {
     await context.__generator.exportWebsite(adState, () => {});
     const withAds = globalThis.__legacyGeneratedFiles['website/all-articles.html'];
     expect(count(withAds, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js')).toBe(1);
-    expect(count(withAds, 'src="js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"')).toBe(1);
+    expect(count(withAds, 'src="js/ad\\.js\\?v=20260924-ad-runtime-v1021-[a-z0-9]+"')).toBe(1);
     for (const banner of [1, 2, 3]) expect(count(withAds, 'id="div-gpt-ad-banner' + banner + '"')).toBe(1);
     expect(withAds.indexOf('div-gpt-ad-banner1')).toBeLessThan(withAds.indexOf('id="all-articles"'));
     expect(withAds.indexOf('div-gpt-ad-banner2')).toBeGreaterThan(withAds.indexOf('class="item-card" href="details/article2.html"'));
@@ -239,7 +263,50 @@ describe('legacy ad migration', () => {
     expect(config.adPaths.analyticsID).toBe('G-Z5JQ643FJG');
   });
 
-  it('accepts v1.0.1 variable names in an old site and replaces its runtime on export', async () => {
+  it('maps numbered GAM suffixes to logical slots and exports the unchanged ad paths', async () => {
+    const result = context.__migration.inspectAdCodeText(`
+      googletag.defineSlot('/23343622020/zp0903b.frostlab.top-banner11', [[320, 50]], 'banner-11');
+      googletag.defineSlot('/23343622020/zp0903b.frostlab.top-banner22', [[320, 50]], 'banner-22');
+      googletag.defineSlot('/23343622020/zp0903b.frostlab.top-banner33', [[320, 50]], 'banner-33');
+      googletag.defineSlot('/23343622020/zp0903b.frostlab.top-INT1', [[320, 480]], 'interstitial-1');
+      googletag.defineSlot('/23343622020/zp0903b.frostlab.top-ANC1', [320, 50], 'anchor-1');
+    `, 'zp0903b.frostlab.top.txt');
+
+    expect(result.valid).toBe(true);
+    expect(result.detectedHost).toBe('zp0903b.frostlab.top');
+    expect(result.config).toMatchObject({
+      bannerPath1: '/23343622020/zp0903b.frostlab.top-banner11',
+      bannerPath2: '/23343622020/zp0903b.frostlab.top-banner22',
+      bannerPath3: '/23343622020/zp0903b.frostlab.top-banner33',
+      interstitialPath: '/23343622020/zp0903b.frostlab.top-INT1',
+      anchorPath: '/23343622020/zp0903b.frostlab.top-ANC1'
+    });
+
+    const state = createState();
+    state.adCodeMigration = result;
+    await context.__generator.exportWebsite(state, () => {});
+    const exportedAdJs = globalThis.__legacyGeneratedFiles['website/js/ad.js'];
+    expect(exportedAdJs).toContain('const adUnitBanner1 = "/23343622020/zp0903b.frostlab.top-banner11";');
+    expect(exportedAdJs).toContain('const adUnitBanner2 = "/23343622020/zp0903b.frostlab.top-banner22";');
+    expect(exportedAdJs).toContain('const adUnitBanner3 = "/23343622020/zp0903b.frostlab.top-banner33";');
+    expect(exportedAdJs).toContain('const adUnitInterstitial = "/23343622020/zp0903b.frostlab.top-INT1";');
+    expect(exportedAdJs).toContain('const adUnitAnchor = "/23343622020/zp0903b.frostlab.top-ANC1";');
+  });
+
+  it('rejects different paths that compete for the same logical ad slot', () => {
+    const result = context.__migration.inspectAdCodeText(`
+      googletag.defineSlot('/12345/example.com-banner1', [[320, 50]], 'banner-1');
+      googletag.defineSlot('/12345/example.com-banner11', [[320, 50]], 'banner-11');
+      googletag.defineSlot('/12345/example.com-banner22', [[320, 50]], 'banner-22');
+      googletag.defineSlot('/12345/example.com-banner33', [[320, 50]], 'banner-33');
+    `, 'example.com.txt');
+
+    expect(result.valid).toBe(false);
+    expect(result.config.bannerPath1).toBe('');
+    expect(result.errors).toContainEqual(expect.objectContaining({ code: 'AD_CODE_SLOT_CONFLICT' }));
+  });
+
+  it('accepts v1.0.1 variable names in an old site and replaces its runtime with the current template', async () => {
     const updatedEntries = legacyEntries.map((entry) => entry.path.endsWith('/js/ad.js') ? {
       ...entry,
       text: [
@@ -253,11 +320,13 @@ describe('legacy ad migration', () => {
     expect(migration.config.analyticsID).toBe('G-NEWS123');
     await context.__generator.exportWebsite(createState('ad-migration', migration), () => {});
     const runtime = globalThis.__legacyGeneratedFiles['website/js/ad.js'];
-    expect(runtime).toContain('ad.js v1.0.1');
+    expect(runtime).toContain('ad.js v1.0.2.1');
     expect(runtime).toContain('const adUnitInterstitial = "/100/interstitial";');
     expect(runtime).toContain('const gaMeasurementId = "G-NEWS123";');
     expect(runtime).toContain('interstitialSlot.setConfig({');
-    expect(runtime).toContain('continueReading: true');
+    expect(runtime).toContain('const enableLazyLoad = true;');
+    expect(runtime).toContain('const enableInterstitialTriggers = false;');
+    expect(runtime).toContain('continueReading: enableInterstitialTriggers');
     expect(() => new Function(runtime)).not.toThrow();
   });
 
@@ -357,7 +426,8 @@ describe('legacy ad migration', () => {
     expect(files['website/js/ad.js']).toContain('const adUnitAnchor = "";');
     expect(files['website/js/ad.js']).toContain('const gaMeasurementId = "";');
     expect(files['website/js/ad.js']).toContain('adUnitBanner1 && document.getElementById');
-    expect(files['website/js/ad.js']).toContain('ad.js v1.0.1');
+    expect(files['website/js/ad.js']).toContain('ad.js v1.0.2.1');
+    expect(files['website/js/ad.js']).toContain('const enableLazyLoad = true;');
     expect(files['website/js/ad.js']).toContain('interstitialSlot.setConfig({');
     expect(files['website/AD_PLACEHOLDER_SETUP.txt']).toContain('不需要重新生成页面');
     expect(files['website/generate_details.py']).toBeUndefined();
@@ -423,6 +493,42 @@ describe('legacy ad migration', () => {
     expect(preview).toContain('grid-template-columns: repeat(3, minmax(0, 1fr)) !important;');
   });
 
+  it('exports the same category count, card order, and palette shown in preview', async () => {
+    const state = createState();
+    state.config.categories = [{ name: 'Latest', icon: '•', count: 3 }];
+    state.config.selectedStyle = 'dark';
+
+    const preview = context.__generator.generatePreviewHtml(state, 'home');
+    // 模拟真实界面：只有实际写入预览 iframe 的状态才能作为导出基准。
+    state._lastPreviewSignature = context.__generator.getBuildSignature(state);
+    await context.__generator.exportWebsite(state, () => {});
+
+    const files = globalThis.__legacyGeneratedFiles;
+    const exportedHome = files['website/index.html'];
+    const cardTitles = (html) => Array.from(html.matchAll(/<div class="card-title">([^<]+)<\/div>/g), (match) => match[1]);
+    const colorBackground = (html) => html.match(/--color-bg:\s*([^;]+);/)[1].trim();
+
+    expect(count(preview, 'class="item-card"')).toBe(3);
+    expect(count(exportedHome, 'class="item-card"')).toBe(3);
+    expect(preview).toContain('items-grid item-count-3');
+    expect(exportedHome).toContain('items-grid item-count-3');
+    expect(cardTitles(exportedHome)).toEqual(cardTitles(preview));
+    expect(colorBackground(preview)).toBe('#1a1a2e');
+    expect(colorBackground(exportedHome)).toBe(colorBackground(preview));
+    expect(exportedHome).toMatch(/href="css\/style\.[a-z0-9]+\.css"/);
+    expect(exportedHome).toMatch(/src="js\/script\.[a-z0-9]+\.js"/);
+    expect(files['website/css/style.css']).toBe(files['website/css/' + JSON.parse(files['website/SITE_RENDER_MANIFEST.json']).assets.style]);
+  });
+
+  it('blocks an export when configuration changed after the last rendered preview', async () => {
+    const state = createState();
+    state._lastPreviewSignature = context.__generator.getBuildSignature(state);
+    state.config.selectedStyle = 'minimal';
+
+    await expect(context.__generator.exportWebsite(state, () => {}))
+      .rejects.toThrow('预览配置与导出配置不一致');
+  });
+
   it('recognizes a nested old-site archive and reports structural failures clearly', () => {
     const result = context.__migration.inspectEntries(legacyEntries);
     expect(result.valid).toBe(true);
@@ -458,8 +564,8 @@ describe('legacy ad migration', () => {
       expect(ordinary[path]).toContain('<style data-generated-site-style>');
       expect(ordinary[path]).toContain('--color-bg:');
     });
-    expect(ordinary['website/index.html']).toContain('href="css/style.css"');
-    expect(ordinary['website/details/article1.html']).toContain('href="../css/style.css"');
+    expect(ordinary['website/index.html']).toMatch(/href="css\/style\.[a-z0-9]+\.css"/);
+    expect(ordinary['website/details/article1.html']).toMatch(/href="\.\.\/css\/style\.[a-z0-9]+\.css"/);
     expect(ordinary['website/css/style.css']).toContain('--color-bg:');
     const ordinaryNav = ordinary['website/index.html'].slice(ordinary['website/index.html'].indexOf('<nav'), ordinary['website/index.html'].indexOf('</nav>') + 6);
     const ordinaryFooter = ordinary['website/index.html'].slice(ordinary['website/index.html'].indexOf('<footer'));
@@ -494,14 +600,14 @@ describe('legacy ad migration', () => {
     expect(migratedNav).not.toContain('Contact Us');
     expect(detail).toMatch(/href="\.\.\/index\.html#category-[a-z0-9-]+"/);
     expect(count(home, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js')).toBe(1);
-    expect(count(home, 'src="js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"')).toBe(1);
+    expect(count(home, 'src="js/ad\\.js\\?v=20260924-ad-runtime-v1021-[a-z0-9]+"')).toBe(1);
     expect(count(detail, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js')).toBe(1);
-    expect(count(detail, 'src="\\.\\./js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"')).toBe(1);
+    expect(count(detail, 'src="\\.\\./js/ad\\.js\\?v=20260924-ad-runtime-v1021-[a-z0-9]+"')).toBe(1);
     ['advertisement1', 'advertisement2', 'advertisement3'].forEach((label) => {
       expect(count(home, '>' + label + '</div>')).toBe(1);
       expect(count(detail, '>' + label + '</div>')).toBe(1);
     });
-    expect(home).toContain('color:black;font-size:13px');
+    expect(home).toContain('color:inherit!important;-webkit-text-fill-color:currentColor!important;font-size:13px');
     ['banner1', 'banner2', 'banner3'].forEach((name) => {
       expect(count(home, 'id="div-gpt-ad-' + name + '"')).toBe(1);
       expect(count(detail, 'id="div-gpt-ad-' + name + '"')).toBe(1);

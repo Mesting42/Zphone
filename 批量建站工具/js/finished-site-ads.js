@@ -9,9 +9,12 @@ function createFinishedSiteAds() {
 
     const UNITS = ['banner1', 'banner2', 'banner3'];
     const UTILITY_PATH = /(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-service)?|legal|faq|404)(?:[/.]|$)/i;
+    const BUILT_IN_AD_JS_VERSIONS = ['initial', 'v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];
 
     function normalizeVersion(version) {
-        return version === 'initial' || version === 'v1.0.0' || version === 'v1.0.2' ? version : 'v1.0.1';
+        if (BUILT_IN_AD_JS_VERSIONS.indexOf(version) !== -1) return version;
+        const catalog = typeof window !== 'undefined' && window.AdTemplateCatalog;
+        return catalog && catalog.isKnownVersion(version) ? version : 'v1.0.2.1';
     }
 
     function isContentPath(path) {
@@ -61,6 +64,40 @@ function createFinishedSiteAds() {
         }
         candidates.sort(function(a, b) { return depth(a) - depth(b); });
         return candidates[0] || null;
+    }
+
+    function isCustomScrollProgress(node) {
+        if (!node || node.nodeType !== 1) return false;
+        if (node.matches('[data-scroll-progress], [data-reading-progress], [data-page-progress], [data-scroll-indicator]')) return true;
+        const className = node.className && node.className.baseVal || node.className || '';
+        const identity = String(className) + ' ' + String(node.id || '');
+        return /(?:^|[-_\s])(?:scroll|reading|page)[-_\s]*(?:progress|indicator)(?:$|[-_\s])/i.test(identity);
+    }
+
+    function adjacentScrollProgress(navigation) {
+        if (!navigation) return null;
+        if (isCustomScrollProgress(navigation.nextElementSibling)) return navigation.nextElementSibling;
+        // Some themes keep the rail as the header's final child while positioning
+        // it immediately below the visible navigation with absolute CSS.
+        if (isCustomScrollProgress(navigation.lastElementChild)) return navigation.lastElementChild;
+        return null;
+    }
+
+    function ensureAfterNavigationOffsetStyle(doc) {
+        if (doc.querySelector('style[data-sitefoundry-after-nav-offset-style]')) return;
+        const style = doc.createElement('style');
+        style.setAttribute('data-sitefoundry-after-nav-offset-style', '');
+        // The tool's tablet preview is 768px wide and this site's mobile layout
+        // ends at 719px. Keep phones untouched while clearing a 24px progress rail.
+        style.textContent = '@media (min-width:720px){[data-sitefoundry-after-nav-offset]{margin-top:24px!important;}}';
+        (doc.head || doc.documentElement || doc.body).appendChild(style);
+    }
+
+    function applyAfterNavigationOffset(doc, adNode, navigation) {
+        if (!doc || !adNode || !adjacentScrollProgress(navigation)) return false;
+        adNode.setAttribute('data-sitefoundry-after-nav-offset', '');
+        ensureAfterNavigationOffsetStyle(doc);
+        return true;
     }
 
     function pageFooter(doc) {
@@ -325,9 +362,8 @@ function createFinishedSiteAds() {
         outer.style.cssText = 'width:100%!important;text-align:center!important;padding:10px!important;display:flex!important;flex-direction:column!important;align-items:center!important;overflow:hidden!important;box-sizing:border-box!important;grid-column:1 / -1!important;flex-basis:100%!important;position:relative!important;z-index:2!important;visibility:visible!important;opacity:1!important;';
         const label = doc.createElement('div');
         label.textContent = 'advertisement' + n;
-        // Imported themes frequently apply broad div/text rules. Keep the
-        // placement marker readable so users can verify each slot in preview.
-        label.style.cssText = 'display:block!important;position:relative;z-index:1;text-align:center;color:#111!important;-webkit-text-fill-color:#111!important;font:13px/1.4 system-ui,sans-serif!important;text-indent:0!important;visibility:visible!important;opacity:1!important;';
+        // Inherit the site's text color so the placement marker remains visible on dark and light themes.
+        label.style.cssText = 'display:block!important;position:relative;z-index:1;text-align:center;color:inherit!important;-webkit-text-fill-color:currentColor!important;font:13px/1.4 system-ui,sans-serif!important;text-indent:0!important;visibility:visible!important;opacity:1!important;';
         const area = doc.createElement('div');
         area.id = 'div-gpt-ad-banner' + n;
         area.style.cssText = 'min-width:300px;min-height:250px;';
@@ -391,6 +427,13 @@ function createFinishedSiteAds() {
         const main = contentRoot(doc);
         const header = navigationAnchor(doc);
         const footer = pageFooter(doc);
+        // 页面缺少可识别的导航栏时，仍将 banner1 放在主要内容前，
+        // 让实时预览和固定模式导出都有可见且一致的首个广告位。
+        const bodyContentStart = main === doc.body
+            ? Array.from(doc.body && doc.body.children || []).find(function(node) {
+                return !/^(?:script|style|template)$/i.test(node.tagName || '');
+            })
+            : main;
         function add(unit, anchor, relation, reason) {
             if (wanted.indexOf(unit) < 0) return;
             if (!anchor || !anchor.parentNode) {
@@ -398,11 +441,17 @@ function createFinishedSiteAds() {
                 return;
             }
             const node = placeholder(doc, unit);
+            // Only banner1 belongs to the top-of-page slot. When a custom page
+            // progress rail is the navigation's immediate sibling, reserve its
+            // visual height on tablet and desktop without changing phone layout.
+            if (unit === 'banner1' && anchor === header && relation === 'after') {
+                applyAfterNavigationOffset(doc, node, header);
+            }
             if (relation === 'before') anchor.parentNode.insertBefore(node, anchor);
             else anchor.parentNode.insertBefore(node, anchor.nextSibling);
             placed.push(unit);
         }
-        add('banner1', header, 'after', '未识别到可信的头部导航栏');
+        add('banner1', header || bodyContentStart, header ? 'after' : 'before', '未识别到导航栏或可用的主要内容位置');
         if (pageType === 'home') {
             const blocks = homepageContentModules(main);
             add('banner2', blocks[0], 'after', '未识别到第一个独立内容模块');
@@ -440,7 +489,8 @@ function createFinishedSiteAds() {
 
     return { normalizeVersion: normalizeVersion, isContentPath: isContentPath, isHomePath: isHomePath,
         activeUnits: activeUnits, navigationAnchor: navigationAnchor, pageFooter: pageFooter,
-        previewPlaceholder: previewPlaceholder,
+        previewPlaceholder: previewPlaceholder, isCustomScrollProgress: isCustomScrollProgress,
+        adjacentScrollProgress: adjacentScrollProgress, applyAfterNavigationOffset: applyAfterNavigationOffset,
         place: place, serialize: serialize };
 }
 
@@ -469,6 +519,8 @@ FinishedSiteAds.dynamicRuntimeSource = function(config, version, options) {
                 if (state.slots.length && googletag.destroySlots) googletag.destroySlots(state.slots);
                 state.slots = [];
                 if (version !== 'initial' && googletag.setConfig) {
+                    // v1.0.2 remains the historical no-lazy-load release;
+                    // v1.0.2.1 and the other native GPT releases enable it.
                     googletag.setConfig({ lazyLoad: version === 'v1.0.2' ? null : { fetchMarginPercent: 50, renderMarginPercent: 0, mobileScaling: 1 }, singleRequest: false });
                 }
                 const readyToDisplay = [];

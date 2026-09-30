@@ -9,7 +9,8 @@
             if (promise) return promise;
             var moduleUrl = 'https://cdn.jsdelivr.net/npm/libarchive.js@2.0.2/dist/libarchive.js';
             var workerUrl = 'https://cdn.jsdelivr.net/npm/libarchive.js@2.0.2/dist/worker-bundle.js';
-            promise = import(moduleUrl).then(function(module) {
+            // 远程解压依赖按需加载；入口以 module 加载，兼容 Vite 的导入处理。
+            promise = import(/* @vite-ignore */ moduleUrl).then(function(module) {
                 module.Archive.init({ workerUrl: workerUrl });
                 return module.Archive;
             });

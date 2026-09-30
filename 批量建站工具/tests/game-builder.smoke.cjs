@@ -8,8 +8,11 @@ const root = path.resolve(__dirname, '../game-builder');
 let generatedFiles = {};
 
 vm.runInThisContext(
+    fs.readFileSync(path.join(root, '..', 'js', 'template-catalog.js'), 'utf8') +
+    fs.readFileSync(path.join(root, '..', 'js', 'template-layouts.js'), 'utf8') +
+    fs.readFileSync(path.join(root, '..', 'js', 'navbar-layout.js'), 'utf8') +
     fs.readFileSync(path.join(root, 'js', 'data.js'), 'utf8') +
-    '\n; PrincipalTheme = THEMES; PrincipalStyles = STYLE_PRESETS; PrincipalGameBrands = GAME_BRAND_PRESETS; PrincipalGameEmojiIcons = GAME_EMOJI_ICONS; PrincipalGameIconSets = GAME_ICON_SET_PRESETS;'
+    '\n; PrincipalTheme = THEMES; PrincipalStyles = STYLE_PRESETS; PrincipalGameBrands = GAME_BRAND_PRESETS; PrincipalGameEmojiIcons = GAME_EMOJI_ICONS; PrincipalGameCategoryEmojiIcons = GAME_CATEGORY_EMOJI_ICONS; PrincipalGameIconSets = GAME_ICON_SET_PRESETS;'
 );
 vm.runInThisContext(
     fs.readFileSync(path.join(root, 'js', 'ad-migration.js'), 'utf8') +
@@ -18,6 +21,10 @@ vm.runInThisContext(
 vm.runInThisContext(
     fs.readFileSync(path.join(root, 'js', 'generator.js'), 'utf8') +
     '\n; PrincipalGenerator = Generator;'
+);
+vm.runInThisContext(
+    fs.readFileSync(path.join(root, '..', 'js', 'export-preflight.js'), 'utf8') +
+    '\n; PrincipalExportPreflight = SiteExportPreflight;'
 );
 
 class ZipMock {
@@ -66,6 +73,34 @@ const parsedAdCode = PrincipalAdMigration.inspectAdCodeText(`
 assert.equal(parsedAdCode.valid, true, 'matching TXT ad slots should be accepted');
 assert.equal(parsedAdCode.detectedHost, 'zp0903a.vibory.pro', 'ad host must omit slot suffixes');
 assert.equal(parsedAdCode.config.bannerPath4, '', 'a missing banner4 slot must stay empty instead of duplicating banner3');
+const parsedNumberedAdCode = PrincipalAdMigration.inspectAdCodeText(`
+    googletag.defineSlot('/23343622020/zp0903b.frostlab.top-banner11', [[320, 50]], 'banner-11');
+    googletag.defineSlot('/23343622020/zp0903b.frostlab.top-banner22', [[320, 50]], 'banner-22');
+    googletag.defineSlot('/23343622020/zp0903b.frostlab.top-banner33', [[320, 50]], 'banner-33');
+    googletag.defineSlot('/23343622020/zp0903b.frostlab.top-INT1', [[320, 480]], 'interstitial-1');
+    googletag.defineSlot('/23343622020/zp0903b.frostlab.top-ANC1', [320, 50], 'anchor-1');
+`, 'zp0903b.frostlab.top.txt');
+assert.equal(parsedNumberedAdCode.valid, true, 'numbered aliases from GAM TXT must be recognized');
+assert.equal(parsedNumberedAdCode.detectedHost, 'zp0903b.frostlab.top', 'numbered suffixes must be removed only for host detection');
+assert.equal(parsedNumberedAdCode.config.bannerPath1, '/23343622020/zp0903b.frostlab.top-banner11', 'banner11 must map to Banner 1 without changing its path');
+assert.equal(parsedNumberedAdCode.config.bannerPath2, '/23343622020/zp0903b.frostlab.top-banner22', 'banner22 must map to Banner 2 without changing its path');
+assert.equal(parsedNumberedAdCode.config.bannerPath3, '/23343622020/zp0903b.frostlab.top-banner33', 'banner33 must map to Banner 3 without changing its path');
+assert.equal(parsedNumberedAdCode.config.interstitialPath, '/23343622020/zp0903b.frostlab.top-INT1', 'INT1 must map to interstitial without changing its path');
+assert.equal(parsedNumberedAdCode.config.anchorPath, '/23343622020/zp0903b.frostlab.top-ANC1', 'ANC1 must map to anchor without changing its path');
+const conflictingNumberedAdCode = PrincipalAdMigration.inspectAdCodeText(`
+    googletag.defineSlot('/12345/example.com-banner1', [[320, 50]], 'banner-1');
+    googletag.defineSlot('/12345/example.com-banner11', [[320, 50]], 'banner-11');
+    googletag.defineSlot('/12345/example.com-banner22', [[320, 50]], 'banner-22');
+    googletag.defineSlot('/12345/example.com-banner33', [[320, 50]], 'banner-33');
+`, 'example.com.txt');
+assert.equal(conflictingNumberedAdCode.valid, false, 'conflicting aliases must not silently overwrite the selected ad unit');
+assert.ok(conflictingNumberedAdCode.errors.some(function(error) { return error.code === 'AD_CODE_SLOT_CONFLICT'; }));
+const parsedLegacyAdConfig = PrincipalAdMigration.inspectEntries([
+    { path: 'js/ad.js', text: 'const bannerPath1 = "/123/zp0903a.vibory.pro-banner1"; const bannerPath2 = "/123/zp0903a.vibory.pro-banner2"; const bannerPath3 = "/123/zp0903a.vibory.pro-banner3";' },
+    { path: 'index.html', text: '<div id="div-gpt-ad-banner1"></div><div id="div-gpt-ad-banner2"></div><div id="div-gpt-ad-banner3"></div>' },
+    { path: 'details/article.html', text: '<div id="div-gpt-ad-banner1"></div><div id="div-gpt-ad-banner2"></div><div id="div-gpt-ad-banner3"></div>' }
+]);
+assert.equal(parsedLegacyAdConfig.detectedHost, 'zp0903a.vibory.pro', 'legacy ad.js must expose its domain for ZIP naming');
 
 function relativeLuminanceFromHex(hex) {
     const normalized = String(hex).replace('#', '');
@@ -256,6 +291,14 @@ const state = {
 
     await PrincipalGenerator.exportWebsite(state, function() {});
 
+    const preflightReport = PrincipalExportPreflight.inspectEntries(
+        Object.keys(generatedFiles).map(function(filePath) {
+            return { path: filePath, text: typeof generatedFiles[filePath] === 'string' ? generatedFiles[filePath] : undefined };
+        }),
+        { paths: Object.keys(generatedFiles), siteName: 'game-builder-smoke' }
+    );
+    assert.equal(preflightReport.valid, true, 'generated game sites must pass final artifact preflight: ' + JSON.stringify(preflightReport.errors));
+
     const indexHtml = generatedFiles['website/index.html'];
     const navigationHtml = indexHtml.slice(indexHtml.indexOf('<nav'), indexHtml.indexOf('</nav>') + 6);
     const footerHtml = indexHtml.slice(indexHtml.indexOf('<footer'));
@@ -397,6 +440,35 @@ const state = {
         _previewBlobUrls: []
     }, 'home');
     assert.ok(directAdPreview.includes('div-gpt-ad-banner1'), 'validated TXT ads must render an automatic first ad container in preview');
+    const manualDirectAdsState = {
+        ...state,
+        siteBuildMode: 'normal',
+        directAdPlacementMode: 'manual',
+        adCodeMigration: { valid: true, config: { bannerPath1: '/1/demo-banner1', bannerPath2: '/1/demo-banner2', bannerPath3: '/1/demo-banner3' } },
+        config: {
+            ...state.config,
+            adCodePlacements: {
+                adv1: { home: 'footer-top', detail: 'detail-before-content' },
+                adv2: { home: 'content-top', detail: 'detail-after-content' },
+                adv3: { home: 'after-navbar', detail: 'footer-top' }
+            }
+        },
+        _previewBlobUrls: []
+    };
+    const manualDirectAdConfig = PrincipalGenerator.buildConfig(manualDirectAdsState);
+    assert.deepEqual(manualDirectAdConfig.adPlacements, manualDirectAdsState.config.adCodePlacements, 'manual uploaded-code positions must replace fixed positions in game preview/export config');
+    const manualDirectHomePreview = PrincipalGenerator.generatePreviewHtml(manualDirectAdsState, 'home');
+    const manualDirectDetailPreview = PrincipalGenerator.generatePreviewHtml(manualDirectAdsState, 'detail');
+    assert.ok(manualDirectHomePreview.indexOf('id="adv3"') < manualDirectHomePreview.indexOf('id="adv2"') && manualDirectHomePreview.indexOf('id="adv2"') < manualDirectHomePreview.indexOf('id="adv1"'), 'game preview must follow custom homepage placement order');
+    assert.ok(manualDirectDetailPreview.indexOf('id="adv1"') < manualDirectDetailPreview.indexOf('id="adv2"') && manualDirectDetailPreview.indexOf('id="adv2"') < manualDirectDetailPreview.indexOf('id="adv3"'), 'game detail preview must follow custom detail placement order');
+    await PrincipalGenerator.exportWebsite(manualDirectAdsState, function() {});
+    const manualDirectHomeExport = generatedFiles['website/index.html'];
+    const manualDirectDetailExport = generatedFiles['website/details/article1.html'];
+    const manualDirectAllGamesExport = generatedFiles['website/all-games.html'];
+    assert.ok(manualDirectHomeExport.indexOf('id="adv3"') < manualDirectHomeExport.indexOf('id="adv2"') && manualDirectHomeExport.indexOf('id="adv2"') < manualDirectHomeExport.indexOf('id="adv1"'), 'game export must preserve custom homepage placement order');
+    assert.ok(manualDirectDetailExport.indexOf('id="adv1"') < manualDirectDetailExport.indexOf('id="adv2"') && manualDirectDetailExport.indexOf('id="adv2"') < manualDirectDetailExport.indexOf('id="adv3"'), 'game export must preserve custom detail placement order');
+    assert.ok(manualDirectAllGamesExport.indexOf('id="adv1"') < manualDirectAllGamesExport.indexOf('id="adv2"') && manualDirectAllGamesExport.indexOf('id="adv2"') < manualDirectAllGamesExport.indexOf('id="adv3"'), 'all-games export must inherit the customized detail-page placements');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('const adUnitBanner2 = "/1/demo-banner2";'), 'manual placement must not alter the uploaded banner unit path');
     const manualAdPreview = PrincipalGenerator.generatePreviewHtml({
         ...state,
         siteBuildMode: 'normal',
@@ -461,7 +533,13 @@ const state = {
     assert.ok(!generatedFiles['website/js/ad.js'], 'normal build must not output ad.js');
     assert.equal(PrincipalGameBrands.length, 50, 'brand menu must provide 50 game title presets');
     assert.equal(PrincipalGameEmojiIcons.length, 48, 'game emoji picker must provide 48 icons');
+    assert.equal(PrincipalGameCategoryEmojiIcons.length, 72, 'game category picker must provide its expanded, separate icon pool');
+    assert.equal(new Set(PrincipalGameCategoryEmojiIcons).size, PrincipalGameCategoryEmojiIcons.length, 'game category icons must be unique');
     assert.equal(PrincipalGameIconSets.length, 24, 'category menu must provide 24 icon combinations');
+    PrincipalGameIconSets.forEach(function(set) {
+        assert.equal(new Set(set.icons).size, 16, 'each game category preset must contain 16 distinct icons');
+        set.icons.forEach(function(icon) { assert.ok(PrincipalGameCategoryEmojiIcons.includes(icon)); });
+    });
     assert.equal(new Set(PrincipalGameBrands).size, PrincipalGameBrands.length, 'brand title presets must be unique');
     assert.equal((detailPreview.match(/class="related-card"/g) || []).length, 7, 'preview must honor related count');
     assert.equal(
@@ -563,7 +641,7 @@ const state = {
     assert.ok(toolCss.includes('.preview-frame-wrapper::-webkit-scrollbar-thumb') && toolCss.includes('background: #7891af;'), 'preview workspace scrolling must use the styled light-tool scrollbar');
     assert.ok(homePreview.includes('--preview-scrollbar-track:') && homePreview.includes('html::-webkit-scrollbar-thumb'), 'the generated preview site must style its own internal scrollbar');
     assert.ok(appSource.includes('function initCustomConfigSelects()'), 'configuration selects must initialize a reusable custom-select control');
-    assert.ok(appSource.includes("#tab-structure .config-item select, #tab-style .config-item select"), 'all configuration-panel selects must receive the custom-select treatment');
+    assert.ok(appSource.includes("document.querySelectorAll('select').forEach(createCustomSelect)"), 'all selects, including configuration-panel selects, must receive the shared custom-select treatment');
     assert.ok(appSource.includes('configLayout.dataset.previewSize = normalizedSize'), 'preview device selection must update the shared configuration workspace state');
     assert.ok(toolCss.includes('.config-layout[data-preview-size="tablet"] { --preview-workspace-height: 1094px; }'), 'tablet preview must expand the shared configuration workspace height');
     assert.ok(toolCss.includes('.config-layout[data-preview-size="mobile"] { --preview-workspace-height: 882px; }'), 'mobile preview must expand the shared configuration workspace height');
@@ -837,11 +915,11 @@ const state = {
     assert.ok(migratedNavigation.includes('href="#category-action">Action</a>'), 'migrated header must link to dynamic categories');
     assert.ok(migratedNavigation.includes('href="all-games.html">All Games</a>'), 'migrated header must still expose every imported game');
     assert.equal(count(migratedHome, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js'), 1, 'migrated home must have one GPT script');
-    assert.equal(count(migratedHome, 'src="js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"'), 1, 'migrated home must have one versioned ad.js');
+    assert.equal(count(migratedHome, 'src="js/ad\\.js\\?v=20260924-ad-runtime-v1021-[a-z0-9]+"'), 1, 'migrated home must have one versioned ad.js');
     assert.equal(count(migratedDetail, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js'), 1, 'migrated detail must have one GPT script');
-    assert.equal(count(migratedDetail, 'src="\\.\\./js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"'), 1, 'migrated detail must have one versioned relative ad.js');
+    assert.equal(count(migratedDetail, 'src="\\.\\./js/ad\\.js\\?v=20260924-ad-runtime-v1021-[a-z0-9]+"'), 1, 'migrated detail must have one versioned relative ad.js');
     assert.equal(count(migratedAllGames, 'securepubads\\.g\\.doubleclick\\.net/tag/js/gpt\\.js'), 1, 'all-games page must load GPT once');
-    assert.equal(count(migratedAllGames, 'src="js/ad\\.js\\?v=20260923-ad-runtime-v101-[a-z0-9]+"'), 1, 'all-games page must load its root-relative ad.js once');
+    assert.equal(count(migratedAllGames, 'src="js/ad\\.js\\?v=20260924-ad-runtime-v1021-[a-z0-9]+"'), 1, 'all-games page must load its root-relative ad.js once');
     assert.equal(count(migratedHome, '>advertisement</div>'), 3, 'migrated homepage must visibly label every ad slot');
     assert.equal(count(migratedDetail, '>advertisement</div>'), 3, 'migrated detail page must visibly label every ad slot');
     assert.equal(count(migratedPreview, '>advertisement</div>'), 3, 'migration preview must visibly label every ad slot');
@@ -867,14 +945,27 @@ const state = {
     assert.ok(migratedAllGames.indexOf('div-gpt-ad-banner3') > migratedAllGames.indexOf('</section>'), 'all-games banner3 must remain after the game list');
     assert.ok(generatedFiles['website/js/ad.js'].includes('"/123/banner-1"'), 'migrated ad.js must contain extracted configuration');
     assert.ok(generatedFiles['website/js/ad.js'].includes('const adUnitBanner1 = "/123/banner-1";'), 'migrated ad.js must declare the populated first banner unit');
-    assert.ok(generatedFiles['website/js/ad.js'].includes('ad.js v1.0.1'), 'game export must use the uploaded v1.0.1 runtime');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('ad.js v1.0.2.1'), 'game export must upgrade recognized ad variables to the current runtime');
     assert.ok(generatedFiles['website/js/ad.js'].includes('interstitialSlot.setConfig({'), 'game export must configure interstitial triggers');
-    assert.ok(generatedFiles['website/js/ad.js'].includes('continueReading: true'), 'game export must include the continuing-reading trigger');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('const enableLazyLoad = true;'), 'game export must enable native lazy loading');
+    assert.ok(generatedFiles['website/js/ad.js'].includes('const enableInterstitialTriggers = false;'), 'game export must disable extra interstitial triggers');
     assert.ok(generatedFiles['website/js/ad.js'].includes('googletag.setConfig({'), 'migrated ad.js must configure GPT before defining slots');
     assert.ok(generatedFiles['website/js/ad.js'].includes('document.addEventListener("DOMContentLoaded",'), 'migrated ad.js must wait only for DOM readiness');
     assert.ok(!generatedFiles['website/js/ad.js'].includes("window.addEventListener('load'"), 'migrated ad.js must not wait for every page resource before initializing banners');
     assert.doesNotThrow(() => new Function(generatedFiles['website/js/ad.js']), 'generated ad runtime must parse');
     assert.ok(!migratedHome.includes('old-site/'), 'legacy source paths must not be copied into the new homepage');
+
+    const gameArchiveFolder = 'zp0903a.vibory.pro';
+    await PrincipalGenerator.exportWebsite(migrationState, function() {}, { siteFolderName: gameArchiveFolder });
+    assert.ok(generatedFiles[gameArchiveFolder + '/index.html'].includes('div-gpt-ad-banner1'), 'domain-named game exports must wrap the homepage in the host folder');
+    assert.ok(generatedFiles[gameArchiveFolder + '/details/article1.html'].includes('div-gpt-ad-banner3'), 'domain-named game exports must keep detail ads in the host folder');
+    assert.ok(generatedFiles[gameArchiveFolder + '/js/ad.js'].includes('const adUnitBanner1 = "/123/banner-1";'), 'host-folder game export must preserve the recognized ad IDs');
+    assert.ok(!Object.keys(generatedFiles).some(function(path) { return path.startsWith('website/'); }), 'domain-named game exports must replace the default website folder');
+    const rootPreflight = PrincipalExportPreflight.inspectEntries(generatedFiles, {
+        paths: Object.keys(generatedFiles),
+        siteName: 'domain-named game export'
+    });
+    assert.equal(rootPreflight.valid, true, 'host-folder domain exports must still pass the full-site preflight');
 
     const normalAdsState = {
         ...state,

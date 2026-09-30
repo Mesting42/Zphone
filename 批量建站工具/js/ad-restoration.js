@@ -15,6 +15,7 @@ const AdRestoration = (function() {
     const HOME_PLACEMENTS = ['off', 'after-navbar', 'after-hero', 'content-top', 'after-section-0', 'after-section-1', 'after-section-2', 'content-bottom', 'footer-top'];
     const DETAIL_PLACEMENTS = ['off', 'after-navbar', 'detail-before-content', 'detail-between-p-1', 'detail-between-p-2', 'detail-between-p-3', 'detail-after-content', 'detail-before-related', 'detail-after-related', 'footer-top'];
     const BANNER_UNITS = ['off', 'banner1', 'banner2', 'banner3'];
+    const BATCH_AD_JS_VERSIONS = ['v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];
     const CUSTOM_PLACEMENT_PATTERN = /^custom-after-(?:\d{1,3})(?:-\d{1,3}){0,7}$/;
     const DEFAULT_POLICY = {
         version: 1,
@@ -44,6 +45,10 @@ const AdRestoration = (function() {
 
     function clone(value) {
         return JSON.parse(JSON.stringify(value));
+    }
+
+    function normalizeBatchAdJsVersionMode(value) {
+        return BATCH_AD_JS_VERSIONS.indexOf(value) !== -1 ? value : 'original';
     }
 
     function syncPlacementsFromSlots(policy) {
@@ -210,7 +215,7 @@ const AdRestoration = (function() {
 
     function detectAdJsVersion(source) {
         const text = String(source || '');
-        const markers = Array.from(text.matchAll(/\bad\.js\s+v(1\.0\.[012])\b/gi), function(match) {
+        const markers = Array.from(text.matchAll(/\bad\.js\s+v(\d+(?:\.\d+){2,3}(?:-[0-9a-z.-]+)?)/gi), function(match) {
             return 'v' + match[1];
         });
         const versions = Array.from(new Set(markers));
@@ -218,6 +223,9 @@ const AdRestoration = (function() {
         const hasInitialFingerprint = /\bfunction\s+delayLoadBanner\s*\(/.test(text)
             && /\bnew\s+IntersectionObserver\s*\(/.test(text)
             && /\bconst\s+bannerPath1\s*=/.test(text);
+        const catalog = typeof window !== 'undefined' && window.AdTemplateCatalog;
+        const customVersions = versions.filter(function(version) { return catalog && catalog.getTemplate(version); });
+        if (customVersions.length === 1 && !hasInitialFingerprint) return customVersions[0];
         if (versions.length === 1 && runtimeFormat === 'ad-unit' && !hasInitialFingerprint) return versions[0];
         if (versions.length) return '';
 
@@ -486,7 +494,8 @@ const AdRestoration = (function() {
     function template(adId) {
         if (typeof Generator !== 'undefined' && typeof Generator.getAdTemplate === 'function') return Generator.getAdTemplate(adId);
         const number = adId.replace(/\D/g, '');
-        return '<div id="' + adId + '" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:var(--color-text,#111);font-size:13px;">advertisement</div><div id="div-gpt-ad-banner' + number + '" style="min-width:300px;min-height:250px;"></div></div>';
+        // Keep the fallback marker readable by inheriting the active page theme.
+        return '<div id="' + adId + '" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:inherit!important;-webkit-text-fill-color:currentColor!important;font-size:13px;">advertisement</div><div id="div-gpt-ad-banner' + number + '" style="min-width:300px;min-height:250px;"></div></div>';
     }
 
     function adOneRegion(html) {
@@ -528,6 +537,31 @@ const AdRestoration = (function() {
         return null;
     }
 
+    function customScrollProgressOpenTag(openTag) {
+        const source = String(openTag || '');
+        if (/\bdata-(?:scroll|reading|page)-(?:progress|indicator)\b/i.test(source)) return true;
+        const idMatch = source.match(/\bid\s*=\s*(["'])(.*?)\1/i);
+        const identity = classValue(source) + ' ' + (idMatch ? idMatch[2] : '');
+        return /(?:^|[-_\s])(?:scroll|reading|page)[-_\s]*(?:progress|indicator)(?:$|[-_\s])/i.test(identity);
+    }
+
+    function hasAdjacentScrollProgressAfterNavigation(html) {
+        // Prefer the outer header because a semantic nav is commonly nested in
+        // it; the custom progress rail is then the header's adjacent sibling.
+        const navigation = findFirstElement(html, 'header') || findFirstElement(html, 'nav') || findNavigationElement(html);
+        if (!navigation || navigation.end < 0) return false;
+        const navigationSource = String(html || '').slice(navigation.openEnd, navigation.end);
+        const progressInsideNavigation = navigationSource.match(/<([a-z][\w:-]*)\b[^>]*>/gi) || [];
+        if (progressInsideNavigation.some(customScrollProgressOpenTag)) return true;
+        const tail = String(html || '').slice(navigation.end);
+        const sibling = tail.match(/^(?:\s|<!--[\s\S]*?-->)*<([a-z][\w:-]*)\b[^>]*>/i);
+        return !!(sibling && customScrollProgressOpenTag(sibling[0]));
+    }
+
+    function afterNavigationOffsetStyle() {
+        return '<style data-sitefoundry-after-nav-offset-style>@media (min-width:720px){[data-sitefoundry-after-nav-offset]{margin-top:24px!important;}}</style>';
+    }
+
     function closeStart(html, element, tagName) {
         if (!element || element.end === -1) return -1;
         const slice = html.slice(element.start, element.end);
@@ -551,10 +585,12 @@ const AdRestoration = (function() {
         return result;
     }
 
-    function adGroupMarkup(html, position, adIds) {
+    function adGroupMarkup(html, position, adIds, offsetAfterNavigation) {
         const markup = adIds.map(template).join('\n');
         if (position === 'after-navbar') {
-            return '<div class="ad-region ad-after-navbar ad-nav-' + navbarStyle(html) + '">' + markup + '</div>';
+            const offsetAttribute = offsetAfterNavigation ? ' data-sitefoundry-after-nav-offset' : '';
+            const offsetStyle = offsetAfterNavigation ? afterNavigationOffsetStyle() : '';
+            return offsetStyle + '<div class="ad-region ad-after-navbar ad-nav-' + navbarStyle(html) + '"' + offsetAttribute + '>' + markup + '</div>';
         }
         if (CUSTOM_PLACEMENT_PATTERN.test(String(position || ''))) {
             // The selected gap can be inside one column of a multi-column page.
@@ -662,7 +698,9 @@ const AdRestoration = (function() {
     }
 
     function insertPlacement(html, pageType, position, adIds, options) {
-        const markup = adGroupMarkup(html, position, adIds);
+        const offsetAfterNavigation = position === 'after-navbar' && adIds.indexOf('adv1') !== -1
+            && hasAdjacentScrollProgressAfterNavigation(html);
+        const markup = adGroupMarkup(html, position, adIds, offsetAfterNavigation);
         let anchor = null;
         let index = -1;
 
@@ -1014,6 +1052,11 @@ const AdRestoration = (function() {
         }
 
         const useBatchPolicyTemplate = !!(options && options.batchPolicy);
+        // 批量策略默认沿用源站版本；只有显式选择时才统一切换模板。
+        // 广告路径仍来自该站 config，版本切换不会在站点之间共享配置。
+        const requestedBatchVersion = normalizeBatchAdJsVersionMode(options && options.batchAdJsVersion);
+        const outputAdJsVersion = useBatchPolicyTemplate && requestedBatchVersion !== 'original'
+            ? requestedBatchVersion : metadata.adJsVersion;
         if ((useBatchPolicyTemplate || (options && options.finishedSite && options.adJsVersion))
             && typeof Generator.generateSelectedAdJs !== 'function') {
             return { valid: false, errors: [issue('所需的 ad.js 版本模板未加载。', 'RESTORE_VERSION_GENERATOR_UNAVAILABLE')], warnings: metadata.warnings, entries: entries, metadata: metadata };
@@ -1021,16 +1064,16 @@ const AdRestoration = (function() {
         let generatedAdSource;
         try {
             generatedAdSource = useBatchPolicyTemplate
-                ? metadata.adJsVersion === 'initial'
+                ? outputAdJsVersion === 'initial'
                     ? generateInitialPolicySource(config, policy)
-                    : generateAdUnitPolicySource(config, policy, metadata.adJsVersion)
+                    : generateAdUnitPolicySource(config, policy, outputAdJsVersion)
                 : options && options.finishedSite && options.adJsVersion
                     ? Generator.generateSelectedAdJs(config || {}, options.adJsVersion)
                     : Generator.generateAdJs(config || {}, policyMode ? policy : null);
         } catch (error) {
             return {
                 valid: false,
-                errors: [issue('无法生成识别到的 ad.js ' + (metadata.adJsVersion || '版本') + ' 模板：' + (error && error.message ? error.message : '模板生成失败。'), 'RESTORE_AD_VERSION_TEMPLATE_FAILED')],
+                errors: [issue('无法生成 ad.js ' + (outputAdJsVersion || metadata.adJsVersion || '版本') + ' 模板：' + (error && error.message ? error.message : '模板生成失败。'), 'RESTORE_AD_VERSION_TEMPLATE_FAILED')],
                 warnings: metadata.warnings,
                 entries: entries,
                 metadata: metadata
@@ -1040,7 +1083,7 @@ const AdRestoration = (function() {
             return { valid: false, errors: [issue('识别到的 ad.js 模板结构已变化，无法安全应用批量广告策略。', 'RESTORE_NEW_TEMPLATE_UNSUPPORTED')], warnings: metadata.warnings, entries: entries, metadata: metadata };
         }
         const outputAdRuntimeFormat = useBatchPolicyTemplate
-            ? metadata.adJsVersion === 'initial' ? 'legacy' : 'ad-unit'
+            ? outputAdJsVersion === 'initial' ? 'legacy' : 'ad-unit'
             : metadata.adRuntimeFormat;
         const adSource = policyMode && options && options.batchPolicy
             ? disablePolicyAdPaths(generatedAdSource, policy, outputAdRuntimeFormat) : generatedAdSource;
@@ -1058,7 +1101,10 @@ const AdRestoration = (function() {
                 adRuntimeFormat: outputAdRuntimeFormat,
                 adPaths: config || {},
                 policy: policy,
-                ...(options && options.batchPolicy ? { adJsVersion: metadata.adJsVersion } : {}),
+                ...(options && options.batchPolicy ? {
+                    sourceAdJsVersion: metadata.adJsVersion,
+                    adJsVersion: outputAdJsVersion
+                } : {}),
                 ...(options && options.finishedSite && options.adJsVersion ? { adJsVersion: options.adJsVersion, placementMode: 'manual' } : {})
             };
             const existingManifest = entries.find(function(entry) { return entry.path.toLowerCase() === manifestPath.toLowerCase(); });
@@ -1075,6 +1121,8 @@ const AdRestoration = (function() {
             changedPages: changedPages,
             changedScripts: dynamicHomeResult.changedScripts,
             restoredConfig: config || {},
+            sourceAdJsVersion: metadata.adJsVersion,
+            adJsVersion: outputAdJsVersion,
             policy: policy
         };
     }
@@ -1130,15 +1178,95 @@ const AdRestoration = (function() {
         return '';
     }
 
-    function waitForArchiveOperation(operation, timeoutMs, timeoutMessage) {
+    function waitForArchiveOperation(operation, timeoutMs, timeoutMessage, worker) {
         // 单元测试和部分嵌入式 WebView 不提供 timer；此时仍执行解析，只省略超时兜底。
         if (typeof setTimeout !== 'function' || typeof clearTimeout !== 'function') return Promise.resolve(operation);
+        function terminateWorker() {
+            if (!worker || typeof worker.terminate !== 'function') return;
+            try { worker.terminate(); } catch (_) {}
+        }
         let timer = 0;
         const timeout = new Promise(function(_, reject) {
-            timer = setTimeout(function() { reject(new Error(timeoutMessage)); }, timeoutMs);
+            timer = setTimeout(function() {
+                terminateWorker();
+                reject(new Error(timeoutMessage));
+            }, timeoutMs);
         });
-        return Promise.race([Promise.resolve(operation), timeout]).finally(function() {
+        let onWorkerError = null;
+        let workerFailure = null;
+        if (worker && typeof worker.addEventListener === 'function') {
+            workerFailure = new Promise(function(_, reject) {
+                onWorkerError = function(event) {
+                    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+                    const detail = event && (event.message || event.type);
+                    terminateWorker();
+                    reject(new Error('压缩包解析 Worker 出错' + (detail ? '：' + detail : '。')));
+                };
+                worker.addEventListener('error', onWorkerError, { once: true });
+                worker.addEventListener('messageerror', onWorkerError, { once: true });
+            });
+        }
+        const operations = [Promise.resolve(operation), timeout];
+        if (workerFailure) operations.push(workerFailure);
+        return Promise.race(operations).finally(function() {
             if (timer) clearTimeout(timer);
+            if (onWorkerError && worker && typeof worker.removeEventListener === 'function') {
+                worker.removeEventListener('error', onWorkerError);
+                worker.removeEventListener('messageerror', onWorkerError);
+            }
+        });
+    }
+
+    // Bound cleanup too: a stuck close() must not block the RAR fallback or UI recovery.
+    async function closeArchiveSafely(archive, fileName) {
+        if (!archive || typeof archive.close !== 'function') return;
+        try {
+            await waitForArchiveOperation(
+                archive.close(),
+                5000,
+                String(fileName || '压缩包') + ' 关闭解析 Worker 超时。',
+                archive.worker
+            );
+        } catch (_) {
+            if (archive.worker && typeof archive.worker.terminate === 'function') {
+                try { archive.worker.terminate(); } catch (_) {}
+            }
+        }
+    }
+
+    function reportArchiveProgress(onStage, stage, percent) {
+        if (typeof onStage !== 'function') return;
+        if (percent === null || percent === undefined || !Number.isFinite(Number(percent))) {
+            onStage(stage, null);
+            return;
+        }
+        onStage(stage, Math.max(0, Math.min(100, Number(percent))));
+    }
+
+    // 浏览器 FileReader 能报告压缩包读取字节数；不支持时保留不定向状态，不伪造百分比。
+    function readArchiveBytes(file, onStage, stage, progressLimit) {
+        stage = stage || '正在读取压缩包数据…';
+        progressLimit = Number.isFinite(Number(progressLimit)) ? Math.max(0, Math.min(100, Number(progressLimit))) : 12;
+        if (typeof FileReader !== 'function' || !file || typeof file.slice !== 'function' || !Number.isFinite(Number(file.size))) {
+            reportArchiveProgress(onStage, stage, null);
+            return file && typeof file.arrayBuffer === 'function' ? file.arrayBuffer() : Promise.resolve(file);
+        }
+
+        return new Promise(function(resolve, reject) {
+            const reader = new FileReader();
+            reader.onprogress = function(event) {
+                if (event && event.lengthComputable && event.total > 0) {
+                    reportArchiveProgress(onStage, stage, progressLimit * event.loaded / event.total);
+                }
+            };
+            reader.onload = function() { resolve(reader.result); };
+            reader.onerror = function() { reject(reader.error || new Error('读取压缩包失败。')); };
+            reader.onabort = function() { reject(new Error('压缩包读取已取消。')); };
+            try {
+                reader.readAsArrayBuffer(file);
+            } catch (error) {
+                reject(error);
+            }
         });
     }
 
@@ -1160,21 +1288,40 @@ const AdRestoration = (function() {
         if (typeof globalThis === 'undefined' || typeof globalThis.loadRarFallbackRuntime !== 'function') {
             throw new Error('RAR5 回退解析组件未加载。请刷新页面后重试。');
         }
-        onStage('内置解析器不兼容，正在切换 RAR5 / solid RAR 解析器…');
+        reportArchiveProgress(onStage, '内置解析器不兼容，正在切换 RAR5 / solid RAR 解析器…', null);
         const runtime = await waitForArchiveOperation(
             globalThis.loadRarFallbackRuntime(),
             90000,
             '加载 RAR5 / solid RAR 解析组件超时。请刷新页面后重试。'
         );
-        onStage('正在读取 RAR5 文件清单，并自动跳过 node_modules…');
+        reportArchiveProgress(onStage, '正在读取 RAR5 文件清单，并自动跳过 node_modules…', null);
+        const data = await waitForArchiveOperation(
+            readArchiveBytes(file, onStage, '正在读取 RAR5 压缩包数据…', 12),
+            90000,
+            '读取 RAR 文件超时。请重新选择文件后重试。'
+        );
         const extractor = await waitForArchiveOperation(
-            runtime.createExtractorFromData({ data: await file.arrayBuffer(), wasmBinary: runtime.wasmBinary }),
+            runtime.createExtractorFromData({
+                data: data,
+                wasmBinary: runtime.wasmBinary
+            }),
             90000,
             '打开 RAR5 压缩包超时。请确认压缩包未加密且不是分卷压缩包。'
         );
         let headers;
         try {
-            headers = Array.from(extractor.getFileList().fileHeaders || []);
+            headers = [];
+            let listed = 0;
+            const fileHeaders = extractor.getFileList().fileHeaders || [];
+            for (const header of fileHeaders) {
+                headers.push(header);
+                listed += 1;
+                if (listed % 256 === 0) {
+                    reportArchiveProgress(onStage, '正在读取 RAR5 文件清单：' + listed + ' 项…', null);
+                    // 清单按迭代器逐项生成；分批让出主线程，避免大清单期间界面失去响应。
+                    if (typeof setTimeout === 'function') await new Promise(function(resolve) { setTimeout(resolve, 0); });
+                }
+            }
         } catch (error) {
             throw new Error('RAR5 文件清单读取失败：' + archiveErrorText(error));
         }
@@ -1182,23 +1329,33 @@ const AdRestoration = (function() {
             const path = normalizePath(header && header.name);
             return header && !header.flags?.directory && isSafePath(path) && !isIgnoredArchivePath(path);
         });
-        onStage('目录读取完成：共 ' + headers.length + ' 项，正在提取 ' + candidates.length + ' 个源码文件…');
-        if (!candidates.length) return [];
+        reportArchiveProgress(onStage, '目录读取完成：共 ' + headers.length + ' 项，正在提取 ' + candidates.length + ' 个源码文件…', 16);
+        if (!candidates.length) throw new Error('RAR 文件清单中没有可提取的普通文件；该压缩包可能为空、已加密、已损坏或缺少分卷。');
         let extracted;
         try {
+            reportArchiveProgress(onStage, '正在解压 RAR5 文件；解析器暂不提供内部百分比…', null);
             extracted = extractor.extract({ files: candidates.map(function(header) { return header.name; }) });
         } catch (error) {
             throw new Error('RAR5 源码提取失败：' + archiveErrorText(error));
         }
         const entries = [];
         let completed = 0;
+        const extractionStart = 16;
+        const extractionRange = 80;
+        const reportEvery = Math.max(1, Math.ceil(candidates.length / 60));
         try {
             for (const item of extracted.files) {
                 const path = normalizePath(item && item.fileHeader && item.fileHeader.name);
                 if (item && item.extraction && isSafePath(path) && !isIgnoredArchivePath(path)) {
                     entries.push({ path: path, bytes: new Uint8Array(item.extraction) });
                     completed += 1;
-                    if (completed < candidates.length && (completed % 8 === 0)) onStage('正在提取源码文件：' + completed + ' / ' + candidates.length + '…');
+                    if (completed === candidates.length || completed % reportEvery === 0) {
+                        reportArchiveProgress(onStage, '正在提取并整理 RAR5 源码文件：' + completed + ' / ' + candidates.length + '…', extractionStart + extractionRange * completed / candidates.length);
+                        // RAR5 回退解析器逐文件同步解压；定期让出主线程，及时绘制进度变化。
+                        if (completed < candidates.length && typeof setTimeout === 'function') {
+                            await new Promise(function(resolve) { setTimeout(resolve, 0); });
+                        }
+                    }
                 }
             }
         } catch (error) {
@@ -1210,68 +1367,84 @@ const AdRestoration = (function() {
     async function readRarArchive(file, onStage) {
         // RAR/7z 运行时是按需加载的。成品站加广告不能假设普通数据导入已经先触发过它。
         onStage = typeof onStage === 'function' ? onStage : function() {};
-        const runtime = typeof globalThis !== 'undefined'
-            ? (globalThis.ArchiveRuntimeReady || (typeof globalThis.loadArchiveRuntime === 'function' ? globalThis.loadArchiveRuntime() : null))
-            : null;
-        if (!runtime) throw new Error('RAR 解析组件未加载。请刷新页面后重试。');
-        onStage('正在打开 RAR / 7Z 压缩包…');
-        const Archive = await runtime;
         let archive = null;
         try {
-            archive = await waitForArchiveOperation(
-                Archive.open(file),
-                90000,
-                '打开 RAR / 7Z 超时。该压缩包可能已损坏或包含过多文件；请重新压缩源码并排除 node_modules 后重试。'
-            );
+            const runtime = typeof globalThis !== 'undefined'
+                ? (globalThis.ArchiveRuntimeReady || (typeof globalThis.loadArchiveRuntime === 'function' ? globalThis.loadArchiveRuntime() : null))
+                : null;
+            if (!runtime) throw new Error('RAR 解析组件未加载。请刷新页面后重试。');
+            reportArchiveProgress(onStage, '正在加载 RAR / 7Z 本地解析组件…', null);
+            const Archive = await waitForArchiveOperation(runtime, 90000, '加载 RAR / 7Z 解析组件超时。请刷新页面后重试。');
+            // libarchive 的打开和列目录阶段没有可用的进度事件，后续按实际完成的文件数报告。
+            reportArchiveProgress(onStage, '正在打开 RAR / 7Z 压缩包…', null);
+            const openError = '打开 RAR / 7Z 超时。该压缩包可能已损坏或包含过多文件；请重新压缩源码并排除 node_modules 后重试。';
+            archive = typeof globalThis.openArchiveWithTimeout === 'function'
+                ? await globalThis.openArchiveWithTimeout(Archive, file, 90000, openError)
+                : await waitForArchiveOperation(Archive.open(file), 90000, openError);
             // 不先 extractFiles()：React 项目常将 node_modules 打进 RAR，完整解压会
             // 无谓占用内存。先读取目录，再按需解出真正会保留到导出副本的文件。
-            onStage('正在列出压缩包目录，并自动跳过 node_modules…');
+            reportArchiveProgress(onStage, '正在列出压缩包目录，并自动跳过 node_modules…', null);
             // libarchive 的 getFilesArray() 会先在主线程为数万个依赖文件递归构造完整树。
             // 真实运行时直接使用 worker 的清单，再只按需提取源码；测试替身仍可走旧接口。
             const canListDirectly = archive.client && typeof archive.client.listFiles === 'function' && typeof archive.extractSingleFile === 'function';
             const files = await waitForArchiveOperation(
                 canListDirectly ? archive.client.listFiles() : archive.getFilesArray(),
                 90000,
-                '读取 RAR / 7Z 目录超时。该压缩包包含过多依赖文件；请重新压缩源码并排除 node_modules 后重试。'
+                '读取 RAR / 7Z 目录超时。该压缩包包含过多依赖文件；请重新压缩源码并排除 node_modules 后重试。',
+                archive.worker
             );
             const candidates = (files || []).filter(function(entry) {
                 const path = normalizePath(canListDirectly ? entry.path : String(entry.path || '') + String(entry.file && entry.file.name || ''));
                 return (canListDirectly ? entry.type === 'FILE' : entry.file) && isSafePath(path) && !isIgnoredArchivePath(path);
             });
-            onStage('目录读取完成：共 ' + (files || []).length + ' 个文件，正在提取 ' + candidates.length + ' 个源码文件…');
+            reportArchiveProgress(onStage, '目录读取完成：共 ' + (files || []).length + ' 个文件，正在提取 ' + candidates.length + ' 个源码文件…', 12);
+            if (!candidates.length) throw new Error('RAR 文件清单中没有可提取的普通文件；该压缩包可能为空、已加密、已损坏或缺少分卷。');
 
             const entries = [];
             const batchSize = 8;
+            const reportEvery = Math.max(1, Math.ceil(candidates.length / 60));
+            let completed = 0;
+            let lastReported = 0;
             for (let start = 0; start < candidates.length; start += batchSize) {
                 const batch = candidates.slice(start, start + batchSize);
                 const extracted = await Promise.all(batch.map(async function(entry) {
                     const path = normalizePath(canListDirectly ? entry.path : String(entry.path || '') + String(entry.file && entry.file.name || ''));
                     const source = canListDirectly
-                        ? await archive.extractSingleFile(entry.path)
-                        : (typeof entry.file.extract === 'function' ? await entry.file.extract() : entry.file);
-                    return { path: path, bytes: new Uint8Array(await source.arrayBuffer()) };
+                        ? await waitForArchiveOperation(archive.extractSingleFile(entry.path), 90000, '提取文件超时：' + path, archive.worker)
+                        : (typeof entry.file.extract === 'function'
+                            ? await waitForArchiveOperation(entry.file.extract(), 90000, '提取文件超时：' + path, archive.worker)
+                            : entry.file);
+                    const bytes = await waitForArchiveOperation(source.arrayBuffer(), 90000, '读取提取文件超时：' + path, archive.worker);
+                    completed += 1;
+                    if (completed === candidates.length || completed - lastReported >= reportEvery) {
+                        lastReported = completed;
+                        reportArchiveProgress(onStage, '正在提取源码文件：' + completed + ' / ' + candidates.length + '…', 12 + 84 * completed / candidates.length);
+                    }
+                    return { path: path, bytes: new Uint8Array(bytes) };
                 }));
                 entries.push.apply(entries, extracted);
-                const completed = Math.min(start + batch.length, candidates.length);
-                if (completed < candidates.length) onStage('正在提取源码文件：' + completed + ' / ' + candidates.length + '…');
             }
             return entries;
         } catch (error) {
             const isRar = /\.rar$/i.test(String(file && file.name || ''));
             if (archive && typeof archive.close === 'function') {
-                await archive.close();
+                await closeArchiveSafely(archive, file && file.name);
                 archive = null;
             }
             if (isRar && typeof globalThis !== 'undefined' && typeof globalThis.loadRarFallbackRuntime === 'function') {
                 try {
                     return await readRarWithOfficialFallback(file, onStage);
                 } catch (fallbackError) {
-                    throw new Error('RAR 读取失败：' + archiveErrorText(fallbackError, archiveErrorText(error)));
+                    throw new Error(
+                        String(file && file.name || 'RAR 文件') + ' 读取失败。内置解析器：' + archiveErrorText(error) +
+                        '；RAR5 / solid RAR 回退解析器：' + archiveErrorText(fallbackError) +
+                        '。请确认文件未加密、未损坏且不是缺少卷的分卷压缩包。'
+                    );
                 }
             }
-            throw new Error('压缩包读取失败：' + archiveErrorText(error));
+            throw new Error(String(file && file.name || '压缩包') + ' 读取失败：' + archiveErrorText(error));
         } finally {
-            if (archive && typeof archive.close === 'function') await archive.close();
+            if (archive) await closeArchiveSafely(archive, file && file.name);
         }
     }
 
@@ -1280,17 +1453,84 @@ const AdRestoration = (function() {
         if (!type) throw new Error('站点源文件仅支持 .zip、.rar、.7z、.tar.gz 或 .tgz。');
         if (type === 'zip') {
             if (typeof JSZip === 'undefined') throw new Error('ZIP 解析组件未加载。');
-            const zip = await JSZip.loadAsync(file);
+            const archiveData = await readArchiveBytes(file, onStage, '正在读取 ZIP 压缩包数据…', 12);
+            const workerClient = globalThis.ZipArchiveWorkerClient;
+            if (workerClient && typeof workerClient.read === 'function') {
+                // 把 JSZip 的同步目录扫描移出主线程，确保不定向进度动画在大型压缩包上持续运行。
+                reportArchiveProgress(onStage, '正在后台解析 ZIP 目录…', null);
+                try {
+                    const workerEntries = await workerClient.read(archiveData, function(stage, percent) {
+                        reportArchiveProgress(onStage, stage, percent);
+                    });
+                    if (workerEntries) return workerEntries;
+                } catch (error) {
+                    if (!error || error.code !== 'ZIP_WORKER_UNAVAILABLE') throw error;
+                    reportArchiveProgress(onStage, '后台解析器不可用，正在使用兼容模式读取 ZIP…', null);
+                }
+            }
+            // 兼容不支持 Worker 的旧环境；JSZip 在该模式下不公开目录解析百分比。
+            reportArchiveProgress(onStage, '正在解析 ZIP 目录…', null);
+            const zip = await JSZip.loadAsync(archiveData);
             const paths = Object.keys(zip.files).filter(function(path) { return !zip.files[path].dir && isSafePath(path); });
-            return Promise.all(paths.map(async function(path) {
-                return { path: normalizePath(path), bytes: await zip.files[path].async('uint8array') };
+            reportArchiveProgress(onStage, 'ZIP 目录读取完成：共 ' + paths.length + ' 个源码文件。', 12);
+            if (!paths.length) {
+                reportArchiveProgress(onStage, 'ZIP 文件提取完成：没有可读取的普通文件。', 96);
+                return [];
+            }
+            const weights = paths.map(function(path) {
+                const rawSize = zip.files[path] && zip.files[path]._data && Number(zip.files[path]._data.uncompressedSize);
+                return Number.isFinite(rawSize) && rawSize > 0 ? rawSize : 1;
+            });
+            const totalWeight = weights.reduce(function(sum, weight) { return sum + weight; }, 0);
+            const extractionProgress = paths.map(function() { return 0; });
+            let lastProgress = 12;
+            function reportZipExtraction(path, index, complete) {
+                if (complete) extractionProgress[index] = 1;
+                const weightedProgress = extractionProgress.reduce(function(sum, progress, progressIndex) {
+                    return sum + weights[progressIndex] * progress;
+                }, 0);
+                const nextProgress = Math.max(lastProgress, 12 + 84 * weightedProgress / totalWeight);
+                if (complete || nextProgress - lastProgress >= 0.35) {
+                    lastProgress = nextProgress;
+                    reportArchiveProgress(onStage, '正在解压源码文件：' + path, nextProgress);
+                }
+            }
+            const entries = await Promise.all(paths.map(async function(path, index) {
+                const bytes = await zip.files[path].async('uint8array', function(metadata) {
+                    const percent = Number(metadata && metadata.percent);
+                    if (!Number.isFinite(percent)) return;
+                    extractionProgress[index] = Math.max(extractionProgress[index], Math.max(0, Math.min(100, percent)) / 100);
+                    reportZipExtraction(path, index, false);
+                });
+                reportZipExtraction(path, index, true);
+                return { path: normalizePath(path), bytes: bytes };
             }));
+            reportArchiveProgress(onStage, 'ZIP 文件提取完成：共 ' + entries.length + ' 个源码文件。', 96);
+            return entries;
         }
         if (type === 'archive-runtime') return readRarArchive(file, onStage);
         if (typeof DecompressionStream === 'undefined') throw new Error('当前浏览器不支持 TAR.GZ 解压，请使用新版 Chrome 或 Edge。');
         const stream = file.stream ? file.stream() : new Blob([await file.arrayBuffer()]).stream();
-        const decompressed = stream.pipeThrough(new DecompressionStream('gzip'));
-        return extractTarEntries(await new Response(decompressed).arrayBuffer());
+        let compressedBytes = 0;
+        let inputStream = stream;
+        const size = Number(file && file.size);
+        if (typeof TransformStream === 'function' && Number.isFinite(size) && size > 0) {
+            inputStream = stream.pipeThrough(new TransformStream({
+                transform: function(chunk, controller) {
+                    compressedBytes += chunk.byteLength || 0;
+                    reportArchiveProgress(onStage, '正在读取并解压 TAR.GZ 数据…', Math.min(80, 80 * compressedBytes / size));
+                    controller.enqueue(chunk);
+                }
+            }));
+        } else {
+            reportArchiveProgress(onStage, '正在读取并解压 TAR.GZ 数据…', null);
+        }
+        const decompressed = inputStream.pipeThrough(new DecompressionStream('gzip'));
+        const tarBytes = await new Response(decompressed).arrayBuffer();
+        reportArchiveProgress(onStage, 'GZIP 解压完成，正在读取 TAR 文件清单…', null);
+        const entries = extractTarEntries(tarBytes);
+        reportArchiveProgress(onStage, 'TAR 文件提取完成：共 ' + entries.length + ' 个源码文件。', 96);
+        return entries;
     }
 
     function archiveBaseName(fileName) {
@@ -1720,11 +1960,25 @@ const AdRestoration = (function() {
         const sites = [];
         for (let index = 0; index < list.length; index++) {
             const file = list[index];
-            const baseProgress = Math.round(index / list.length * 100);
-            onProgress(baseProgress, '正在读取 ' + file.name + '…');
-            const archiveEntries = await readArchive(file, function(stage) {
-                onProgress(baseProgress, file.name + '：' + stage);
+            // 为每个压缩包留出独立区间，并把末段留给站点结构识别，100% 只在整批完成时报告。
+            const progressEnd = 92;
+            const archiveSpan = progressEnd / list.length;
+            const baseProgress = index * archiveSpan;
+            const parseEnd = baseProgress + archiveSpan * 0.9;
+            const archiveEnd = baseProgress + archiveSpan;
+            let lastProgress = baseProgress;
+            onProgress(lastProgress, '正在读取 ' + file.name + '…', { indeterminate: true });
+            const archiveEntries = await readArchive(file, function(stage, localPercent) {
+                const message = file.name + '：' + stage;
+                if (localPercent === null || localPercent === undefined || !Number.isFinite(Number(localPercent))) {
+                    onProgress(lastProgress, message, { indeterminate: true });
+                    return;
+                }
+                const boundedPercent = Math.max(0, Math.min(100, Number(localPercent)));
+                lastProgress = Math.max(lastProgress, baseProgress + (parseEnd - baseProgress) * boundedPercent / 100);
+                onProgress(lastProgress, message, { indeterminate: false });
             });
+            onProgress(lastProgress, file.name + '：压缩包已读取，正在识别站点结构…', { indeterminate: true });
             const project = classifyInjectableSiteEntries(archiveEntries, file.name);
             const root = project.siteRoot || '';
             const entries = root ? archiveEntries.filter(function(entry) { return entry.path.indexOf(root) === 0; }).map(function(entry) {
@@ -1738,8 +1992,10 @@ const AdRestoration = (function() {
             }) : null;
             const name = siteFolderName(archiveBaseName(file.name), 'site-' + (index + 1));
             sites.push({ id: 'inject-archive:' + index + ':' + name, name: name, sourceRoot: root, entries: entries, previewSourceEntries: previewSourceEntries, project: classifyInjectableSiteEntries(entries, name) });
+            lastProgress = Math.max(lastProgress, archiveEnd);
+            onProgress(lastProgress, file.name + '：站点结构识别完成。', { indeterminate: false });
         }
-        onProgress(100, '成品站压缩包读取完成');
+        onProgress(100, '成品站压缩包读取完成', { indeterminate: false });
         return { sites: sites, fileCount: sites.reduce(function(sum, site) { return sum + site.entries.length; }, 0) };
     }
 
@@ -1815,11 +2071,14 @@ const AdRestoration = (function() {
             "var slots=" + slots + ";\n" +
             "var state=window.__sitefoundryAds=window.__sitefoundryAds||{route:'',slots:[],services:false,outOfPage:false,timer:0};\n" +
             "window.googletag=window.googletag||{cmd:[]};\n" +
-            "function ad(n,custom){var w=document.createElement('div');w.id='adv'+n;w.setAttribute('data-sitefoundry-runtime-ad',String(n));w.style.cssText='width:100%;text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;box-sizing:border-box;';if(custom){w.className='sitefoundry-ad-custom-placement';w.style.position='relative';w.style.transform='translateX(var(--sitefoundry-ad-center-offset, 0px))';}var l=document.createElement('div');l.textContent='advertisement'+n;l.style.cssText='text-align:center;color:black;font-size:13px;';var s=document.createElement('div');s.id='div-gpt-ad-banner'+n;s.style.cssText='min-width:300px;min-height:250px;';w.appendChild(l);w.appendChild(s);return w;}\n" +
+            // Runtime-created markers inherit the page color just like static placeholders.
+            "function ad(n,custom){var w=document.createElement('div');w.id='adv'+n;w.setAttribute('data-sitefoundry-runtime-ad',String(n));w.style.cssText='width:100%;text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;box-sizing:border-box;';if(custom){w.className='sitefoundry-ad-custom-placement';w.style.position='relative';w.style.transform='translateX(var(--sitefoundry-ad-center-offset, 0px))';}var l=document.createElement('div');l.textContent='advertisement'+n;l.style.cssText='text-align:center;display:block!important;color:inherit!important;-webkit-text-fill-color:currentColor!important;font-size:13px;';var s=document.createElement('div');s.id='div-gpt-ad-banner'+n;s.style.cssText='min-width:300px;min-height:250px;';w.appendChild(l);w.appendChild(s);return w;}\n" +
             "function after(t,n){if(t&&t.parentNode)t.parentNode.insertBefore(n,t.nextSibling);}\n" +
+            "function scrollProgress(n){if(!n||n.nodeType!==1)return false;if(n.matches('[data-scroll-progress],[data-reading-progress],[data-page-progress],[data-scroll-indicator]'))return true;var c=n.className&&n.className.baseVal||n.className||'',v=String(c)+' '+String(n.id||'');return /(?:^|[-_\\s])(?:scroll|reading|page)[-_\\s]*(?:progress|indicator)(?:$|[-_\\s])/i.test(v);}\n" +
+            "function offsetAfterNavigation(n,h){if(!n||!h||!scrollProgress(h.nextElementSibling)&&!scrollProgress(h.lastElementChild))return;n.setAttribute('data-sitefoundry-after-nav-offset','');if(!document.querySelector('style[data-sitefoundry-after-nav-offset-style]')){var s=document.createElement('style');s.setAttribute('data-sitefoundry-after-nav-offset-style','');s.textContent='@media (min-width:720px){[data-sitefoundry-after-nav-offset]{margin-top:24px!important;}}';(document.head||document.documentElement).appendChild(s);}}\n" +
             "function centerCustom(){document.querySelectorAll('.sitefoundry-ad-custom-placement').forEach(function(node){node.style.setProperty('--sitefoundry-ad-center-offset','0px');var rect=node.getBoundingClientRect(),offset=window.innerWidth/2-(rect.left+rect.width/2);node.style.setProperty('--sitefoundry-ad-center-offset',Math.round(offset*100)/100+'px');});}\n" +
             "function refresh(home){googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)googletag.destroySlots(state.slots);state.slots=[];state.outOfPage=false;[1,2,3].forEach(function(n){var id='div-gpt-ad-banner'+n,p=paths['banner'+n];if(p&&document.getElementById(id)){var slot=googletag.defineSlot(p,[300,250],id);if(slot)state.slots.push(slot.addService(googletag.pubads()));}});if(!state.outOfPage){if(paths.interstitial&&home){var i=googletag.defineOutOfPageSlot(paths.interstitial,googletag.enums.OutOfPageFormat.INTERSTITIAL);if(i)state.slots.push(i.addService(googletag.pubads()));}if(paths.anchor){var a=googletag.defineOutOfPageSlot(paths.anchor,googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR);if(a)state.slots.push(a.addService(googletag.pubads()));}state.outOfPage=true;}if(!state.services){googletag.pubads().enableSingleRequest();googletag.enableServices();state.services=true;}[1,2,3].forEach(function(n){var id='div-gpt-ad-banner'+n;if(paths['banner'+n]&&document.getElementById(id))googletag.display(id);});});}\n" +
-            "function mount(force){if(!document.body)return;var route=location.pathname+location.search,complete=[1,2,3].every(function(n){return document.getElementById('div-gpt-ad-banner'+n);});if(!force&&state.route===route&&complete)return;document.querySelectorAll('[data-sitefoundry-runtime-ad]').forEach(function(n){n.remove();});var home=location.pathname==='/'||/\\/index\\.html?$/i.test(location.pathname),header=document.querySelector('header')||document.querySelector('nav'),main=document.querySelector('main')||document.querySelector('[role=main]')||document.getElementById('root')||document.body,footer=document.querySelector('footer'),sections=main.querySelectorAll('section:not([data-sitefoundry-runtime-ad])'),detail=document.querySelector('article')||document.querySelector('.detail-content')||document.querySelector('[class*=article-content]');function kids(t){return Array.prototype.filter.call((t||main).children||[],function(n){return !n.hasAttribute('data-sitefoundry-runtime-ad')&&!/^(?:SCRIPT|STYLE|TEMPLATE|HEADER|NAV|FOOTER|ASIDE)$/.test(n.tagName||'')&&!/(?:^|\\s)related(?:-|\\s|$)/i.test(n.className||'');});}function middle(t){var c=kids(t);return c.length?c[Math.max(0,Math.ceil(c.length/2)-1)]:(t||main);}function custom(position){var m=/^custom-after-((?:\\d+)(?:-\\d+)*)$/.exec(position||''),t=main;if(!m)return null;var p=m[1].split('-').map(Number);for(var i=0;i<p.length;i++){var c=kids(t);if(!c.length)return t;t=c[Math.min(p[i],c.length-1)];}return t;}function target(position){var chosen=custom(position);if(chosen)return chosen;if(position==='after-navbar')return header||main.firstElementChild;if(position==='footer-top')return footer||main.lastElementChild;if(position==='detail-after-content')return middle(detail||main);if(position==='content-bottom'||position==='detail-before-related'||position==='detail-after-related')return detail||main.lastElementChild;if(position==='detail-before-content'||position==='detail-between-p-1'||position==='detail-between-p-2'||position==='detail-between-p-3')return detail||main.firstElementChild;if(position==='after-hero'||position==='content-top')return main.firstElementChild;var m=/after-section-(\\d+)/.exec(position||'');return m&&sections[Number(m[1])]||main.firstElementChild;}(home?slots.home:slots.detail).forEach(function(slot){if(!slot||slot.unit==='off')return;var n=Number(String(slot.unit).replace('banner','')),node=ad(n,/^custom-after-(?:\\d+)(?:-\\d+)*$/.test(slot.position||'')),anchor=target(slot.position);if(slot.position==='footer-top'&&footer&&footer.parentNode)footer.parentNode.insertBefore(node,footer);else after(anchor,node);});centerCustom();requestAnimationFrame(centerCustom);state.route=route;refresh(home);}\n" +
+            "function mount(force){if(!document.body)return;var route=location.pathname+location.search,complete=[1,2,3].every(function(n){return document.getElementById('div-gpt-ad-banner'+n);});if(!force&&state.route===route&&complete)return;document.querySelectorAll('[data-sitefoundry-runtime-ad]').forEach(function(n){n.remove();});var home=location.pathname==='/'||/\\/index\\.html?$/i.test(location.pathname),header=document.querySelector('header')||document.querySelector('nav'),main=document.querySelector('main')||document.querySelector('[role=main]')||document.getElementById('root')||document.body,footer=document.querySelector('footer'),sections=main.querySelectorAll('section:not([data-sitefoundry-runtime-ad])'),detail=document.querySelector('article')||document.querySelector('.detail-content')||document.querySelector('[class*=article-content]');function kids(t){return Array.prototype.filter.call((t||main).children||[],function(n){return !n.hasAttribute('data-sitefoundry-runtime-ad')&&!/^(?:SCRIPT|STYLE|TEMPLATE|HEADER|NAV|FOOTER|ASIDE)$/.test(n.tagName||'')&&!/(?:^|\\s)related(?:-|\\s|$)/i.test(n.className||'');});}function middle(t){var c=kids(t);return c.length?c[Math.max(0,Math.ceil(c.length/2)-1)]:(t||main);}function custom(position){var m=/^custom-after-((?:\\d+)(?:-\\d+)*)$/.exec(position||''),t=main;if(!m)return null;var p=m[1].split('-').map(Number);for(var i=0;i<p.length;i++){var c=kids(t);if(!c.length)return t;t=c[Math.min(p[i],c.length-1)];}return t;}function target(position){var chosen=custom(position);if(chosen)return chosen;if(position==='after-navbar')return header||main.firstElementChild;if(position==='footer-top')return footer||main.lastElementChild;if(position==='detail-after-content')return middle(detail||main);if(position==='content-bottom'||position==='detail-before-related'||position==='detail-after-related')return detail||main.lastElementChild;if(position==='detail-before-content'||position==='detail-between-p-1'||position==='detail-between-p-2'||position==='detail-between-p-3')return detail||main.firstElementChild;if(position==='after-hero'||position==='content-top')return main.firstElementChild;var m=/after-section-(\\d+)/.exec(position||'');return m&&sections[Number(m[1])]||main.firstElementChild;}(home?slots.home:slots.detail).forEach(function(slot){if(!slot||slot.unit==='off')return;var n=Number(String(slot.unit).replace('banner','')),node=ad(n,/^custom-after-(?:\\d+)(?:-\\d+)*$/.test(slot.position||'')),anchor=target(slot.position);if(n===1&&slot.position==='after-navbar')offsetAfterNavigation(node,header);if(slot.position==='footer-top'&&footer&&footer.parentNode)footer.parentNode.insertBefore(node,footer);else after(anchor,node);});centerCustom();requestAnimationFrame(centerCustom);state.route=route;refresh(home);}\n" +
             "function schedule(force){clearTimeout(state.timer);state.timer=setTimeout(function(){mount(!!force);},160);}\n" +
             "window.refreshClarivoBanners=function(){console.log('[SiteFoundry Ads] React route refresh requested');schedule(true);};\n" +
             "['pushState','replaceState'].forEach(function(k){var original=history[k];if(!original||original.__sitefoundryWrapped)return;var wrapped=function(){var result=original.apply(this,arguments);schedule(true);return result;};wrapped.__sitefoundryWrapped=true;history[k]=wrapped;});\n" +
@@ -1852,7 +2111,8 @@ const AdRestoration = (function() {
             source = source.replace("var slots=" + slots + ";\n", "var slots=" + slots + ";\nvar adJsVersion=" + JSON.stringify(version || 'v1.0.1') + ";\n");
             source = source.replace("function refresh(home){googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)", "function refresh(home){googletag.cmd.push(function(){if(googletag.setConfig)googletag.setConfig({lazyLoad:{fetchMarginPercent:50,renderMarginPercent:0,mobileScaling:1},singleRequest:false});if(state.slots.length&&googletag.destroySlots)");
             if (version === 'v1.0.2') source = source.replace('googletag.setConfig({lazyLoad:{fetchMarginPercent:50,renderMarginPercent:0,mobileScaling:1},singleRequest:false});', 'googletag.setConfig({lazyLoad:null,singleRequest:false});');
-            if (version !== 'v1.0.0' && version !== 'v1.0.2') source = source.replace("outOfPage.push(i);", "outOfPage.push(i);if(i.setConfig)i.setConfig({interstitial:{triggers:{unhideWindow:true,navBar:true,inactivity:true,endOfArticle:true,continueReading:true}}});");
+            // v1.0.2.1 inherits v1.0.2's disabled extra interstitial triggers.
+            if (version !== 'v1.0.0' && version !== 'v1.0.2' && version !== 'v1.0.2.1') source = source.replace("outOfPage.push(i);", "outOfPage.push(i);if(i.setConfig)i.setConfig({interstitial:{triggers:{unhideWindow:true,navBar:true,inactivity:true,endOfArticle:true,continueReading:true}}});");
         }
         return '/** 成品站 ad.js ' + (version || 'v1.0.1') + ' · manual SPA runtime */\n' + source;
     }
@@ -2013,7 +2273,8 @@ const AdRestoration = (function() {
         source = source.replace(/delayLoadBanner\(/g, 'loadNativeBanner(');
         source = source.replace('googletag.cmd.push(function () {\n  if (bannerPath4', 'googletag.cmd.push(function () {\n  if (googletag.setConfig) googletag.setConfig({ lazyLoad: { fetchMarginPercent: 50, renderMarginPercent: 0, mobileScaling: 1 }, singleRequest: false });\n  if (bannerPath4');
         if (version === 'v1.0.2') source = source.replace('googletag.setConfig({ lazyLoad: { fetchMarginPercent: 50, renderMarginPercent: 0, mobileScaling: 1 }, singleRequest: false });', 'googletag.setConfig({ lazyLoad: null, singleRequest: false });');
-        if (version !== 'v1.0.0' && version !== 'v1.0.2') source = source.replace('      interstitialSlot.addService(googletag.pubads());',
+        // v1.0.2.1 inherits v1.0.2's disabled extra interstitial triggers.
+        if (version !== 'v1.0.0' && version !== 'v1.0.2' && version !== 'v1.0.2.1') source = source.replace('      interstitialSlot.addService(googletag.pubads());',
             '      interstitialSlot.addService(googletag.pubads());\n      if (interstitialSlot.setConfig) interstitialSlot.setConfig({ interstitial: { triggers: { unhideWindow: true, navBar: true, inactivity: true, endOfArticle: true, continueReading: true } } });');
         return '/** 成品站 ad.js ' + (version || 'v1.0.1') + ' */\n' + source;
     }
@@ -2483,12 +2744,16 @@ const AdRestoration = (function() {
         };
     }
 
-    function policyReportText(results, globalPolicy) {
+    function policyReportText(results, globalPolicy, adJsVersionMode) {
         const summary = policySummary(globalPolicy);
+        const versionRule = adJsVersionMode !== 'original'
+            ? '统一切换到 ' + adJsVersionMode + '（保留各站广告路径和 GA ID）'
+            : '保留各站识别到的原版本';
         const lines = [
             '批量广告策略处理报告',
             '生成时间：' + new Date().toISOString(),
-            '输出规则：新建站点总目录，不覆盖源文件；每站按识别到的 ad.js 版本重建；关闭的广告路径保留在 ad-policy.json，启用源码注释时也保留在 js/ad.js 的注释中。',
+            '输出规则：新建站点总目录，不覆盖源文件；关闭的广告路径保留在 ad-policy.json，启用源码注释时也保留在 js/ad.js 的注释中。',
+            'ad.js 模板：' + versionRule,
             '全局首页：' + summary.home,
             '全局详情：' + summary.detail,
             '全局插屏：' + summary.interstitial,
@@ -2498,7 +2763,11 @@ const AdRestoration = (function() {
         results.forEach(function(result) {
             lines.push((result.valid ? '[成功] ' : '[失败] ') + result.siteName + (result.overridden ? '（单站覆盖）' : '（全局方案）'));
             if (result.host) lines.push('  广告域名：' + result.host);
-            if (result.adJsVersion) lines.push('  ad.js 版本：' + result.adJsVersion);
+            if (result.sourceAdJsVersion && result.adJsVersion && result.sourceAdJsVersion !== result.adJsVersion) {
+                lines.push('  ad.js 版本：' + result.sourceAdJsVersion + ' → ' + result.adJsVersion);
+            } else if (result.adJsVersion) {
+                lines.push('  ad.js 版本：' + result.adJsVersion);
+            }
             if (result.changedPages != null) lines.push('  修改页面：' + result.changedPages + ' 个');
             (result.errors || []).forEach(function(error) { lines.push('  错误：' + error.message); });
             (result.warnings || []).forEach(function(warning) { lines.push('  提示：' + warning.message); });
@@ -2513,11 +2782,14 @@ const AdRestoration = (function() {
         return '广告策略处理-' + date.getFullYear() + pad(date.getMonth() + 1) + pad(date.getDate()) + '-' + pad(date.getHours()) + pad(date.getMinutes()) + pad(date.getSeconds()) + '-' + String(date.getMilliseconds()).padStart(3, '0');
     }
 
-    async function applyPolicyBatch(siteGroups, globalPolicy, overrides, onProgress) {
+    async function applyPolicyBatch(siteGroups, globalPolicy, overrides, onProgress, options) {
         const sites = Array.from(siteGroups || []);
         if (!sites.length) throw new Error('请先选择并识别站点总目录。');
         const normalizedGlobal = normalizePolicy(globalPolicy);
         overrides = overrides || {};
+        options = options || {};
+        // 只接受内置且经过验证的模板版本；未知值统一回落到保留原版。
+        const adJsVersionMode = normalizeBatchAdJsVersionMode(options.adJsVersionMode);
         onProgress = typeof onProgress === 'function' ? onProgress : function() {};
         const results = [];
         const outputs = [];
@@ -2545,9 +2817,13 @@ const AdRestoration = (function() {
                 });
                 continue;
             }
-            const restored = restoreEntries(site.entries, metadata.embeddedConfig, site.name, policy, { batchPolicy: true });
+            const outputAdJsVersion = adJsVersionMode === 'original' ? metadata.adJsVersion : adJsVersionMode;
+            const restored = restoreEntries(site.entries, metadata.embeddedConfig, site.name, policy, {
+                batchPolicy: true,
+                batchAdJsVersion: outputAdJsVersion
+            });
             if (!restored.valid) {
-                results.push({ valid: false, siteName: site.name, host: metadata.detectedHost, overridden: !!override, adJsVersion: metadata.adJsVersion, errors: restored.errors, warnings: restored.warnings });
+                results.push({ valid: false, siteName: site.name, host: metadata.detectedHost, overridden: !!override, sourceAdJsVersion: metadata.adJsVersion, adJsVersion: outputAdJsVersion, errors: restored.errors, warnings: restored.warnings });
                 continue;
             }
             const baseName = siteFolderName(site.name, metadata.detectedHost || 'site');
@@ -2561,7 +2837,8 @@ const AdRestoration = (function() {
                 siteName: site.name,
                 outputName: outputName,
                 host: metadata.detectedHost,
-                adJsVersion: metadata.adJsVersion,
+                sourceAdJsVersion: metadata.adJsVersion,
+                adJsVersion: restored.adJsVersion || outputAdJsVersion,
                 overridden: !!override,
                 changedPages: restored.changedPages.length,
                 errors: [],
@@ -2578,7 +2855,7 @@ const AdRestoration = (function() {
             folderName: outputFolderName(),
             sites: outputs,
             results: results,
-            report: policyReportText(results, normalizedGlobal)
+            report: policyReportText(results, normalizedGlobal, adJsVersionMode)
         };
         onProgress(100, '策略处理完成');
         return batch;
@@ -2797,6 +3074,7 @@ const AdRestoration = (function() {
         readSiteDirectoryFiles: readSiteDirectoryFiles,
         readSiteDirectoryHandle: readSiteDirectoryHandle,
         readSiteArchiveFiles: readSiteArchiveFiles,
+        readRarArchiveEntries: readRarArchive,
         classifyInjectableSiteEntries: classifyInjectableSiteEntries,
         readInjectableDirectoryFiles: readInjectableDirectoryFiles,
         readInjectableDirectoryHandle: readInjectableDirectoryHandle,
@@ -2816,8 +3094,15 @@ const AdRestoration = (function() {
         homePlacements: HOME_PLACEMENTS.slice(),
         detailPlacements: DETAIL_PLACEMENTS.slice(),
         bannerUnits: BANNER_UNITS.slice(),
+        batchAdJsVersions: BATCH_AD_JS_VERSIONS.slice(),
+        normalizeBatchAdJsVersionMode: normalizeBatchAdJsVersionMode,
         readExistingConfig: readExistingConfig,
+        siteHostCandidates: siteHostCandidates,
         detectedHost: detectedHost,
         relativeAdScriptPath: relativeAdScriptPath
     };
 })();
+
+// app.js is an ES module, so expose the classic-script API explicitly on the
+// window object for reliable access across the two script loading models.
+if (typeof window !== 'undefined') window.AdRestoration = AdRestoration;

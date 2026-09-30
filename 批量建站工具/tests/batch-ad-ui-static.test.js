@@ -5,6 +5,8 @@ const app = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8').repla
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const builder = readFileSync(new URL('../js/batch-ad-builder.js', import.meta.url), 'utf8');
 const adRestoration = readFileSync(new URL('../js/ad-restoration.js', import.meta.url), 'utf8');
+const previewRouter = readFileSync(new URL('../js/ad-injection-preview-router.js', import.meta.url), 'utf8');
+const finishedSiteAds = readFileSync(new URL('../js/finished-site-ads.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../css/tool.css', import.meta.url), 'utf8');
 
 describe('batch ad upload formats', () => {
@@ -35,6 +37,32 @@ describe('batch ad upload formats', () => {
     expect(app).toContain('function setBatchDataImportProgress(percent, message, state)');
     expect(app).toContain('function setSingleImportProgress(percent, message, state)');
     expect(app).toContain('正在读取第 ');
+  });
+
+  it('offers fixed and manual positions for uploaded batch ads with global defaults and site overrides', () => {
+    expect(html).toContain('id="direct-ad-placement-mode-group"');
+    expect(html).toContain('id="batch-code-placement-scope"');
+    expect(html).toContain('id="batch-code-placement-override"');
+    expect(app).toContain('function getBatchCodePlacementEditingTarget(site)');
+    expect(app).toContain('function persistBatchCodePlacementUiState()');
+    expect(builder).toContain('function resolveCodePlacementSettings(batch, site)');
+    expect(builder).toContain('directAdPlacementMode: reserve ? \'fixed\' : codePlacementSettings.placementMode');
+    expect(app).toContain('persistBatchCodePlacementUiState();');
+  });
+
+  it('keeps batch ad-code names on one line in a wider, keyboard-accessible select menu', () => {
+    expect(app).toContain("Math.max(rect.width, 340)");
+    expect(app).toContain("menu.classList.add('batch-ad-code-select-menu')");
+    expect(app).toContain("optionButton.setAttribute('aria-label', option.title || optionButton.textContent)");
+    expect(app).toContain("title=\"' + escapeHtml(label) + '\">");
+    expect(css).toContain('.batch-ad-code-select-menu .select-option { overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }');
+  });
+
+  it('re-enables and resets the batch data picker after a parse failure', () => {
+    expect(app).toContain("setBatchDataImportProgress(100, '解析失败：' + (error && error.message ? error.message : '请检查数据源后重试。'), 'error');");
+    expect(app).toContain('if (button) button.disabled = isLoading;');
+    expect(app).toContain('if (input) input.disabled = isLoading;');
+    expect(app).toContain("dataInput.value = ''; dataInput.click();");
   });
 
   it('re-exposes single-source parsing progress after a user chooses to re-upload', () => {
@@ -110,6 +138,21 @@ describe('batch ad upload formats', () => {
     expect(css).toContain('.build-mode-card:nth-child(7) { grid-column: span 4; }');
   });
 
+  it('offers an explicit batch policy ad.js version choice without changing the default', () => {
+    expect(html).toContain('id="ad-policy-ad-version"');
+    expect(html).toContain('<option value="original">保留各站原版（默认）</option>');
+    expect(html).toContain('<option value="v1.0.0">统一切换到 v1.0.0</option>');
+    expect(html).toContain('<option value="v1.0.1">统一切换到 v1.0.1</option>');
+    expect(html).toContain('<option value="v1.0.2">统一切换到 v1.0.2</option>');
+    expect(html).toContain('<option value="v1.0.2.1">统一切换到 v1.0.2.1</option>');
+    expect(app).toContain("adPolicyAdJsVersion: 'original'");
+    expect(app).toContain("{ adJsVersionMode: appState.adPolicyAdJsVersion }");
+    expect(app).toContain("metadata.adJsVersion + (outputVersion !== metadata.adJsVersion ? ' → 输出 ' + outputVersion : '')");
+    expect(adRestoration).toContain("const BATCH_AD_JS_VERSIONS = ['v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];");
+    expect(adRestoration).toContain('const adJsVersionMode = normalizeBatchAdJsVersionMode(options.adJsVersionMode);');
+    expect(adRestoration).toContain('sourceAdJsVersion: metadata.adJsVersion');
+  });
+
   it('keeps batch item numbers high-contrast against their blue badges', () => {
     expect(css).toContain('.batch-ad-step,.batch-ad-item-index { display:grid;width:32px;height:32px;');
     expect(css).toContain('background:#0b6fa8;color:#fff !important;');
@@ -136,7 +179,8 @@ describe('batch ad upload formats', () => {
     expect(app).toContain('function buildAdInjectionPreviewDocument(site, pageType, entryPath)');
     expect(app).toContain("previewFrame.setAttribute('sandbox', 'allow-scripts')");
     expect(app).toContain('getAdInjectionPolicy()');
-    expect(app).toContain('applyAdCodeBatch(appState.adInjectionSites, appState.adInjectionCodes');
+    expect(app).toContain('var exportSites = await prepareAdInjectionExportSites(appState.adInjectionSites)');
+    expect(app).toContain('applyAdCodeBatch(exportSites, appState.adInjectionCodes');
     expect(app).toContain('overrides: appState.adInjectionSiteOverrides');
     expect(app).toContain('}, injectReactSource);');
     expect(injectionControls).toContain('if (pasteButton && pastePanel)');
@@ -220,7 +264,8 @@ describe('batch ad upload formats', () => {
     expect(app).toContain("if (!site._previewBuild) {\n            site._previewBuild = adInjectionUploadedPreviewArtifact(site, previewSourceEntries);");
     expect(app).toContain('hasDedicatedPreviewSource && !hasUploadedArtifact');
     expect(app).toContain('dist|build|out|output|export|www|_site|public');
-    expect(app).toContain('details?|articles?|news|posts?|stories?|guides?|blog|tools');
+    expect(app).toContain('isPreviewDetailEntry(path, adInjectionPreviewRoot(preferredPath))');
+    expect(previewRouter).toContain('details?|articles?|news|posts?|stories?|guides?|blog|tools|games?');
   });
 
   it('rewrites image paths created dynamically by finished-site JavaScript', () => {
@@ -276,9 +321,21 @@ describe('batch ad upload formats', () => {
 
     expect(previewPipeline).toContain('function addAdInjectionPreviewNavigation');
     expect(previewPipeline).toContain("type:'ad-injection-preview-navigate'");
+    expect(previewPipeline).toContain("document.addEventListener('click'");
+    expect(previewPipeline).toContain('},true);');
+    expect(previewPipeline).toContain("link.hasAttribute('download')");
+    expect(previewPipeline).not.toContain("navigationScript.type = 'module'");
     expect(previewPipeline).not.toContain("var link=event.target.closest('a');if(link)event.preventDefault()");
     expect(injectionMessages).toContain("event.data.type === 'ad-injection-preview-navigate'");
     expect(injectionMessages).toContain('resolvePreviewHtmlEntry');
+  });
+
+  it('offsets top banner1 only when a custom scroll progress rail follows navigation', () => {
+    expect(finishedSiteAds).toContain('function adjacentScrollProgress');
+    expect(finishedSiteAds).toContain("unit === 'banner1' && anchor === header && relation === 'after'");
+    expect(finishedSiteAds).toContain('@media (min-width:720px){[data-sitefoundry-after-nav-offset]{margin-top:24px!important;}}');
+    expect(app).toContain('FinishedSiteAds.applyAfterNavigationOffset(doc, node, navigation)');
+    expect(adRestoration).toContain('hasAdjacentScrollProgressAfterNavigation(html)');
   });
 
   it('uses the normal-builder advertisement placeholders in finished-site previews without a second white banner card', () => {

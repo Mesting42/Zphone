@@ -153,16 +153,23 @@ const GAME_EMOJI_ICONS = [
     '💪', '🏍️', '⛏️', '✨', '🎨', '💫', '🎪', '🎰'
 ];
 
+// Keep category choices separate so richer game icons do not expand the brand-logo picker.
+const GAME_CATEGORY_EMOJI_ICONS = GAME_EMOJI_ICONS.concat([
+    '🧙', '🧛', '🧟', '🧚', '🧝', '🥷', '🧞', '🐺',
+    '🦇', '🎴', '🪓', '🗡️', '🪃', '🧱', '🪙', '🧿',
+    '🛠️', '🧵', '🪬', '🪵', '🪨', '🗿', '🥽', '🏯'
+]);
+
 // 24 套互不相同的游戏分类图标组合；支持整套切换，也支持单独改某一项。
 const GAME_ICON_SET_PRESETS = Array.from({ length: 24 }, function(_, setIndex) {
     const steps = [1, 5, 7, 11, 13, 17];
     const step = steps[Math.floor(setIndex / 4) % steps.length];
-    const start = (setIndex * 3) % GAME_EMOJI_ICONS.length;
+    const start = (setIndex * 3) % GAME_CATEGORY_EMOJI_ICONS.length;
     return {
         id: 'game-icons-' + String(setIndex + 1).padStart(2, '0'),
         name: '游戏图标组合 ' + String(setIndex + 1).padStart(2, '0'),
         icons: Array.from({ length: 16 }, function(__, iconIndex) {
-            return GAME_EMOJI_ICONS[(start + iconIndex * step) % GAME_EMOJI_ICONS.length];
+            return GAME_CATEGORY_EMOJI_ICONS[(start + iconIndex * step) % GAME_CATEGORY_EMOJI_ICONS.length];
         })
     };
 });
@@ -867,3 +874,6 @@ STYLE_PRESETS.push(
         navBg: 'rgba(13, 24, 32, .96)', footerBg: '#061015', radius: '10px'
     }, 'linear-gradient(135deg, #0d1820 0%, #27657a 50%, #153548 100%)')
 );
+
+// 原有 4 个布局保持不变，新增布局共享内容渲染器。
+LAYOUT_PRESETS.push(...TemplateCatalog.gamePresets());

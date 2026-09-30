@@ -15,6 +15,19 @@ const AdMigration = (function() {
     };
     const REQUIRED_BANNER_KEYS = ['bannerPath1', 'bannerPath2', 'bannerPath3'];
     const CONTAINER_IDS = ['div-gpt-ad-banner1', 'div-gpt-ad-banner2', 'div-gpt-ad-banner3'];
+    const HOST_PATTERN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+    // Match full terminal suffixes so numbered aliases map intentionally without rewriting IDs.
+    const AD_PATH_SLOT_SUFFIXES = [
+        { field: 'bannerPath1', pattern: /(?:-|_|\/)banner\s*11$/i, label: 'Banner 1' },
+        { field: 'bannerPath2', pattern: /(?:-|_|\/)banner\s*22$/i, label: 'Banner 2' },
+        { field: 'bannerPath3', pattern: /(?:-|_|\/)banner\s*33$/i, label: 'Banner 3' },
+        { field: 'bannerPath1', pattern: /(?:-|_|\/)banner\s*1$/i, label: 'Banner 1' },
+        { field: 'bannerPath2', pattern: /(?:-|_|\/)banner\s*2$/i, label: 'Banner 2' },
+        { field: 'bannerPath3', pattern: /(?:-|_|\/)banner\s*3$/i, label: 'Banner 3' },
+        { field: 'bannerPath4', pattern: /(?:-|_|\/)banner\s*4$/i, label: 'Banner 4' },
+        { field: 'interstitialPath', pattern: /(?:-|_|\/)(?:int1|int|interstitial)$/i, label: 'INT 插屏' },
+        { field: 'anchorPath', pattern: /(?:-|_|\/)(?:anc1|anc|anchor)$/i, label: 'ANC 锚点' }
+    ];
 
     function makeIssue(message, code) {
         return { code: code || 'MIGRATION_INVALID', message: message };
@@ -22,6 +35,51 @@ const AdMigration = (function() {
 
     function normalizePath(path) {
         return String(path || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+    }
+
+    function matchAdPathSlot(path) {
+        const value = String(path || '');
+        for (let index = 0; index < AD_PATH_SLOT_SUFFIXES.length; index++) {
+            const definition = AD_PATH_SLOT_SUFFIXES[index];
+            const match = value.match(definition.pattern);
+            if (match) return { field: definition.field, suffix: match[0], label: definition.label };
+        }
+        return null;
+    }
+
+    function adUnitBaseFromPath(path) {
+        const value = String(path || '');
+        const slot = matchAdPathSlot(value);
+        return slot ? value.slice(0, -slot.suffix.length) : value;
+    }
+
+    function assignAdPaths(paths, config, errors) {
+        const candidatesByField = {};
+        Array.from(new Set(paths)).forEach(function(path) {
+            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) return;
+            const slot = matchAdPathSlot(path);
+            if (!slot) return;
+            if (!candidatesByField[slot.field]) candidatesByField[slot.field] = [];
+            candidatesByField[slot.field].push({ path: path, label: slot.label });
+        });
+
+        Object.keys(candidatesByField).forEach(function(field) {
+            const candidates = candidatesByField[field];
+            if (candidates.length > 1) {
+                config[field] = '';
+                errors.push(makeIssue('广告代码中 ' + candidates[0].label + ' 识别到多个不同路径，请确认后重新上传。', 'AD_CODE_SLOT_CONFLICT'));
+                return;
+            }
+            // Keep the complete source path, including aliases such as banner11.
+            config[field] = candidates[0].path;
+        });
+    }
+
+    function detectedHostFromAdPath(path) {
+        // Remove the recognized suffix before extracting the hostname segment.
+        const unit = adUnitBaseFromPath(String(path || '').trim());
+        const candidate = unit.split('/').filter(Boolean).pop() || '';
+        return HOST_PATTERN.test(candidate) ? candidate.toLowerCase() : '';
     }
 
     function decodeJavaScriptString(value) {
@@ -123,6 +181,7 @@ const AdMigration = (function() {
             errors: errors,
             warnings: warnings,
             config: CONFIG_KEYS.reduce(function(result, key) { result[key] = config[key] || ''; return result; }, {}),
+            detectedHost: detectedHostFromAdPath(config.bannerPath1),
             detectedFiles: {
                 adJs: adFile ? adFile.path : '',
                 home: homePage ? homePage.path : '',
@@ -150,16 +209,7 @@ const AdMigration = (function() {
             paths.push(String(match[1] || '').trim());
         }
         while ((match = pathPattern.exec(source)) !== null) paths.push(match[1].trim());
-        paths.forEach(function(path) {
-            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) return;
-            const lowerPath = path.toLowerCase();
-            if (/-banner1$/.test(lowerPath)) config.bannerPath1 = path;
-            if (/-banner2$/.test(lowerPath)) config.bannerPath2 = path;
-            if (/-banner3$/.test(lowerPath)) config.bannerPath3 = path;
-            if (/-banner4$/.test(lowerPath)) config.bannerPath4 = path;
-            if (/-int$/.test(lowerPath)) config.interstitialPath = path;
-            if (/-anc$/.test(lowerPath)) config.anchorPath = path;
-        });
+        assignAdPaths(paths, config, errors);
         const analytics = source.match(/(?:gtag\s*\(\s*['\"]config['\"]\s*,\s*['\"]|\b(?:gaMeasurementId|analyticsID)\s*=\s*['\"])(G-[A-Z0-9]+)/i);
         config.analyticsID = analytics ? String(analytics[1] || '').trim() : '';
 
@@ -169,7 +219,7 @@ const AdMigration = (function() {
         [config.bannerPath1, config.bannerPath2, config.bannerPath3, config.bannerPath4, config.interstitialPath, config.anchorPath]
             .filter(Boolean)
             .forEach(function(path) {
-                const unit = path.replace(/-(?:banner[1-4]|int|anc)$/i, '');
+                const unit = adUnitBaseFromPath(path);
                 if (unit) units[unit] = true;
             });
         const unitNames = Object.keys(units);

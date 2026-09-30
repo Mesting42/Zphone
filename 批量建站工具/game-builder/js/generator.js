@@ -307,10 +307,13 @@ body > * { position: relative; z-index: 1; }
         return '<div class="items-grid">' + orderedCards.join('') + '</div>';
     }
 
-    const AD_RUNTIME_CACHE_VERSION = '20260923-ad-runtime-v101';
+    const AD_RUNTIME_CACHE_VERSION = '20260928-ad-runtime-v1021';
+    const BUILT_IN_AD_JS_VERSIONS = ['initial', 'v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];
 
     function normalizeAdJsVersion(version) {
-        return version === 'initial' || version === 'v1.0.0' || version === 'v1.0.2' ? version : 'v1.0.1';
+        if (BUILT_IN_AD_JS_VERSIONS.indexOf(version) !== -1) return version;
+        const catalog = typeof window !== 'undefined' && window.AdTemplateCatalog;
+        return catalog && catalog.isKnownVersion(version) ? version : 'v1.0.2.1';
     }
 
     function getAdRuntimeVersion(adPaths, version) {
@@ -640,8 +643,27 @@ if (gaMeasurementId) {
         return source;
     }
 
+    // v1.0.2.1 changes only the native lazy-load default. Building on v1.0.2
+    // preserves its disabled interstitial triggers and per-site identifiers.
+    function generateV1021AdJs(baseSource) {
+        const source = generateV102AdJs(baseSource)
+            .replace('ad.js v1.0.2', 'ad.js v1.0.2.1')
+            .replace('Updated: 2026-09-24', 'Updated: 2026-09-28')
+            .replace(
+                'const enableLazyLoad = false;              // 关闭广告延迟加载',
+                'const enableLazyLoad = true;               // 开启 GPT 原生懒加载'
+            );
+        if (!/const enableLazyLoad = true;/.test(source)) {
+            throw new Error('v1.0.2.1 广告模板生成失败：无法启用 GPT 原生懒加载。');
+        }
+        return source;
+    }
+
     function generateSelectedAdJs(adPaths, version) {
         const selectedVersion = normalizeAdJsVersion(version);
+        const catalog = typeof window !== 'undefined' && window.AdTemplateCatalog;
+        // Keep the uploaded runtime intact while substituting its mapped game ad IDs.
+        if (catalog && catalog.getTemplate(selectedVersion)) return catalog.render(selectedVersion, adPaths || {});
         if (selectedVersion === 'initial') {
             const source = typeof window !== 'undefined' && window.AD_JS_SOURCE;
             if (!source) throw new Error('初版 ad.js 模板未加载。');
@@ -653,6 +675,7 @@ if (gaMeasurementId) {
         const latest = generateAdJs(adPaths);
         if (selectedVersion === 'v1.0.1') return latest;
         if (selectedVersion === 'v1.0.2') return generateV102AdJs(latest);
+        if (selectedVersion === 'v1.0.2.1') return generateV1021AdJs(latest);
         const triggerBlock = /\n\s*\/\/ 触发器\n\s*interstitialSlot\.setConfig\(\{[\s\S]*?\n\s*\}\);/;
         if (!triggerBlock.test(latest)) throw new Error('v1.0.0 广告模板生成失败：找不到插页广告触发器。');
         return latest.replace('ad.js v1.0.1', 'ad.js v1.0.0').replace(triggerBlock, '');
@@ -721,7 +744,7 @@ if (gaMeasurementId) {
     --color-text-secondary: ${vars['--color-text-secondary']};
     --color-border: ${vars['--color-border']};
     --color-card-bg: ${vars['--color-card-bg']};
-    --color-card-hover: ${vars['--color-card-hover']};
+    --color-card-hover: ${vars['--color-card-hover'] || vars['--color-bg-secondary']};
     --navbar-bg: ${vars['--navbar-bg'] || vars['--color-nav-bg'] || vars['--color-bg']};
     --color-primary-rgb: ${primaryRgb ? primaryRgb.join(', ') : '87, 230, 187'};
     --card-radius: ${cardRadius};
@@ -2259,6 +2282,14 @@ ${style.detailLayout === 'sidebar' ? `
         transition-duration: .01ms !important;
     }
 }
+${TemplateLayouts.css(config)}
+${NavbarLayout.css()}
+/* 保留 300px 固定广告槽位；窄屏时避免详情页广告包装层裁切它。 */
+@media (min-width: 300px) and (max-width: 400px) {
+    .detail-page #adv1,
+    .detail-page #adv2,
+    .detail-page #adv3 { overflow: visible !important; }
+}
 `;
     }
 
@@ -2270,7 +2301,7 @@ ${style.detailLayout === 'sidebar' ? `
     }
 
     function normalizeCategoryEmoji(category, index) {
-        const allowedIcons = typeof GAME_EMOJI_ICONS !== 'undefined' ? GAME_EMOJI_ICONS : [];
+        const allowedIcons = typeof GAME_CATEGORY_EMOJI_ICONS !== 'undefined' ? GAME_CATEGORY_EMOJI_ICONS : [];
         const currentIcon = String(category && category.icon || '');
         if (allowedIcons.includes(currentIcon)) return currentIcon;
 
@@ -2378,7 +2409,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     }
 
     function generateNavbarInteractionScript() {
-        return `(function() {
+        return `${NavbarLayout.script()}
+(function() {
     var hamburger = document.querySelector('.hamburger');
     var navLinks = document.querySelector('.nav-links');
     var drawerPanel = document.querySelector('.side-drawer-panel');
@@ -2581,6 +2613,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         let categoriesHtml = '';
         // 内容区顶部广告
         categoriesHtml += '\n' + getHomeAd('content-top');
+        // 内容布局不接触广告内容，原广告位置仍由 getHomeAd 负责。
+        categoriesHtml += TemplateLayouts.openHome(config, data, categoryAnchorId);
         let itemIndex = 0;
         categories.forEach((cat, i) => {
             let cardsHtml = '';
@@ -2593,7 +2627,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             }
             categoriesHtml += `
         <section id="${categoryAnchorId(cat, i)}" class="category-section${i === 0 ? ' category-featured' : ''}">
-            <h2 class="category-title">${escapeHtml(cat.icon)} ${escapeHtml(cat.name)}</h2>
+            ${TemplateLayouts.categoryHeader(config, cat, i)}
             ${getHomeAd('cat-' + i + '-after-title')}
             <div class="items-grid" data-category="cat-${i}">${cardsHtml}</div>
             ${getHomeAd('cat-' + i + '-after-last')}
@@ -2610,6 +2644,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         </div>`;
         }
         // 内容区底部广告
+        categoriesHtml += TemplateLayouts.closeHome(config);
         categoriesHtml += '\n' + getHomeAd('content-bottom');
 
         return `<!DOCTYPE html>
@@ -2624,7 +2659,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     ${_googleFontLink}
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body class="${layoutClass}">
+<body class="${layoutClass}"${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${getHomeAd('after-navbar')}
     ${heroHtml}
@@ -2669,7 +2704,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     ${_googleFontLink}
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body class="${layoutClass}">
+<body class="${layoutClass}"${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${getAllGamesAd('after-navbar')}
     <main class="main-content" data-static-rendered="true">
@@ -2864,6 +2899,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
     // 汉堡菜单交互
     function initNavbar() {
+        ${NavbarLayout.script()}
         var hamburger = document.querySelector('.hamburger');
         var navLinks = document.querySelector('.nav-links');
         var drawerPanel = document.querySelector('.side-drawer-panel');
@@ -3114,7 +3150,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     ${_googleFontLink}
     <link rel="stylesheet" href="../css/style.css">
 </head>
-<body class="${layoutClass}">
+<body class="${layoutClass}"${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${getDetailAd('after-navbar')}
     <div class="detail-page">
@@ -3227,7 +3263,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>Contact Us - ${escapeHtml(theme.siteTitle)}</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${generateContactBody(config)}
     ${footer}
@@ -3252,7 +3288,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>About Us - ${escapeHtml(theme.siteTitle)}</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${generateAboutBody(config)}
     ${footer}
@@ -3277,7 +3313,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>Privacy Policy - ${escapeHtml(theme.siteTitle)}</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${generatePrivacyBody(config)}
     ${footer}
@@ -3302,7 +3338,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>Terms of Service - ${escapeHtml(theme.siteTitle)}</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${generateTermsBody(config)}
     ${footer}
@@ -3314,7 +3350,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     }
 
     // ========== 主导出函数 ==========
-    async function exportWebsite(appState, onProgress) {
+    async function exportWebsite(appState, onProgress, exportOptions) {
         const config = buildConfig(appState);
         const data = appState.data;
         const isLocalImages = appState.isLocalImages;
@@ -3325,7 +3361,15 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         onProgress(5, '正在生成CSS...');
 
         const zip = new JSZip();
-        const siteFolder = zip.folder('website');
+        // Keep one directory around the site source. Ad exports use the
+        // validated host supplied by the app; other exports keep `website`.
+        const requestedFolderName = exportOptions && exportOptions.siteFolderName;
+        const safeFolderName = typeof requestedFolderName === 'string'
+            && /^[a-z0-9.-]+$/i.test(requestedFolderName)
+            && requestedFolderName.indexOf('..') === -1
+            ? requestedFolderName
+            : 'website';
+        const siteFolder = zip.folder(safeFolderName);
 
         // CSS
         siteFolder.folder('css').file('style.css', generateCSS(config));
@@ -3498,18 +3542,26 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             ? appState.adCodeMigration
             : null;
         const activeAdCode = migration || directAdCode;
+        const directCodeManualAds = !!directAdCode && appState.directAdPlacementMode === 'manual';
         const fixedReserveAds = reserveAds && appState.reservePlacementMode === 'fixed';
-        const automaticAdPlacements = (activeAdCode || fixedReserveAds) && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+        const useAutomaticAdPlacements = (activeAdCode && !directCodeManualAds) || fixedReserveAds;
+        const automaticAdPlacements = useAutomaticAdPlacements && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
         const homeCategoryCount = (appState.config.categories || theme.categories).length;
         if (fixedReserveAds && automaticAdPlacements.adv2 && homeCategoryCount < 2) automaticAdPlacements.adv2.home = 'content-bottom';
         if (fixedReserveAds && automaticAdPlacements.adv3 && homeCategoryCount < 2) automaticAdPlacements.adv3.home = 'footer-top';
-        const exportedAdPlacements = activeAdCode || fixedReserveAds ? automaticAdPlacements : (reserveAds ? (appState.config.adPlacements || {}) : {});
+        const manualAdPlacements = directCodeManualAds
+            ? (appState.config.adCodePlacements || {})
+            : (appState.config.adPlacements || {});
+        const exportedAdPlacements = useAutomaticAdPlacements
+            ? automaticAdPlacements
+            : (reserveAds || directCodeManualAds ? manualAdPlacements : {});
         const categories = (appState.config.categories || theme.categories).map(function(category, index) {
             return { ...category, icon: normalizeCategoryEmoji(category, index), count: index === 0 ? 2 : 6 };
         });
 
         return {
             theme: theme,
+            templateDomain: 'game',
             fieldMapping: mapping,
             structure: {
                 navLinks: ['home'],
@@ -3558,6 +3610,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 metaLayout: appState.config.metaLayout || 'grid',
                 metaBg: appState.config.metaBg || 'dark',
                 detailImgStyle: appState.config.detailImgStyle || 'fullwidth',
+                // 缺省保持现有图标可见，隐藏时不修改分类保存的 icon。
+                categoryIconsEnabled: appState.config.categoryIconsEnabled !== false,
                 categoryTitleStyle: appState.config.categoryTitleStyle || 'single',
                 categoryTitleAlign: appState.config.categoryTitleAlign || 'left',
                 cardImageHeight: appState.config.cardImageHeight || '180px',
@@ -3704,13 +3758,14 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             bodyContent += '<main class="main-content"><div class="container">';
             if (isPlacingAds) bodyContent += genMarker('content-top', pageType);
             bodyContent += getAdCodeAt('content-top', pageType, adPlacements);
+            bodyContent += TemplateLayouts.openHome(config, data, categoryAnchorId);
 
             // 用前几条数据渲染预览
             const categories = config.structure.categories;
             let itemIndex = 0;
             categories.forEach((cat, ci) => {
                 bodyContent += `<section id="${categoryAnchorId(cat, ci)}" class="category-section${ci === 0 ? ' category-featured' : ''}">
-                    <h2 class="category-title">${escapeHtml(cat.icon)} ${escapeHtml(cat.name)}</h2>`;
+                    ${TemplateLayouts.categoryHeader(config, cat, ci)}`;
                 if (isPlacingAds) bodyContent += genMarker('cat-' + ci + '-after-title', pageType);
                 bodyContent += getAdCodeAt('cat-' + ci + '-after-title', pageType, adPlacements);
                 bodyContent += '<div class="items-grid">';
@@ -3741,6 +3796,10 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
                     // 不在卡片网格内部放置选择标记：即使标记跨列，也会把后续卡片推到新行，
                     // 尤其会破坏手机端的两列布局。广告可放在标题后、分类末尾和分类之间。
+                    // 已保存的卡片间广告仍须预览，保持与导出结果一致。
+                    if (i < cat.count - 1 && itemIndex + 1 < data.length) {
+                        bodyContent += getAdCodeAt('cat-' + ci + '-between-' + i + '-' + (i + 1), pageType, adPlacements);
+                    }
                 }
 
                 bodyContent += '</div>';
@@ -3755,6 +3814,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 }
             });
 
+            bodyContent += TemplateLayouts.closeHome(config);
             if (isPlacingAds) bodyContent += genMarker('content-bottom', pageType);
             bodyContent += getAdCodeAt('content-bottom', pageType, adPlacements);
             if (config.structure.hasAllItemsPage && data.length > itemIndex) {
@@ -3964,7 +4024,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     ${_googleFontLink}
     <style>${css}</style>
 </head>
-<body class="layout-${escapeHtml(config.style.layoutTemplate || 'classic')}">${bodyContent}
+<body class="layout-${escapeHtml(config.style.layoutTemplate || 'classic')}"${TemplateLayouts.bodyAttributes(config)}>${bodyContent}
 <script>
 ${generateNavbarInteractionScript()}
     // 拦截导航链接点击，通知父窗口切换预览页面

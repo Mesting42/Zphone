@@ -15,6 +15,19 @@ const AdMigration = (function() {
     };
     const REQUIRED_BANNER_KEYS = ['bannerPath1', 'bannerPath2', 'bannerPath3'];
     const CONTAINER_IDS = ['div-gpt-ad-banner1', 'div-gpt-ad-banner2', 'div-gpt-ad-banner3'];
+    const HOST_PATTERN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+    // Match full terminal suffixes so numbered aliases map intentionally without rewriting IDs.
+    const AD_PATH_SLOT_SUFFIXES = [
+        { field: 'bannerPath1', pattern: /(?:-|_|\/)banner\s*11$/i, label: 'Banner 1' },
+        { field: 'bannerPath2', pattern: /(?:-|_|\/)banner\s*22$/i, label: 'Banner 2' },
+        { field: 'bannerPath3', pattern: /(?:-|_|\/)banner\s*33$/i, label: 'Banner 3' },
+        { field: 'bannerPath1', pattern: /(?:-|_|\/)banner\s*1$/i, label: 'Banner 1' },
+        { field: 'bannerPath2', pattern: /(?:-|_|\/)banner\s*2$/i, label: 'Banner 2' },
+        { field: 'bannerPath3', pattern: /(?:-|_|\/)banner\s*3$/i, label: 'Banner 3' },
+        { field: 'bannerPath4', pattern: /(?:-|_|\/)banner\s*4$/i, label: 'Banner 4' },
+        { field: 'interstitialPath', pattern: /(?:-|_|\/)(?:int1|int|interstitial)$/i, label: 'INT 插屏' },
+        { field: 'anchorPath', pattern: /(?:-|_|\/)(?:anc1|anc|anchor)$/i, label: 'ANC 锚点' }
+    ];
 
     function makeIssue(message, code) {
         return { code: code || 'MIGRATION_INVALID', message: message };
@@ -22,6 +35,51 @@ const AdMigration = (function() {
 
     function normalizePath(path) {
         return String(path || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+    }
+
+    function matchAdPathSlot(path) {
+        const value = String(path || '');
+        for (let index = 0; index < AD_PATH_SLOT_SUFFIXES.length; index++) {
+            const definition = AD_PATH_SLOT_SUFFIXES[index];
+            const match = value.match(definition.pattern);
+            if (match) return { field: definition.field, suffix: match[0], label: definition.label };
+        }
+        return null;
+    }
+
+    function adUnitBaseFromPath(path) {
+        const value = String(path || '');
+        const slot = matchAdPathSlot(value);
+        return slot ? value.slice(0, -slot.suffix.length) : value;
+    }
+
+    function assignAdPaths(paths, config, errors) {
+        const candidatesByField = {};
+        Array.from(new Set(paths)).forEach(function(path) {
+            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) return;
+            const slot = matchAdPathSlot(path);
+            if (!slot) return;
+            if (!candidatesByField[slot.field]) candidatesByField[slot.field] = [];
+            candidatesByField[slot.field].push({ path: path, label: slot.label });
+        });
+
+        Object.keys(candidatesByField).forEach(function(field) {
+            const candidates = candidatesByField[field];
+            if (candidates.length > 1) {
+                config[field] = '';
+                errors.push(makeIssue('广告代码中 ' + candidates[0].label + ' 识别到多个不同路径，请确认后重新上传。', 'AD_CODE_SLOT_CONFLICT'));
+                return;
+            }
+            // Keep the complete source path, including aliases such as banner11.
+            config[field] = candidates[0].path;
+        });
+    }
+
+    function detectedHostFromAdPath(path) {
+        // Remove the recognized suffix before extracting the hostname segment.
+        const unit = adUnitBaseFromPath(String(path || '').trim());
+        const candidate = unit.split('/').filter(Boolean).pop() || '';
+        return HOST_PATTERN.test(candidate) ? candidate.toLowerCase() : '';
     }
 
     function decodeJavaScriptString(value) {
@@ -123,6 +181,7 @@ const AdMigration = (function() {
             errors: errors,
             warnings: warnings,
             config: CONFIG_KEYS.reduce(function(result, key) { result[key] = config[key] || ''; return result; }, {}),
+            detectedHost: detectedHostFromAdPath(config.bannerPath1),
             detectedFiles: {
                 adJs: adFile ? adFile.path : '',
                 home: homePage ? homePage.path : '',
@@ -154,16 +213,7 @@ const AdMigration = (function() {
         }
         while ((match = pathRegex.exec(source)) !== null) paths.push(match[1].trim());
 
-        paths.forEach(function(path) {
-            if (!/^\/[A-Za-z0-9_./-]+$/.test(path)) return;
-            const lower = path.toLowerCase();
-            if (/(?:-|_|\/)(?:banner\s*1|banner1)$/.test(lower)) config.bannerPath1 = path;
-            else if (/(?:-|_|\/)(?:banner\s*2|banner2)$/.test(lower)) config.bannerPath2 = path;
-            else if (/(?:-|_|\/)(?:banner\s*3|banner3)$/.test(lower)) config.bannerPath3 = path;
-            else if (/(?:-|_|\/)(?:banner\s*4|banner4)$/.test(lower)) config.bannerPath4 = path;
-            else if (/(?:-|_|\/)(?:int|interstitial)$/.test(lower)) config.interstitialPath = path;
-            else if (/(?:-|_|\/)(?:anc|anchor)$/.test(lower)) config.anchorPath = path;
-        });
+        assignAdPaths(paths, config, errors);
 
         const gaMatch = source.match(/(?:gtag\(\s*['"]config['"]\s*,\s*['"]|[?&]id=|\b(?:gaMeasurementId|analyticsID)\s*=\s*['"])(G-[A-Z0-9]+)(?:['"]\s*\)|\b)/i);
         if (gaMatch) config.analyticsID = gaMatch[1].toUpperCase();
@@ -176,7 +226,7 @@ const AdMigration = (function() {
         if (!config.analyticsID) warnings.push(makeIssue('未识别到 Google Analytics 衡量 ID，将不生成 GA 脚本。', 'OPTIONAL_GA_MISSING'));
 
         [config.bannerPath1, config.bannerPath2, config.bannerPath3].filter(Boolean).forEach(function(path) {
-            const unit = path.replace(/-(?:banner[1-4]|int|anc)$/i, '');
+            const unit = adUnitBaseFromPath(path);
             units[unit] = true;
         });
         if (Object.keys(units).length > 1) {

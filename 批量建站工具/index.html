@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20260924-ad-version-wrap-2">
-  <link rel="stylesheet" href="css/liquid-glass.css?v=20260918-liquid-glass-17">
+    <link rel="stylesheet" href="css/tool.css?v=20260929-ad-template-default-1">
+    <link rel="stylesheet" href="css/liquid-glass.css?v=20260929-workflow-mode-card-5">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
     <script>if (!window.JSZip) document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');</script>
@@ -13,7 +13,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </head>
 <body>
-    <!-- 浮动建站控制台 -->
+    <!-- 步骤导航与当前工作流共用一张玻璃控制卡片。 -->
+    <div class="workflow-command-bar liquid-glass-surface">
     <nav class="step-progress liquid-command-progress" aria-label="建站步骤">
         <button type="button" class="step-item active" data-step="1" aria-current="step">
             <div class="step-circle">1</div>
@@ -40,6 +41,11 @@
             <span class="step-label">导出网站</span>
         </button>
     </nav>
+    <span class="workflow-mode-indicator" role="status" aria-live="polite" aria-atomic="true">
+        <span class="workflow-mode-caption">当前工作流</span>
+        <strong id="workflow-mode-label">普通建站</strong>
+    </span>
+    </div>
 
     <!-- 主内容区域 -->
     <div class="main-wrapper">
@@ -80,7 +86,7 @@
                     </button>
                     <button type="button" class="build-mode-card build-mode-card-batch-ad" data-build-mode="batch-ad-build" aria-pressed="false">
                         <span class="build-mode-icon" aria-hidden="true"><svg data-lucide-icon="layers-2" viewBox="0 0 24 24"><path d="m12.83 2.18 8.37 4.18a1.8 1.8 0 0 1 0 3.22l-8.37 4.18a1.86 1.86 0 0 1-1.66 0L2.8 9.58a1.8 1.8 0 0 1 0-3.22l8.37-4.18a1.86 1.86 0 0 1 1.66 0Z"/><path d="m22 12.5-9.17 4.58a1.86 1.86 0 0 1-1.66 0L2 12.5"/><path d="m22 17.5-9.17 4.58a1.86 1.86 0 0 1-1.66 0L2 17.5"/></svg></span>
-                        <span class="build-mode-content"><span class="build-mode-title-line"><strong>批量建站加广告</strong><span class="build-mode-badge">NEW</span></span><small>一次导入多份数据源；每个站点独占广告代码与模板，逐站配置后打包导出。</small><span class="build-mode-meta"><span>多数据源</span><span>一站一代码</span><span>导出前复检</span></span></span>
+                        <span class="build-mode-content"><span class="build-mode-title-line"><strong>批量建站加广告</strong><span class="build-mode-badge">NEW</span></span><small>一次导入多份数据源；可分配独占广告代码，也可先预留广告位，逐站配置后分别导出 ZIP。</small><span class="build-mode-meta"><span>多数据源</span><span>预留 / 代码</span><span>导出前复检</span></span></span>
                         <span class="build-mode-selected-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3.2 3.2L17.5 8"/></svg></span>
                     </button>
                     <button type="button" class="build-mode-card build-mode-card-restoration" data-build-mode="ad-restoration" aria-pressed="false">
@@ -98,10 +104,10 @@
 
             <section class="batch-ad-setup" id="batch-ad-setup" hidden aria-labelledby="batch-ad-title">
                 <div class="batch-ad-heading">
-                    <div><span class="section-kicker">BATCH AD BUILD</span><h3 id="batch-ad-title">批量新建站 + 独占广告代码</h3></div>
+                    <div><span class="section-kicker">BATCH AD BUILD</span><h3 id="batch-ad-title">批量新建站 + 广告配置</h3></div>
                     <span class="batch-ad-local-badge">仅在当前浏览器处理</span>
                 </div>
-                <p class="batch-ad-intro">先选择多份 JSON 数据源或包含 JSON+图片的 ZIP、RAR、7Z；每个站点独立识别领域、选择模板并调整样式。第四步再上传同数量的 TXT，并为每个站点分配一份不同的广告代码。导出前会重新检查首页、全部详情页、GPT、广告容器与 <code>js/ad.js</code>。</p>
+                <p class="batch-ad-intro">先选择多份 JSON 数据源或包含 JSON+图片的 ZIP、RAR、7Z；每个站点独立识别领域、选择模板并调整样式。第四步可上传独占广告 TXT，也可统一预留广告位并按站点覆盖位置、模板版本与域名。导出前会重新检查首页、全部详情页、GPT、广告容器与 <code>js/ad.js</code>。</p>
                 <div class="batch-ad-file-card">
                     <span class="batch-ad-step" aria-hidden="true">1</span>
                     <div><h4>选择全部数据源</h4><p>每个 JSON、ZIP、RAR 或 7Z 数据包生成一个独立站点。系统会逐站检查各自领域的必填字段，并要求同领域站点使用不同模板。</p></div>
@@ -149,7 +155,7 @@
                     <div><span class="section-kicker">不覆盖源文件</span><h3 id="ad-restoration-title">批量广告策略编辑器</h3></div>
                     <span class="restoration-local-badge">仅浏览器本地处理</span>
                 </div>
-                <p class="ad-restoration-intro">直接选择包含多个站点的总目录。工具从源站已有及注释代码识别 <code>banner1/2/3</code>、插屏和锚点，逐站识别并保留原 ad.js 版本，再套用一套全局方案并按需覆盖个别站点；广告路径始终保留，无需上传额外 TXT。无法可靠识别版本的站点会被阻止处理，避免静默替换成其他模板。</p>
+                <p class="ad-restoration-intro">直接选择包含多个站点的总目录。工具从源站已有及注释代码识别 <code>banner1/2/3</code>、插屏和锚点；默认保留各站原 ad.js，也可统一切换到 v1.0.0、v1.0.1、v1.0.2 或 v1.0.2.1。广告路径和 GA ID 始终保留，无需上传额外 TXT。无法可靠识别原版本的站点会被阻止处理。</p>
                 <div class="restoration-file-grid">
                     <article class="restoration-file-card">
                         <span class="restoration-step" aria-hidden="true">1</span>
@@ -171,14 +177,26 @@
                 <div class="ad-policy-workspace" id="ad-policy-workspace" hidden>
                     <div class="ad-policy-toolbar">
                         <div><span class="section-kicker">全局方案</span><h4>所有站点默认使用这套配置</h4><p>“完全恢复”就是普通建站上传广告代码后导出的默认效果。</p></div>
-                        <label>快速方案
-                            <select id="ad-policy-preset">
-                                <option value="restore">完全恢复默认广告</option>
-                                <option value="traffic-limit">强限流：首页广告位1改用 banner3</option>
-                                <option value="home-head-footer">首页头尾：banner1 + banner3</option>
-                                <option value="custom">自定义</option>
-                            </select>
-                        </label>
+                        <div class="ad-policy-toolbar-controls">
+                            <label>快速方案
+                                <select id="ad-policy-preset">
+                                    <option value="restore">完全恢复默认广告</option>
+                                    <option value="traffic-limit">强限流：首页广告位1改用 banner3</option>
+                                    <option value="home-head-footer">首页头尾：banner1 + banner3</option>
+                                    <option value="custom">自定义</option>
+                                </select>
+                            </label>
+                            <label>ad.js 模板版本
+                                <select id="ad-policy-ad-version" aria-describedby="ad-policy-ad-version-help">
+                                    <option value="original">保留各站原版（默认）</option>
+                                    <option value="v1.0.0">统一切换到 v1.0.0</option>
+                                    <option value="v1.0.1">统一切换到 v1.0.1</option>
+                                    <option value="v1.0.2">统一切换到 v1.0.2</option>
+                                    <option value="v1.0.2.1">统一切换到 v1.0.2.1</option>
+                                </select>
+                                <small id="ad-policy-ad-version-help">切换时保留每个站点的广告路径、GA ID 和当前广告位策略。</small>
+                            </label>
+                        </div>
                     </div>
 
                     <div class="ad-policy-editor" id="ad-policy-global-editor" data-policy-editor="global"></div>
@@ -335,11 +353,36 @@
                         <div class="config-group">
                             <h4 class="group-title">ad.js 模板版本</h4>
                             <p class="group-hint">整批默认使用最新版；勾选上方单站配置后可分别选择。</p>
-                            <div class="normal-ad-mode-grid ad-js-version-grid" role="radiogroup" aria-label="成品站 ad.js 模板版本">
-                                <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="v1.0.2" checked><span><strong>最新版 v1.0.2（默认）</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                            <div class="normal-ad-mode-grid ad-js-version-grid" role="group" aria-label="成品站 ad.js 模板版本">
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="v1.0.2.1" checked><span><strong>最新版 v1.0.2.1（默认）</strong><small>开启 GPT 原生懒加载，关闭插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="v1.0.2"><span><strong>旧版 v1.0.2</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="v1.0.1"><span><strong>旧版 v1.0.1</strong><small>GPT 原生懒加载，含首页插页广告触发器。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="v1.0.0"><span><strong>旧版 v1.0.0</strong><small>GPT 原生懒加载，无插页广告触发器。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="injection-ad-version" value="initial"><span><strong>初版</strong><small>IntersectionObserver 延迟加载 banner1–3；支持 banner4。</small></span></label>
+                            </div>
+                            <div class="ad-template-manager" data-ad-template-manager>
+                                <div class="ad-template-manager-actions">
+                                    <button class="injection-pick-button" type="button" data-ad-template-upload>上传新版 ad.js 模板</button>
+                                    <input type="file" accept=".js,text/javascript,application/javascript" data-ad-template-file hidden>
+                                    <span class="ad-template-status" data-ad-template-status role="status" aria-live="polite">识别到版本号和广告 ID 时自动保存；未识别时补填版本号或变量映射。</span>
+                                </div>
+                                <div class="ad-template-editor" data-ad-template-editor hidden>
+                                    <label class="ad-template-version-field">模板版本号<input type="text" data-ad-template-version placeholder="例如 v1.0.3" maxlength="40" autocomplete="off"></label>
+                                    <p class="group-hint">已自动匹配常见广告 ID 变量；请检查未识别项并完成对应。Banner 1–3、插屏 INT、锚点 ANC 和 GA ID 必须对应；Banner 4 可选。</p>
+                                    <div class="ad-template-mapping-grid">
+                                        <label>Banner 1<select data-ad-template-mapping="bannerPath1"></select></label>
+                                        <label>Banner 2<select data-ad-template-mapping="bannerPath2"></select></label>
+                                        <label>Banner 3<select data-ad-template-mapping="bannerPath3"></select></label>
+                                        <label>Banner 4（可选）<select data-ad-template-mapping="bannerPath4"></select></label>
+                                        <label>插屏 INT<select data-ad-template-mapping="interstitialPath"></select></label>
+                                        <label>锚点 ANC<select data-ad-template-mapping="anchorPath"></select></label>
+                                        <label>GA ID<select data-ad-template-mapping="analyticsID"></select></label>
+                                    </div>
+                                    <div class="ad-template-editor-actions">
+                                        <button class="injection-pick-button" type="button" data-ad-template-save>保存并设为默认</button>
+                                        <button class="injection-pick-button" type="button" data-ad-template-cancel>取消</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="config-group">
@@ -634,8 +677,8 @@
                     <div class="config-section" id="tab-style">
                         <!-- 页面模板蓝图 -->
                         <div class="config-group">
-                            <h4 class="group-title">🧱 领域专属模板蓝图（12 种）</h4>
-                            <p class="group-hint">这里只显示当前识别领域适配的 12 个蓝图；每个都会改变首页、详情页和组件组合，不是单纯换色。</p>
+                            <h4 class="group-title">🧱 领域专属模板蓝图（30 种）</h4>
+                            <p class="group-hint">这里只显示当前识别领域适配的 30 个蓝图；每个都会改变首页、详情页和组件组合，不是单纯换色。</p>
                             <div class="template-grid" id="template-grid">
                                 <!-- 由JS动态生成 -->
                             </div>
@@ -852,6 +895,14 @@
                                 </select>
                             </div>
                             <div class="config-item">
+                                <label for="category-icons-enabled">显示分类标题图标</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="category-icons-enabled" checked>
+                                    <span class="toggle-slider"></span>
+                                </div>
+                            </div>
+                            <p class="group-hint">全站统一显示或隐藏分类标题图标；关闭后保留已选图标。</p>
+                            <div class="config-item">
                                 <label>分类标题样式</label>
                                 <select id="category-title-style">
                                     <option value="single">单横线</option>
@@ -921,18 +972,58 @@
                         <section class="config-group" id="ad-js-version-group" aria-labelledby="ad-js-version-title">
                             <h4 class="group-title" id="ad-js-version-title">ad.js 模板版本</h4>
                             <p class="group-hint">导出时使用所选版本；预留广告位也会导出对应版本的空配置脚本。</p>
-                            <div class="normal-ad-mode-grid ad-js-version-grid" role="radiogroup" aria-label="ad.js 模板版本">
-                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.2" checked><span><strong>最新版 v1.0.2（默认）</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                            <div class="normal-ad-mode-grid ad-js-version-grid" role="group" aria-label="ad.js 模板版本">
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.2.1" checked><span><strong>最新版 v1.0.2.1（默认）</strong><small>开启 GPT 原生懒加载，关闭插屏额外触发器，保留首页 INT 广告位。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.2"><span><strong>旧版 v1.0.2</strong><small>关闭 GPT 懒加载和插屏额外触发器，保留首页 INT 广告位。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.1"><span><strong>旧版 v1.0.1</strong><small>GPT 原生懒加载，含首页插页广告触发器。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="v1.0.0"><span><strong>旧版 v1.0.0</strong><small>GPT 原生懒加载，无插页广告触发器。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="ad-js-version" value="initial"><span><strong>初版</strong><small>IntersectionObserver 延迟加载 banner1–3；支持 banner4。</small></span></label>
                             </div>
+                            <div class="ad-template-manager" data-ad-template-manager>
+                                <div class="ad-template-manager-actions">
+                                    <button class="injection-pick-button" type="button" data-ad-template-upload>上传新版 ad.js 模板</button>
+                                    <input type="file" accept=".js,text/javascript,application/javascript" data-ad-template-file hidden>
+                                    <span class="ad-template-status" data-ad-template-status role="status" aria-live="polite">识别到版本号和广告 ID 时自动保存；未识别时补填版本号或变量映射。</span>
+                                </div>
+                                <div class="ad-template-editor" data-ad-template-editor hidden>
+                                    <label class="ad-template-version-field">模板版本号<input type="text" data-ad-template-version placeholder="例如 v1.0.3" maxlength="40" autocomplete="off"></label>
+                                    <p class="group-hint">已自动匹配常见广告 ID 变量；请检查未识别项并完成对应。Banner 1–3、插屏 INT、锚点 ANC 和 GA ID 必须对应；Banner 4 可选。</p>
+                                    <div class="ad-template-mapping-grid">
+                                        <label>Banner 1<select data-ad-template-mapping="bannerPath1"></select></label>
+                                        <label>Banner 2<select data-ad-template-mapping="bannerPath2"></select></label>
+                                        <label>Banner 3<select data-ad-template-mapping="bannerPath3"></select></label>
+                                        <label>Banner 4（可选）<select data-ad-template-mapping="bannerPath4"></select></label>
+                                        <label>插屏 INT<select data-ad-template-mapping="interstitialPath"></select></label>
+                                        <label>锚点 ANC<select data-ad-template-mapping="anchorPath"></select></label>
+                                        <label>GA ID<select data-ad-template-mapping="analyticsID"></select></label>
+                                    </div>
+                                    <div class="ad-template-editor-actions">
+                                        <button class="injection-pick-button" type="button" data-ad-template-save>保存并设为默认</button>
+                                        <button class="injection-pick-button" type="button" data-ad-template-cancel>取消</button>
+                                    </div>
+                                </div>
+                            </div>
                         </section>
                         <section class="batch-ad-code-workspace" id="batch-ad-code-workspace" hidden aria-labelledby="batch-ad-code-title">
-                            <div class="batch-ad-code-heading"><div><span class="section-kicker">独占广告代码</span><h4 id="batch-ad-code-title">给每个站点分配不同的 TXT</h4></div><span id="batch-ad-code-summary">尚未上传</span></div>
-                            <p>上传与数据源数量相同的广告代码 TXT。系统只解析经验证的广告路径；同一个广告单元或同一 TXT 被复用时，导出会被阻止。</p>
-                            <div class="batch-ad-code-actions"><button type="button" id="batch-ad-code-button">选择多个 TXT</button><input type="file" id="batch-ad-code-input" accept=".txt,text/plain" multiple hidden></div>
-                            <div class="batch-ad-code-list" id="batch-ad-code-list" aria-live="polite"></div>
+                            <div class="batch-ad-code-heading"><div><span class="section-kicker">批量广告接入</span><h4 id="batch-ad-code-title">选择广告代码或先预留广告位</h4></div><span id="batch-ad-code-summary">等待配置</span></div>
+                            <p>可以为每个站点分配独占广告 TXT，也可以先统一预留广告位。预留模式会生成空配置的 ad.js，后续只需填写对应广告 ID。</p>
+                            <div class="normal-ad-mode-grid batch-ad-mode-grid" role="radiogroup" aria-label="批量建站广告接入方式">
+                                <label class="normal-ad-mode-card"><input type="radio" name="batch-ad-mode" value="reserve"><span><strong>先预留广告位</strong><small>无需广告代码。支持全局固定/手动位置及单站覆盖。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="batch-ad-mode" value="code" checked><span><strong>上传代码自动添加</strong><small>每个站点分配一份独占 TXT，保持原有严格校验。</small></span></label>
+                            </div>
+                            <div id="batch-ad-code-panel">
+                                <p class="batch-ad-panel-hint">上传与数据源数量相同的广告代码 TXT。同一个广告单元、域名或 TXT 被复用时，导出会被阻止。</p>
+                                <div class="batch-ad-code-actions"><button type="button" id="batch-ad-code-button">选择多个 TXT</button><input type="file" id="batch-ad-code-input" accept=".txt,text/plain" multiple hidden></div>
+                                <div class="batch-ad-code-list" id="batch-ad-code-list" aria-live="polite"></div>
+                            </div>
+                            <div id="batch-ad-reserve-panel" hidden>
+                                <div class="batch-reserve-scope">
+                                    <div><strong id="batch-reserve-scope-title">正在编辑全局广告位方案</strong><span id="batch-reserve-scope-note">未开启覆盖的站点统一使用这套位置与 ad.js 版本。</span></div>
+                                    <label><input type="checkbox" id="batch-reserve-site-override">当前站点单独覆盖</label>
+                                </div>
+                                <p class="batch-ad-panel-hint">下方填写每个站点已知域名。空白或格式错误时使用 <code>your-domain.com</code> 并允许导出；有效域名重复时必须修改为唯一值。</p>
+                                <div class="batch-ad-code-list" id="batch-reserve-site-list" aria-live="polite"></div>
+                            </div>
                         </section>
                         <div class="config-group" id="normal-ad-mode-group">
                             <h4 class="group-title">广告接入方式</h4>
@@ -966,14 +1057,22 @@
                         </div>
                         <div class="config-group" id="ad-placement-group">
                             <h4 class="group-title">📢 广告容器</h4>
-                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择预留位置方式。导出会保留广告容器、GPT 引用和空配置的 <code>js/ad.js</code>；以后只需填写广告单元路径与 GA ID。</p>
-                            <div class="normal-ad-mode-grid" role="radiogroup" aria-label="预留广告位定位方式">
+                            <p class="group-desc" id="ad-placement-description" style="font-size:12px;color:#888;margin-bottom:12px;">选择预留位置方式。导出会保留广告容器、GPT 引用和空配置的 <code>js/ad.js</code>；以后只需填写广告单元路径与 GA ID。</p>
+                            <div class="batch-reserve-scope" id="batch-code-placement-scope" hidden>
+                                <div><strong id="batch-code-placement-scope-title">正在编辑全局广告位置</strong><span id="batch-code-placement-scope-note">未开启覆盖的站点共用这套位置；每个站仍使用各自分配的广告代码。</span></div>
+                                <label><input type="checkbox" id="batch-code-placement-override">当前站点单独覆盖</label>
+                            </div>
+                            <div class="normal-ad-mode-grid" id="direct-ad-placement-mode-group" role="radiogroup" aria-label="上传代码广告位放置方式" hidden>
+                                <label class="normal-ad-mode-card"><input type="radio" name="direct-ad-placement-mode" value="fixed" checked><span><strong>固定位置（默认）</strong><small>沿用上传代码后的自动位置；首页、详情页与“全部文章”页按现有规则添加。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="direct-ad-placement-mode" value="manual"><span><strong>手动放置</strong><small>以当前自动位置为起点，分别调整每个广告在首页和详情页的位置。</small></span></label>
+                            </div>
+                            <div class="normal-ad-mode-grid" id="reserve-placement-mode-group" role="radiogroup" aria-label="预留广告位定位方式">
                                 <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="fixed"><span><strong>固定位置</strong><small>自动放在首页导航下方、分类间和页面底部；分类不足时自动调整。详情页与“全部文章”页同步放置。</small></span></label>
                                 <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="manual" checked><span><strong>手动放置</strong><small>自行选择每个广告容器在首页和详情页的位置。</small></span></label>
                             </div>
                             <p id="ad-fixed-placement-note" class="group-hint" hidden>固定位置已生效，预览会显示三个广告容器；切回手动放置后，原有手动位置仍会保留。</p>
                             <div id="ad-manual-placement-controls">
-                            <p class="group-desc" style="font-size:12px;color:#888;margin:12px 0;">选择广告容器后，切换首页或详情页，再点击预览中的常用广告位或自定义位置；“全部文章”页沿用详情页位置。</p>
+                            <p class="group-desc" id="ad-manual-placement-description" style="font-size:12px;color:#888;margin:12px 0;">选择广告容器后，切换首页或详情页，再点击预览中的常用广告位或自定义位置；“全部文章”页沿用详情页位置。</p>
 
                             <!-- 广告1 -->
                             <div class="ad-container-config">
@@ -1214,7 +1313,7 @@
                             <path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>
                         </svg>
                     </span>
-                    <span>导出网站 ZIP</span>
+                    <span class="export-button-label">导出网站 ZIP</span>
                 </button>
                 <div class="export-progress" id="export-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
                     <div class="export-progress-heading">
@@ -1268,17 +1367,27 @@
     </div>
 
     <!-- JS脚本（顺序加载） -->
-    <script src="js/data.js?v=20260920-emoji-portal-2"></script>
+    <script src="js/template-catalog.js?v=20260926-content-first-1"></script>
+    <script src="js/template-layouts.js?v=20260928-heading-designs-1"></script>
+    <script src="js/navbar-layout.js?v=20260926-nav-fit-1"></script>
+    <script src="js/data.js?v=20260928-marine-category-icons-2"></script>
     <script src="js/domain.js?v=20260921-tag-array-recognition-1"></script>
-    <script src="js/ad-migration.js?v=20260924-all-articles-1"></script>
+    <script src="js/archive-naming.js?v=20260926-domain-folder-1"></script>
+    <script src="js/ad-migration.js?v=20260925-domain-zip-naming-1"></script>
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
-    <script src="js/finished-site-ads.js?v=20260924-fixed-3"></script>
-    <script type="module" src="js/rar-import.js?v=20260921-rar5-fallback-1"></script>
-    <script src="js/generator.js?v=20260924-finished-fixed-1"></script>
-    <script src="js/ad-restoration.js?v=20260924-policy-version-detect-1"></script>
-    <script src="js/batch-ad-builder.js?v=20260924-all-articles-1"></script>
-    <script type="module" src="js/app.js?v=20260924-policy-version-ui-1"></script>
+    <script src="js/ad-template-catalog.js?v=20260929-ad-template-default-1"></script>
+<script src="js/export-preflight.js?v=20260928-ad-manifest-paths-3"></script>
+    <script src="js/finished-site-ads.js?v=20260928-scroll-progress-offset-1"></script>
+    <script type="module" src="js/rar-import.js?v=20260928-rar-timeout-fallback-2"></script>
+    <script src="js/generator.js?v=20260929-batch-code-placement-1"></script>
+    <script src="js/zip-archive-worker-client.js?v=20260928-zip-worker-progress-1"></script>
+    <script src="js/ad-restoration.js?v=20260928-scroll-progress-offset-1"></script>
+    <script src="js/batch-ad-builder.js?v=20260929-batch-code-placement-1"></script>
+<script src="js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
+<script src="js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
+<script src="js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
+<script type="module" src="js/app.js?v=20260929-workflow-mode-indicator-1"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
-    <script src="js/liquid-glass.js?v=20260918-liquid-glass-1"></script>
+  <script src="js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
 </body>
 </html>

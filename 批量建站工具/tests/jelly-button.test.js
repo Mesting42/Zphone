@@ -130,7 +130,10 @@ describe('configuration select layering', () => {
         expect(css).toMatch(/\.config-group\.select-open-group\s*\{[^}]*z-index:\s*80;/);
         expect(css).toMatch(/\.config-item\.select-open\s*\{[^}]*z-index:\s*70;/);
         expect(css).toMatch(/\.select-shell\.open\s*\{[^}]*z-index:\s*71;/);
-        expect(css).toMatch(/\.select-menu\s*\{[^}]*z-index:\s*72;/);
+        // 菜单已提升为 fixed 浮层，验证层级关系而非过期的固定数值 72。
+        const menuRule = css.match(/\.select-menu\s*\{([^}]*)\}/)[1];
+        expect(menuRule).toMatch(/position:\s*fixed;/);
+        expect(Number(menuRule.match(/z-index:\s*(\d+)/)[1])).toBeGreaterThan(80);
     });
 
     it('raises category icon menus above later glass groups and uses an Emoji font stack', () => {

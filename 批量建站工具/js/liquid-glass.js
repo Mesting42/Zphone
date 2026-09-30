@@ -3,7 +3,7 @@
     'use strict';
 
     var surfaceSelector = [
-        '.step-progress', '.step-panel', '.build-mode-selector', '.build-mode-card', '.upload-area',
+        '.workflow-command-bar', '.step-progress', '.step-panel', '.build-mode-selector', '.build-mode-card', '.upload-area',
         '.step-nav', '.data-overview', '.config-panel', '.preview-panel', '.config-group', '.theme-card',
         '.detection-card', '.template-card', '.style-card', '.ad-injection-setup', '.legacy-site-upload',
         '.injection-file-card', '.restoration-file-card', '.ad-policy-page-card', '.diff-blueprint-card'
@@ -44,7 +44,13 @@
         }
     }
 
-    function init() { document.querySelectorAll(surfaceSelector).forEach(enhance); }
+    function init() {
+        document.querySelectorAll(surfaceSelector).forEach(function (surface) {
+            // The shared shell owns the glass highlight; its nested step rail stays transparent.
+            if (surface.matches('.step-progress') && surface.closest('.workflow-command-bar')) return;
+            enhance(surface);
+        });
+    }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
     else init();
 }());

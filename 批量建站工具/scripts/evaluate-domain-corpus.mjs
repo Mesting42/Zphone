@@ -44,8 +44,12 @@ function expectedUnused(path) {
 function expectedUsed(path) {
     const normalized = path.replaceAll('\\', '/');
     if (normalized.includes('/宠物-已用-')) return 'pets';
-    if (normalized.includes('/恐龙领域-已用-') || normalized.includes('/深海生物探索-已用-') || normalized.includes('/太空与天文-已用-')) return 'science';
-    if (normalized.includes('/美食-已用-')) return 'food';
+    // These source topics now have their own supported domains rather than science fallbacks.
+    if (normalized.includes('/恐龙领域-已用-')) return 'naturalhistory';
+    if (normalized.includes('/深海生物探索-已用-')) return 'marinescience';
+    if (normalized.includes('/太空与天文-已用-')) return 'science';
+    // This package is filed under 美食 but its articles are explicitly health and nutrition.
+    if (normalized.includes('/美食-已用-')) return 'health';
     if (normalized.includes('/世界历史灯塔-已用-') || normalized.includes('/世界著名城堡-已用-') || normalized.includes('/世界著名桥梁-已用-')) return 'history';
     if (normalized.includes('/仙人掌与多肉植物园艺-已用-')) return 'agriculture';
     if (normalized.includes('/GLP1减重与心血管新药-已用-')) return 'health';
@@ -60,6 +64,8 @@ function rowsFrom(path) {
 }
 
 const context = {};
+// data.js extends the domain catalogue during initialization, so load its dependency first.
+vm.runInNewContext(readFileSync(new URL('../js/template-catalog.js', import.meta.url), 'utf8'), context);
 vm.runInNewContext(readFileSync(new URL('../js/data.js', import.meta.url), 'utf8') + '\nthis.catalog = DOMAIN_CATALOG;', context);
 vm.runInNewContext(readFileSync(new URL('../js/domain.js', import.meta.url), 'utf8'), context);
 

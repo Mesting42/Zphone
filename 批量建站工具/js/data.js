@@ -605,7 +605,7 @@ Object.assign(DOMAIN_CATALOG, {
     science: {
         label: '科学研究', nameEn: 'Science', icon: '🔬', accent: '#28738a', soft: '#eaf5f7',
         description: '科研、发现、实验、太空与自然科学', fieldSignals: ['doi', 'journal', 'research_field', 'institution', 'study_date'],
-        keywords: ['marine biology', 'deep sea', 'oceanography', 'paleontology', 'dinosaur', 'cephalopod', 'fossil', 'zoology', 'astronomy', 'science', 'research', 'study', 'experiment', 'scientist', 'space', '科学', '科研', '研究', '实验', '古生物', '恐龙', '化石', '深海', '海洋学', '太空', '科学家'],
+        keywords: ['astronomy', 'science', 'research', 'study', 'experiment', 'scientist', 'space', '科学', '科研', '研究', '实验', '太空', '科学家'],
         blueprints: ['editorial', 'terminal', 'dashboard', 'deepsea', 'magazine']
     },
     environment: {
@@ -691,6 +691,31 @@ Object.assign(DOMAIN_CATALOG, {
         description: '电力、石油、光伏、储能与能源转型', fieldSignals: ['energy_type', 'capacity_mw', 'megawatt', 'grid_region', 'plant_type'],
         keywords: ['energy', 'solar', 'wind power', 'oil', 'gas', 'electricity', 'renewable', '能源', '电力', '光伏', '风电', '石油', '储能'],
         blueprints: ['dashboard', 'terminal', 'neon', 'magazine', 'editorial']
+    },
+    // 专题领域承接自然史、海洋地球科学与文化遗产内容；综合领域仍用于宽主题文章。
+    naturalhistory: {
+        label: '自然史与生物多样性', nameEn: 'Natural History & Biodiversity', icon: '🐝', accent: '#547755', soft: '#edf5eb',
+        description: '物种、演化、栖息地、田野调查与生物多样性保护', fieldSignals: ['scientific_name', 'taxonomy', 'taxonomic_rank', 'species_group', 'conservation_status'],
+        keywords: ['natural history', 'biodiversity', 'paleontology', 'paleontological', 'fungal ecology', 'pollinator', 'ornithology', 'migratory bird', 'bat conservation', 'big cat conservation', 'cave biology', 'venomology', 'amber insect', 'entomology', 'herpetology', 'primatology', 'firefly ecology', 'species conservation', '自然史', '生物多样性', '古生物学', '真菌生态', '传粉昆虫', '候鸟迁徙', '蝙蝠保护', '猫科动物保护', '洞穴生物学', '毒液与毒素', '古昆虫学', '昆虫学', '两栖与爬行动物', '灵长类学', '物种保护'],
+        blueprints: ['botanical', 'deepsea', 'editorial', 'bento', 'desert']
+    },
+    marinescience: {
+        label: '海洋与水域科学', nameEn: 'Marine & Aquatic Science', icon: '🌊', accent: '#167b91', soft: '#e7f4f7',
+        description: '海洋系统、水域生态、海岸修复与水生物种研究', fieldSignals: ['marine_species', 'water_body', 'ocean_basin', 'water_depth', 'salinity'],
+        keywords: ['marine science', 'marine biology', 'oceanography', 'deep sea', 'deep-sea', 'coral reef', 'blue carbon', 'plankton', 'seaweed', 'ocean acidification', 'marine archaeology', 'freshwater ecology', 'aquatic ecosystem', 'tidal marsh', 'mangrove restoration', 'marine mammal', 'eel migration', 'microplastic pollution', '海洋科学', '海洋生物', '深海', '珊瑚礁', '蓝碳', '浮游生物', '海藻', '海洋酸化', '海洋考古', '淡水生态', '水域生态', '盐沼', '红树林', '鲸豚', '洄游鱼类', '微塑料'],
+        blueprints: ['deepsea', 'dashboard', 'editorial', 'terminal', 'magazine']
+    },
+    earthscience: {
+        label: '地球与大气科学', nameEn: 'Earth & Atmospheric Science', icon: '⛰️', accent: '#a46d37', soft: '#f7f0e7',
+        description: '地质过程、古气候、极端天气与地球观测', fieldSignals: ['geologic_period', 'tectonic_setting', 'climate_record', 'weather_event', 'volcano_type'],
+        keywords: ['earth science', 'geoscience', 'glaciology', 'ice core', 'tree rings', 'paleoclimate', 'seismology', 'earthquake warning', 'volcanology', 'volcano monitoring', 'geothermal science', 'tornado research', 'severe storm', 'atmospheric electricity', 'space weather', 'meteorite', 'planetary science', 'climate monitoring', '地球科学', '冰川学', '冰芯', '树木年代学', '古气候', '地震学', '地震预警', '火山学', '火山监测', '地热科学', '龙卷风', '强对流', '闪电与大气电学', '空间天气', '陨石学', '行星科学'],
+        blueprints: ['desert', 'dashboard', 'editorial', 'terminal', 'timeline']
+    },
+    culturalheritage: {
+        label: '文化遗产与传统工艺', nameEn: 'Cultural Heritage & Craft', icon: '📜', accent: '#8a6040', soft: '#f5efe8',
+        description: '文物、手工技艺、历史材料、文献保护与文化记忆', fieldSignals: ['artifact_type', 'craft_technique', 'conservation_method', 'material_period', 'collection'],
+        keywords: ['cultural heritage', 'museum collection', 'bookbinding', 'manuscript conservation', 'textile history', 'glassmaking', 'ceramic history', 'cartography history', 'maritime heritage', 'navigation history', 'egyptology', 'numismatics', 'endangered language', 'language preservation', '文化遗产', '博物馆藏品', '书籍装帧', '古籍修复', '纺织史', '玻璃工艺', '陶瓷史', '地图学史', '航海遗产', '航海史', '埃及学', '钱币学', '濒危语言', '语言保护'],
+        blueprints: ['timeline', 'luxury', 'editorial', 'magazine', 'botanical']
     }
 });
 
@@ -764,7 +789,11 @@ var DOMAIN_THEME_OPTIONS = {
     photography: { siteTitle: 'FrameAndLight', subtitle: 'Technique, equipment, and ideas for visual storytellers', heroTitle: 'See More in Every Frame', categories: ['Techniques', 'Cameras', 'Lenses', 'Editing', 'Inspiration'], fields: [['camera','Camera','相机'],['lens','Lens','镜头'],['aperture','Aperture','光圈'],['shutter_speed','Shutter Speed','快门速度']] },
     history: { siteTitle: 'PastInContext', subtitle: 'People, places, and events that shaped the present', heroTitle: 'Read the Past With New Eyes', categories: ['Ancient World', 'Modern History', 'People', 'Archaeology', 'Culture'], fields: [['era','Era','时代'],['historical_period','Historical Period','历史时期'],['event_year','Event Year','事件年份'],['historical_figure','Historical Figure','历史人物']] },
     agriculture: { siteTitle: 'FieldAndHarvest', subtitle: 'Farming knowledge, rural innovation, and food systems', heroTitle: 'Grow With Better Information', categories: ['Crops', 'Livestock', 'Technology', 'Markets', 'Rural Life'], fields: [['crop','Crop','作物'],['farm','Farm','农场'],['harvest','Harvest','收获季'],['livestock','Livestock','养殖品种']] },
-    energy: { siteTitle: 'EnergyCurrent', subtitle: 'Power markets, technology, and the global energy transition', heroTitle: 'Understand the Future of Power', categories: ['Renewables', 'Oil & Gas', 'Electricity', 'Storage', 'Policy'], fields: [['energy_type','Energy Type','能源类型'],['capacity_mw','Capacity','装机容量'],['grid_region','Grid Region','电网区域'],['plant_type','Plant Type','设施类型']] }
+    energy: { siteTitle: 'EnergyCurrent', subtitle: 'Power markets, technology, and the global energy transition', heroTitle: 'Understand the Future of Power', categories: ['Renewables', 'Oil & Gas', 'Electricity', 'Storage', 'Policy'], fields: [['energy_type','Energy Type','能源类型'],['capacity_mw','Capacity','装机容量'],['grid_region','Grid Region','电网区域'],['plant_type','Plant Type','设施类型']] },
+    naturalhistory: { siteTitle: 'NaturalAtlas', subtitle: 'Field guides and evidence about life in all its forms', heroTitle: 'Discover Life Across Time and Place', categories: ['Species & Evolution', 'Field Studies', 'Habitats', 'Conservation', 'Natural History'], icons: ['🐝','🌿','🐦','🐟','🦴','🧬','🌱','🔬','📚','🌳','🦉','🦇','🐸','🦎','🍄','🗺️'], gradient: 'linear-gradient(135deg,#233d2c,#537b50,#d7bd78)', fields: [['scientific_name','Scientific Name','学名'],['taxonomic_group','Taxonomic Group','分类群'],['habitat','Habitat','栖息地'],['conservation_status','Conservation Status','保护状态']] },
+    marinescience: { siteTitle: 'OceanField', subtitle: 'Research on oceans, waterways, and the life they sustain', heroTitle: 'Read the Signals Beneath the Surface', categories: ['Oceans', 'Marine Life', 'Freshwater', 'Coastal Systems', 'Ocean Research'], icons: ['🌊','🐟','🐚','🚢','💧','🛶','🏝️','🗺️','🧭','🐬','🦭','🦀','⚓','🔬','🌐','📡'], gradient: 'linear-gradient(135deg,#073b51,#087d91,#65c5be)', fields: [['water_body','Water Body','水域'],['ocean_basin','Ocean Basin','海盆'],['water_depth','Water Depth','水深'],['marine_species','Marine Species','海洋物种']] },
+    earthscience: { siteTitle: 'TerraSignal', subtitle: 'Field evidence on the forces and records shaping Earth', heroTitle: 'Understand a Planet in Motion', categories: ['Geology', 'Climate Records', 'Atmosphere', 'Natural Hazards', 'Field Research'], icons: ['⛰️','🌋','🌪️','⚡','🛰️','📡','🔬','🔭','🪐','🌌','🧊','☀️','🌬️','📈','🗺️','🌍'], gradient: 'linear-gradient(135deg,#322d35,#8b633f,#d5a664)', fields: [['geologic_period','Geologic Period','地质时期'],['tectonic_setting','Tectonic Setting','构造背景'],['climate_record','Climate Record','气候记录'],['weather_event','Weather Event','天气事件']] },
+    culturalheritage: { siteTitle: 'HeritageArchive', subtitle: 'Objects, techniques, and records that connect generations', heroTitle: 'Keep the Stories of Making and Memory', categories: ['Artifacts', 'Traditional Crafts', 'Manuscripts', 'Places & Memory', 'Conservation'], icons: ['📜','🏛️','🗿','🗺️','📚','🧵','🎨','🖼️','📖','🔎','🏺','🧭','🏰','🧱','✍️','🕰️'], gradient: 'linear-gradient(135deg,#382c2a,#8b6448,#c3a574)', fields: [['artifact_type','Artifact Type','文物类型'],['craft_technique','Craft Technique','工艺技法'],['historical_period','Historical Period','历史时期'],['conservation_method','Conservation Method','保护修复方式']] }
 };
 
 Object.keys(DOMAIN_THEME_OPTIONS).forEach(function(themeId) {
@@ -817,10 +846,10 @@ const LOGO_ICON_GROUPS = [
 
 // Windows 上部分较新的 Emoji 和医疗符号的彩色变体会显示为方框。所有图标
 // 在进入分类/Logo 选择器前统一映射为已验证的替代符号。
-const WINDOWS_UNSUPPORTED_EMOJI = ['🫀', '🫶', '🪄', '🫕', '🧋', '🛻', '🪟', '🪩', '🪽', '⚕️'];
+const WINDOWS_UNSUPPORTED_EMOJI = ['🫀', '🫶', '🪄', '🫕', '🧋', '🛻', '🪟', '🪩', '🪽', '🪸', '🪼', '⚕️'];
 const WINDOWS_EMOJI_REPLACEMENTS = {
     '🫀': '❤️', '🫶': '🤲', '🪄': '✨', '🫕': '🥘', '🧋': '🥤',
-    '🛻': '🚙', '🪟': '🏠', '🪩': '💿', '🪽': '🕊️', '⚕️': '🩺'
+    '🛻': '🚙', '🪟': '🏠', '🪩': '💿', '🪽': '🕊️', '🪸': '🐚', '🪼': '🐙', '⚕️': '🩺'
 };
 function getWindowsSafeEmoji(icon) {
     return WINDOWS_EMOJI_REPLACEMENTS[icon] || icon;
@@ -844,7 +873,8 @@ const LOGO_ICON_DEFAULTS = {
     tech: '💻', game: '🎮', food: '🍽️', anime: '🌸', finance: '📈', health: '🩺', travel: '🧭', sports: '🏆',
     automotive: '🚗', education: '🎓', fashion: '✨', home: '🏠', general: '🌐', entertainment: '🎭', film: '🎬', music: '🎵',
     books: '📖', science: '🔬', environment: '🌍', politics: '🏛️', legal: '⚖️', realestate: '🏡', career: '💼', marketing: '📣',
-    ecommerce: '🛍️', pets: '🐾', parenting: '🧸', outdoors: '🏕️', photography: '📸', history: '📜', agriculture: '🌾', energy: '⚡'
+    ecommerce: '🛍️', pets: '🐾', parenting: '🧸', outdoors: '🏕️', photography: '📸', history: '📜', agriculture: '🌾', energy: '⚡',
+    naturalhistory: '🐝', marinescience: '🌊', earthscience: '🏔️', culturalheritage: '📜'
 };
 
 // 领域选择卡片与后续配置使用同一套默认 Emoji，避免入口仍显示旧的抽象符号。
@@ -852,8 +882,8 @@ Object.keys(LOGO_ICON_DEFAULTS).forEach(function(themeId) {
     if (DOMAIN_CATALOG[themeId]) DOMAIN_CATALOG[themeId].icon = LOGO_ICON_DEFAULTS[themeId];
 });
 
-// ========== 32 个领域的分类 Emoji 图标池 ==========
-// 每个领域先使用强相关核心图标，再从相近类别补足为 48 个不重复 Emoji。
+// ========== 36 个领域的分类 Emoji 图标池 ==========
+// 每个领域使用强相关核心图标；海洋科学使用独立图标池，不借用无关通用类别填充。
 // 这套池仅驱动分类默认图标和随机的 50 套图标组合；手动选择器另行开放全量图标库。
 const DOMAIN_CATEGORY_EMOJI_SEEDS = {
     tech: ['💻','🖥️','📱','🤖','🧠','⚙️','🛰️','📡','🔋','💡'],
@@ -887,7 +917,51 @@ const DOMAIN_CATEGORY_EMOJI_SEEDS = {
     photography: ['📸','📷','🎥','🌅','🖼️','💡','👁️','🌈','🏞️','✨'],
     history: ['📜','🏛️','🗿','🏺','⏳','🧭','🗺️','📚','🔎','⚔️'],
     agriculture: ['🌾','🚜','🌱','🌻','🐝','🌿','🌳','🥕','🐄','☀️'],
-    energy: ['⚡','🔋','🔌','☀️','🌬️','💡','🏭','🌍','♻️','📊']
+    energy: ['⚡','🔋','🔌','☀️','🌬️','💡','🏭','🌍','♻️','📊'],
+    naturalhistory: ['🐝','🌿','🐦','🐟','🦴','🧬','🌱','🔬','📚','🌳'],
+    marinescience: ['🌊','🐟','💧','🏝️','🔬','🐠','🐡','🦈','🐬','🐳','🐋','🦭','🐙','🦑','🦀','🦞','🦐','🦪','🐚','🪸','🪼','🐢','🦦','🐧','🐊','⚓','🚢','🛳️','⛴️','🛥️','🚤','🛶','⛵','🤿','🛟','🧭','🗺️','🧪','🧬','🦠','🔭','📡','🛰️','🌡️','🧊','🌍','♻️','🌿','🌱','☀️','🌬️','🌧️'],
+    earthscience: ['⛰️','🌋','🌪️','⚡','🛰️','📡','🔬','🔭','🪐','🧊'],
+    culturalheritage: ['📜','🏛️','🗿','🗺️','📚','🧵','🎨','🖼️','📖','🔎']
+};
+
+// Extra domain-specific choices extend category defaults without changing brand-logo icon pickers.
+const DOMAIN_CATEGORY_EMOJI_EXTENSIONS = {
+    tech: ['🖱️','⌨️','🧮','🔐','🧑‍💻','💾','🪫','🧬'],
+    game: ['🧙','🧟','🧛','🧚','🧝','🥷','🧞','🧱'],
+    food: ['🥑','🥕','🍓','🧀','🍞','🥢','🧂','🫖'],
+    anime: ['🎌','👺','👹','🧛','🧙','🦋','🧝','🪭'],
+    finance: ['📉','💱','💶','🧮','🏧','🗃️','💵','💴'],
+    health: ['🩻','🧑‍⚕️','🧬','🧫','🦴','🦷','🧪','🫁'],
+    travel: ['🛣️','🛤️','🚉','🛫','🛬','🚢','🚲','🏨'],
+    sports: ['🏅','🥈','🥉','🏉','🏏','🥋','🤸','🏋️'],
+    automotive: ['🚘','🚖','🚔','🚜','🚚','🛵','⛽','🧰'],
+    education: ['🖊️','✂️','🧑‍💻','📓','🧑‍🔬','🧑‍🎨','📏','🔠'],
+    fashion: ['🧥','👖','👚','👟','👜','🕶️','🪡','🧣'],
+    home: ['🚪','🪜','🪞','🧺','🧻','🚿','🛁','🧹'],
+    general: ['🧭','📺','🧾','✍️','🔔','📬','🪧','🗣️'],
+    entertainment: ['🎟️','🎫','🎼','🎻','🎺','🎷','🤹','🎧'],
+    film: ['🎟️','🎫','📼','🎤','🎼','🗣️','🧑‍🎤','🎦'],
+    music: ['🎼','🪇','🪘','🎺','🎷','🎻','🎚️','🎛️'],
+    books: ['📔','📒','📕','📗','📘','📙','📓','🖋️'],
+    science: ['🧫','🌡️','🧑‍🔬','⚛️','🧯','🔩','🛰️','🪨'],
+    environment: ['🍃','🦋','🦌','🦬','🦜','🦎','🌤️','🪸'],
+    politics: ['🗣️','🕊️','🚩','🏳️','📊','🧑‍⚖️','🗂️','🗞️'],
+    legal: ['🧑‍⚖️','👩‍⚖️','🔏','📑','📃','🖋️','🗄️','🪪'],
+    realestate: ['🏘️','🏚️','🏗️','🏬','🏣','🚧','🪜','🛗'],
+    career: ['🧑‍🔧','🧑‍💻','🧑‍🚀','📋','🖇️','💻','📧','🪪'],
+    marketing: ['📧','📨','📬','📌','🧲','🗣️','🛎️','📢'],
+    ecommerce: ['🏪','🛠️','📲','📫','🧺','🔖','💱','💸'],
+    pets: ['🐕‍🦺','🐈‍⬛','🐇','🐹','🐢','🦜','🦎','🪶'],
+    parenting: ['🧒','👧','👦','🛝','🛏️','🖍️','🎒','🚼'],
+    outdoors: ['🏞️','🌄','🏜️','🪨','🗻','🪵','🧗‍♀️','🪂'],
+    photography: ['📽️','📹','📼','🔭','📡','🧑‍🎨','🎞️','🌇'],
+    history: ['🧱','🏮','🗡️','🛡️','🏯','🗼','🪔','⚱️'],
+    agriculture: ['🌽','🍅','🥬','🐓','🐑','🐖','🌧️','🧑‍🌾'],
+    energy: ['🪫','⛽','🛢️','☢️','⚛️','🧯','🔆','🔧'],
+    naturalhistory: ['🦕','🦖','🦴','🐚','🪼','🧫','🪺','🪶'],
+    marinescience: ['🫧','🪝','🪷','🧂','🪨','🦩','🧜‍♀️','🧜‍♂️'],
+    earthscience: ['🪨','🗻','🌦️','🌡️','☄️','💨','🧭','🧬'],
+    culturalheritage: ['🏯','⛩️','🪭','🪡','🪕','🧱','🏮','🧿']
 };
 
 const DOMAIN_CATEGORY_EMOJI_GROUPS = {
@@ -898,7 +972,9 @@ const DOMAIN_CATEGORY_EMOJI_GROUPS = {
     books: ['education','media','culture'], science: ['education','technology','health'], environment: ['home_nature','travel','health'], politics: ['community','media','business'],
     legal: ['business','education','community','media'], realestate: ['home_nature','business','travel'], career: ['business','community','education'], marketing: ['business','media','technology'],
     ecommerce: ['business','media','community'], pets: ['community','home_nature','health'], parenting: ['community','health','education'], outdoors: ['travel','sports','home_nature'],
-    photography: ['media','travel','culture'], history: ['education','media','culture'], agriculture: ['home_nature','food','health'], energy: ['technology','home_nature','business']
+    photography: ['media','travel','culture'], history: ['education','media','culture'], agriculture: ['home_nature','food','health'], energy: ['technology','home_nature','business'],
+    naturalhistory: ['education','home_nature','community','health'], marinescience: [],
+    earthscience: ['education','technology','travel','home_nature'], culturalheritage: ['education','culture','media','general']
 };
 
 const DOMAIN_CATEGORY_EMOJI_POOLS = {};
@@ -909,16 +985,83 @@ Object.keys(DOMAIN_CATALOG).forEach(function(themeId) {
         if (icon && pool.indexOf(icon) === -1) pool.push(icon);
     };
     (DOMAIN_CATEGORY_EMOJI_SEEDS[themeId] || []).forEach(addIcon);
+    (DOMAIN_CATEGORY_EMOJI_EXTENSIONS[themeId] || []).forEach(addIcon);
     (DOMAIN_CATEGORY_EMOJI_GROUPS[themeId] || ['general']).forEach(function(groupId) {
         var group = LOGO_ICON_GROUPS.find(function(item) { return item.id === groupId; });
         if (group) group.icons.forEach(function(item) { addIcon(item[0]); });
     });
-    DOMAIN_CATEGORY_EMOJI_POOLS[themeId] = pool.slice(0, 48);
+    DOMAIN_CATEGORY_EMOJI_POOLS[themeId] = pool.slice(0, 64);
     THEMES[themeId].iconPool = DOMAIN_CATEGORY_EMOJI_POOLS[themeId].slice();
     THEMES[themeId].categories.forEach(function(category, index) {
         category.icon = DOMAIN_CATEGORY_EMOJI_POOLS[themeId][index % DOMAIN_CATEGORY_EMOJI_POOLS[themeId].length];
     });
 });
+
+const MARINE_CATEGORY_ICON_RULES = [
+    {
+        pattern: /\b(fresh\s?water|freshwater|river|lake|wetland|watershed|stream|inland water|groundwater)\b|淡水|河流|湖泊|湿地|流域|溪流|内陆水域|水库|地下水/i,
+        icons: ['💧','🐟','🦦','🐢','🐊','🌿','🌱','🧊','🌊']
+    },
+    {
+        pattern: /\b(marine life|sea life|fish(?:eries)?|coral|reef|wildlife|species|marine biology|animal|mammal|shark|whale|dolphin|turtle|seal|plankton|seaweed|kelp|aquaculture)\b|海洋生物|水生生物|物种|渔业|鱼类|鱼|珊瑚|礁|野生动物|鲸|海豚|海龟|鲨|海豹|浮游|海藻|海带|养殖|水母|章鱼|海星/i,
+        icons: ['🐟','🐠','🐡','🦈','🐬','🐳','🐋','🦭','🐙','🦑','🦀','🦞','🦐','🦪','🐚','🪸','🪼','🐢']
+    },
+    {
+        pattern: /\b(coast(?:al)?|shore(?:line)?|estuary|mangrove|salt\s?marsh|tidal flat|beach|island)\b|海岸|海滨|海湾|河口|红树林|盐沼|潮滩|潮间带|海滩|海岛/i,
+        icons: ['🏝️','🐚','🦀','🌊','⚓','🛶','🛟','🌿','🦪','🚤','⛵']
+    },
+    {
+        pattern: /\b(research|science|exploration|explore|survey|instrument|submersible|submarine|rov|sonar|oceanography|archaeology|expedition|mapping|monitoring)\b|研究|科学|探索|科考|调查|探测|潜水器|深潜|水下机器人|声呐|海洋学|考古|考察|观测|监测/i,
+        icons: ['🔬','🧪','🧬','🦠','🔭','📡','🛰️','🌡️','🤿','🚢','🧭','🗺️','🧊']
+    },
+    {
+        pattern: /\b(conservation|ecosystem|ecology|pollution|microplastics?|acidification|climate|blue carbon|water quality|restoration|habitat|sustainability)\b|保护|保育|生态|污染|微塑料|酸化|气候|蓝碳|水质|修复|栖息地|生态系统/i,
+        icons: ['♻️','🌿','🌱','💧','🌍','🧊','🔬','🐚','🦠','🌬️','🌧️']
+    },
+    {
+        pattern: /\b(oceans?|seas?|deep[ -]?sea|abyss|ocean basins?|tides?|currents?|pelagic|hydrothermal vents?)\b|深海|海洋|大洋|海盆|海沟|潮汐|洋流|远洋|热液喷口|海底/i,
+        icons: ['🌊','⚓','🚢','🛳️','⛴️','🛥️','🧭','🗺️','🧊','💧']
+    }
+];
+
+/** 优先返回与海洋分类名称匹配的图标；没有匹配词时仅返回海洋领域图标池。 */
+function getRecommendedCategoryEmojiOptions(domainId, categoryName) {
+    if (domainId !== 'marinescience') return [];
+    const normalizedName = String(categoryName == null ? '' : categoryName).normalize('NFKC').toLowerCase();
+    const rule = MARINE_CATEGORY_ICON_RULES.find(function(item) { return item.pattern.test(normalizedName); });
+    const source = rule ? rule.icons : DOMAIN_CATEGORY_EMOJI_POOLS.marinescience;
+    const seen = new Set();
+    return source.map(getWindowsSafeEmoji).filter(function(icon) {
+        if (!icon || seen.has(icon) || DOMAIN_CATEGORY_EMOJI_POOLS.marinescience.indexOf(icon) === -1) return false;
+        seen.add(icon);
+        return true;
+    });
+}
+
+/** 根据分类语义和预设序号稳定选择图标，并避免同一预设内重复。 */
+function getDomainRecommendedCategoryIcon(domainId, categoryName, setIndex, usedIcons) {
+    const options = getRecommendedCategoryEmojiOptions(domainId, categoryName);
+    if (!options.length) return null;
+    const variation = Math.max(0, Number.parseInt(setIndex, 10) || 0);
+    const start = variation % options.length;
+    for (let offset = 0; offset < options.length; offset++) {
+        const icon = options[(start + offset) % options.length];
+        if (!Array.isArray(usedIcons) || usedIcons.indexOf(icon) === -1) return icon;
+    }
+    return options[start];
+}
+
+/** 为一组分类生成完整的推荐图标，并确保同一预设内没有重复图标。 */
+function getDomainRecommendedCategoryIconSet(domainId, categories, setIndex) {
+    if (domainId !== 'marinescience') return null;
+    const usedIcons = [];
+    return (categories || []).map(function(category, index) {
+        const categoryName = category && (typeof category === 'object' ? category.name : category);
+        const icon = getDomainRecommendedCategoryIcon(domainId, categoryName, setIndex, usedIcons);
+        if (icon) usedIcons.push(icon);
+        return icon;
+    });
+}
 
 // ========== 站点品牌标题预设 ==========
 // 每个领域最终生成 50 套专属名称；随机组装时会同步替换 Logo、页面标题和正文中的站点称呼。
@@ -957,7 +1100,11 @@ var EXTRA_DOMAIN_BRANDS = {
     automotive: ['RoadSpec', 'MotorBrief', 'DriveLedger', 'TorqueJournal', 'AutoScope', 'MobilityWire'],
     education: ['LearningField', 'StudyLedger', 'CourseCompass', 'KnowledgeBrief', 'CampusScope', 'LessonWorks'],
     fashion: ['FormAndMuse', 'StyleLedger', 'ModeJournal', 'AtelierBrief', 'EditAndWear', 'TheLookbook'],
-    home: ['DwellingNotes', 'LivingField', 'RoomAndForm', 'HabitatEdit', 'HomeJournal', 'QuietSpaces']
+    home: ['DwellingNotes', 'LivingField', 'RoomAndForm', 'HabitatEdit', 'HomeJournal', 'QuietSpaces'],
+    naturalhistory: ['NaturalAtlas', 'SpeciesLedger', 'FieldNotesNature', 'BiodiversityAtlas', 'NaturalHistoryReview', 'WildlifeScope'],
+    marinescience: ['OceanAtlas', 'BlueCurrent', 'AquaResearch', 'MarineFieldnotes', 'TideLedger', 'SeaScienceReview'],
+    earthscience: ['TerraSignal', 'GeologyFieldnotes', 'ClimateRecord', 'AtmosphereReview', 'EarthJournal', 'PlanetaryBrief'],
+    culturalheritage: ['HeritageArchive', 'CraftAndMemory', 'MaterialCultureReview', 'LivingHeritage', 'ArtifactJournal', 'ConservationAtlas']
 };
 
 Object.keys(EXTRA_DOMAIN_BRANDS).forEach(function(themeId) {
@@ -997,7 +1144,11 @@ const BRAND_NAME_PARTS = {
     photography: [['Frame','Light','Lens','Shutter','Focus','Capture','Pixel','Exposure','Visual','Camera'], ['Journal','Lab','Guide','Scope','Signal']],
     history: [['Past','Archive','Heritage','Epoch','Chronicle','Ancient','History','Timeline','Era','Legacy'], ['Context','Journal','Ledger','Review','Guide']],
     agriculture: [['Field','Harvest','Farm','Crop','Rural','Grow','Soil','Green','Agri','Acre'], ['Journal','Ledger','Guide','Scope','Signal']],
-    energy: [['Energy','Power','Grid','Solar','Volt','Current','Renew','Watt','Clean','Fuel'], ['Current','Journal','Ledger','Scope','Signal']]
+    energy: [['Energy','Power','Grid','Solar','Volt','Current','Renew','Watt','Clean','Fuel'], ['Current','Journal','Ledger','Scope','Signal']],
+    naturalhistory: [['Wildlife','Species','Nature','Field','Bio','Living','Biodiversity','Fauna','Flora','NaturalHistory'], ['Atlas','Journal','Fieldnotes','Review','Scope']],
+    marinescience: [['Ocean','Marine','Aqua','Tide','Coastal','Blue','Sea','Water','Current','Pelagic'], ['Atlas','Journal','Research','Scope','Review']],
+    earthscience: [['Earth','Terra','Geology','Atmosphere','Climate','Seismic','Weather','Geo','Planet','Field'], ['Signal','Journal','Atlas','Review','Scope']],
+    culturalheritage: [['Heritage','Artifact','Craft','Archive','Material','Memory','Conservation','Folio','Culture','Legacy'], ['Journal','Atlas','Review','Scope','Field']]
 };
 
 Object.keys(DOMAIN_CATALOG).forEach(function(themeId) {
@@ -1035,8 +1186,8 @@ Object.keys(BRAND_PRESETS).forEach(function(themeId) {
 });
 
 // ========== 分类图标组合 ==========
-// 每个内容主题生成 50 套可选组合；每套最多覆盖 8 个分类且套内不重复。
-// 使用与 48 互质的步长生成不同排列，保证 50 套组合本身不重复。
+// 每个内容主题生成 50 套可选组合；普通主题轮换领域图标，海洋科学按分类语义取图。
+// 步长均可在扩展后的图标池中为每套组合提供至少 8 个不同图标。
 const ICON_SET_STEPS = [1, 5, 7, 11, 13, 17, 19, 23];
 const ICON_SET_PRESETS = {};
 
@@ -1045,7 +1196,18 @@ Object.keys(THEMES).forEach(function(themeId) {
     ICON_SET_PRESETS[themeId] = Array.from({ length: 50 }, function(_, index) {
         const start = index % pool.length;
         const step = ICON_SET_STEPS[Math.floor(index / pool.length) % ICON_SET_STEPS.length];
+        const categories = THEMES[themeId].categories || [];
+        const usedMarineIcons = [];
         const icons = Array.from({ length: 8 }, function(__, iconIndex) {
+            if (themeId === 'marinescience') {
+                const category = categories[iconIndex];
+                const categoryName = category && (typeof category === 'object' ? category.name : category);
+                const recommended = getDomainRecommendedCategoryIcon(themeId, categoryName, index, usedMarineIcons);
+                if (recommended) {
+                    usedMarineIcons.push(recommended);
+                    return recommended;
+                }
+            }
             return pool[(start + iconIndex * step) % pool.length];
         });
         return {
@@ -1786,13 +1948,14 @@ const TEMPLATE_ARCHETYPES = [
 ];
 
 // ========== 领域独占模板蓝图 ==========
-// 25 种母版只用于生成阶段；应用实际使用的是下方 384 个独立蓝图。
+// 25 种母版只用于生成阶段；应用实际使用的是下方 432 个初始独立蓝图。
 // 每个蓝图只有一个 domainId，ID、名称及最终结构/样式配置均不跨领域复用。
 const DOMAIN_TEMPLATE_SHORT_NAMES = {
     tech: '科技', game: '游戏', food: '美食', anime: '动漫', finance: '财经', health: '健康', travel: '旅行', sports: '体育',
     automotive: '汽车', education: '教育', fashion: '时尚', home: '家居', general: '综合', entertainment: '娱乐', film: '影视', music: '音乐',
     books: '阅读', science: '科学', environment: '生态', politics: '时政', legal: '法律', realestate: '房产', career: '职场', marketing: '营销',
-    ecommerce: '电商', pets: '宠物', parenting: '亲子', outdoors: '户外', photography: '摄影', history: '历史', agriculture: '农业', energy: '能源'
+    ecommerce: '电商', pets: '宠物', parenting: '亲子', outdoors: '户外', photography: '摄影', history: '历史', agriculture: '农业', energy: '能源',
+    naturalhistory: '自然史', marinescience: '海洋', earthscience: '地球', culturalheritage: '遗产'
 };
 
 const DOMAIN_TEMPLATE_PALETTES = {
@@ -1811,7 +1974,9 @@ const DOMAIN_TEMPLATE_PALETTES = {
     ecommerce: ['glacier','mint','celadon','lavender','sunset'], pets: ['mint','lavender','jade','minimal','sakura'],
     parenting: ['lavender','mint','minimal','sakura','celadon'], outdoors: ['desert','jade','aurora','forest','deepsea'],
     photography: ['rosegold','minimaldark','twilight','glacier','minimal'], history: ['amber','minimal','rosegold','desert','denim'],
-    agriculture: ['jade','forest','amber','mint','celadon'], energy: ['celadon','carbon','neon','sunset','minimal']
+    agriculture: ['jade','forest','amber','mint','celadon'], energy: ['celadon','carbon','neon','sunset','minimal'],
+    naturalhistory: ['forest','moss','jade','amber','deepsea'], marinescience: ['deepsea','ocean','tealnight','glacier','rainteal'],
+    earthscience: ['glacier','desert','carbon','amber','slate'], culturalheritage: ['newsprint','amber','porcelain','terracotta','wine']
 };
 
 // 每个领域的 12 个蓝图必须使用不同配色。前五个仍优先保留领域调性，
@@ -1857,7 +2022,7 @@ function pickTemplatePalette(archetypeId, fallbackPalette, usedPalettes) {
 
 const DOMAIN_TEMPLATE_MODES = {
     data: {
-        domains: ['tech','finance','science','politics','legal','career','marketing','energy'],
+        domains: ['tech','finance','science','politics','legal','career','marketing','energy','marinescience','earthscience'],
         fonts: ['monospace','clean','tech','modern','display','space-grotesk','ibm-plex','source-serif','roboto-mono','barlow-condensed','rubik','archivo'], imageHeights: ['140px','160px','180px','150px','200px'],
         extensionArchetypes: ['catalog','immersive','brutalist','midnight','crimson','timeline','luxury','deepsea','bento','editorial','magazine','terminal','dashboard','neon']
     },
@@ -1867,12 +2032,12 @@ const DOMAIN_TEMPLATE_MODES = {
         extensionArchetypes: ['immersive','twilight','midnight','sakura','pastel','neon','luxury','editorial','magazine','bento','deepsea','desert','crimson']
     },
     lifestyle: {
-        domains: ['food','health','home','environment','pets','parenting','agriculture'],
+        domains: ['food','health','home','environment','pets','parenting','agriculture','naturalhistory'],
         fonts: ['rounded','literary','clean','elegant','modern','nunito-sans','rubik','cursive','dm-serif','merriweather','handwrite','kalam'], imageHeights: ['220px','180px','240px','200px','260px'],
         extensionArchetypes: ['magazine','luxury','botanical','bento','pastel','catalog','immersive','terminal','dashboard','crimson','timeline','editorial']
     },
     reference: {
-        domains: ['education','general','books','history'],
+        domains: ['education','general','books','history','culturalheritage'],
         fonts: ['literary','display','clean','serif','modern','source-serif','dm-serif','merriweather','condensed','plus-jakarta','ibm-plex','barlow-condensed'], imageHeights: ['180px','160px','200px','150px','220px'],
         extensionArchetypes: ['magazine','timeline','luxury','catalog','editorial','botanical','deepsea','desert','bento','pastel','immersive','terminal']
     },
@@ -1966,3 +2131,6 @@ Object.keys(DOMAIN_CATALOG).forEach(function(themeId, domainIndex) {
 
     profile.blueprints = exclusiveIds;
 });
+
+// 在原有 12 个蓝图后追加新布局，保持历史模板 ID 与设置兼容。
+TemplateCatalog.extendDomains(DOMAIN_CATALOG, TEMPLATE_PRESETS, BRAND_PRESETS, DOMAIN_CATEGORY_EMOJI_POOLS);

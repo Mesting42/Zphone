@@ -3,8 +3,11 @@
  * 管理步骤导航、状态、UI交互、实时预览
  */
 
-(function() {
+(async function() {
     'use strict';
+
+    // Resolve the shared local catalog first so the game workflow uses its latest default.
+    if (window.AdTemplateCatalog) await window.AdTemplateCatalog.ready;
 
     var REQUIRED_DIFFERENTIATED_BUILDER_VERSION = '20260914-template-library-13';
 
@@ -20,6 +23,7 @@
     // ========== 应用状态 ==========
         var appState = {
         currentStep: 1,
+        workflowStepProgress: {},
         selectedPreviewGameIndex: 0,
         previewSectionSlug: '',
         selectedTheme: 'game',  // 固定为game
@@ -40,7 +44,8 @@
         config: {},
         adPlacementMode: null,
         normalAdMode: 'code',
-        adJsVersion: 'v1.0.2',
+        directAdPlacementMode: 'fixed',
+        adJsVersion: 'v1.0.2.1',
         reservePlacementMode: 'manual',
         siteBuildMode: 'normal',
         legacyAdMigration: null,
@@ -55,6 +60,7 @@
         buildModeSelectionVisible: true,
         _previewBlobUrls: []
     };
+    if (window.AdTemplateCatalog) appState.adJsVersion = window.AdTemplateCatalog.getDefaultVersion();
     var builtInGames = [];
     var activeSourceLabel = '内置目录';
     var activeSourceId = 'builtin';
@@ -88,6 +94,46 @@
     function updateWorkflowActionContext(step) {
         if (!workflowActionMessage) return;
         workflowActionMessage.textContent = step === 1 ? '下一步：导出网站' : '当前步骤：导出网站';
+    }
+
+    function currentWorkflowProgressKey() {
+        return appState.siteBuildMode || 'normal';
+    }
+
+    function getWorkflowHighestReachedStep(workflowKey) {
+        var key = workflowKey || currentWorkflowProgressKey();
+        var progress = appState.workflowStepProgress || (appState.workflowStepProgress = {});
+        progress[key] = window.WorkflowStepNavigation.normalizeHighestReachedStep([1, 2], progress[key]);
+        return progress[key];
+    }
+
+    function recordWorkflowStepReached(step) {
+        var key = currentWorkflowProgressKey();
+        var progress = appState.workflowStepProgress || (appState.workflowStepProgress = {});
+        progress[key] = window.WorkflowStepNavigation.recordHighestReachedStep([1, 2], progress[key], step);
+        return progress[key];
+    }
+
+    function resetWorkflowStepProgress(workflowKey) {
+        var key = workflowKey || currentWorkflowProgressKey();
+        var progress = appState.workflowStepProgress || (appState.workflowStepProgress = {});
+        progress[key] = window.WorkflowStepNavigation.getFirstStep([1, 2]);
+        if (key === currentWorkflowProgressKey()) syncStepProgressNavigation();
+    }
+
+    function syncStepProgressNavigation() {
+        var highestReachedStep = getWorkflowHighestReachedStep();
+        var highestIndex = window.WorkflowStepNavigation.getStepIndex([1, 2], highestReachedStep);
+        stepItems.forEach(function(item, index) {
+            var step = index + 1;
+            var stepIndex = window.WorkflowStepNavigation.getStepIndex([1, 2], step);
+            item.classList.toggle('active', step === appState.currentStep);
+            item.classList.toggle('completed', stepIndex < highestIndex);
+            item.classList.toggle('is-visited', stepIndex <= highestIndex || step === appState.currentStep);
+            if (step === appState.currentStep) item.setAttribute('aria-current', 'step');
+            else item.removeAttribute('aria-current');
+            item.disabled = stepIndex > highestIndex && step !== appState.currentStep;
+        });
     }
 
     // ========== 统一站内提示 ==========
@@ -157,6 +203,10 @@
     function syncBuildModeUI() {
         var isMigration = appState.siteBuildMode === 'ad-migration';
         var isDifferentiated = appState.siteBuildMode === 'differentiated';
+        // Prefix game modes so their labels remain distinct from the main builder's modes.
+        if (window.WorkflowModeIndicator) {
+            window.WorkflowModeIndicator.sync(document.getElementById('workflow-mode-label'), appState.siteBuildMode, 'game');
+        }
         document.querySelectorAll('[data-build-mode]').forEach(function(button) {
             var selected = button.dataset.buildMode === appState.siteBuildMode;
             button.classList.toggle('is-selected', selected);
@@ -206,6 +256,7 @@
             renderDifferentiatedPackageStatus();
             populateDifferentiatedDesigns();
         }
+        syncStepProgressNavigation();
     }
 
     function selectBuildMode(mode) {
@@ -298,7 +349,7 @@
         if (!target || typeof DifferentiatedBuilder === 'undefined') return;
         var state = appState.differentiated;
         var config = DifferentiatedBuilder.buildConfig({ data: appState.data || [], differentiated: state, differentiatedPackage: appState.differentiatedPackage || {} }, { siteType: 'games' });
-        var pool = typeof GAME_EMOJI_ICONS !== 'undefined' ? GAME_EMOJI_ICONS : [];
+        var pool = typeof GAME_CATEGORY_EMOJI_ICONS !== 'undefined' ? GAME_CATEGORY_EMOJI_ICONS : [];
         var maximum = Math.max(2, Math.min(6, config.categories.length || 6));
         var requested = Number(state.navCategoryLimit) || 4;
         var limit = Math.max(2, Math.min(maximum, requested));
@@ -407,6 +458,7 @@
     }
 
     function applyDifferentiatedImport(imported, fileName) {
+        resetWorkflowStepProgress('differentiated');
         appState.differentiatedPackage = imported.packageData || {};
         appState.packageAssets = imported.packageAssets || {};
         appState.differentiatedImportName = fileName || '本次游戏数据源';
@@ -474,6 +526,7 @@
     }
 
     function clearDifferentiatedImport() {
+        resetWorkflowStepProgress('differentiated');
         appState.differentiatedPackage = null;
         appState.packageAssets = {};
         appState.differentiatedImportName = '';
@@ -585,6 +638,7 @@
         if (input) input.addEventListener('change', async function() {
             var file = input.files && input.files[0];
             if (!file) return;
+            resetWorkflowStepProgress('ad-migration');
             appState.legacyAdMigration = { valid: false, errors: [], warnings: [], config: {}, detectedFiles: {} };
             var result = document.getElementById('legacy-site-result');
             if (result) {
@@ -603,33 +657,59 @@
 
     // ========== 步骤导航 ==========
     function goToStep(step) {
-        if (step < 1 || step > 2) return;
-        if (step > appState.currentStep && appState.siteBuildMode === 'differentiated' && !appState.differentiatedImportName) {
-            showNotice('差异化精品建站必须先在“游戏数据源”中选择 JSON / 压缩包并上传本次独立数据包。', '请上传独立游戏包');
-            return;
-        }
-        if (step > appState.currentStep && appState.siteBuildMode === 'ad-migration' && !(appState.legacyAdMigration && appState.legacyAdMigration.valid)) {
-            showNotice('广告移植建站需要通过旧网站源码压缩包校验后才能继续。请查看失败原因并重新上传。', '还不能继续');
+        var steps = [1, 2];
+        var targetIndex = window.WorkflowStepNavigation.getStepIndex(steps, step);
+        if (targetIndex === -1) return;
+
+        var previousStep = appState.currentStep;
+        var highestReachedStep = getWorkflowHighestReachedStep();
+        var isUnlocked = window.WorkflowStepNavigation.canNavigateToStep(steps, highestReachedStep, step);
+        var isNext = window.WorkflowStepNavigation.isNextStep(steps, appState.currentStep, step);
+        if (!isUnlocked && !isNext) return;
+
+        // Re-check source requirements when returning directly to a visited step.
+        var stepsToValidate = window.WorkflowStepNavigation.getStepsToValidate(steps, appState.currentStep, step);
+        for (var index = 0; index < stepsToValidate.length; index++) {
+            var validationStep = stepsToValidate[index];
+            if (validateStep(validationStep)) continue;
+            if (validationStep !== appState.currentStep) renderWorkflowStep(validationStep, previousStep);
             return;
         }
 
+        recordWorkflowStepReached(step);
+        renderWorkflowStep(step, previousStep);
+    }
+
+    function validateStep(step) {
+        if (step !== 1) return true;
+        if (appState.siteBuildMode === 'differentiated' && !appState.differentiatedImportName) {
+            showNotice('差异化精品建站必须先在“游戏数据源”中选择 JSON / 压缩包并上传本次独立数据包。', '请上传独立游戏包');
+            return false;
+        }
+        if (appState.siteBuildMode === 'ad-migration' && !(appState.legacyAdMigration && appState.legacyAdMigration.valid)) {
+            showNotice('广告移植建站需要通过旧网站源码压缩包校验后才能继续。请查看失败原因并重新上传。', '还不能继续');
+            return false;
+        }
+        return true;
+    }
+
+    function renderWorkflowStep(step, previousStep) {
         appState.currentStep = step;
 
         // 更新面板显示
         stepPanels.forEach(function(panel) {
             panel.classList.remove('active');
         });
-        document.getElementById('step-' + step).classList.add('active');
-
-        // 更新进度条
-        stepItems.forEach(function(item, idx) {
-            var s = idx + 1;
-            item.classList.remove('active', 'completed');
-            if (s < step) item.classList.add('completed');
-            if (s === step) item.classList.add('active');
-        });
+        var activePanel = document.getElementById('step-' + step);
+        if (!activePanel) return;
+        if (step !== previousStep) {
+            document.body.classList.add('has-workflow-transition');
+            activePanel.dataset.transitionDirection = step > previousStep ? 'forward' : 'back';
+        }
+        activePanel.classList.add('active');
 
         // 更新按钮
+        syncStepProgressNavigation();
         btnPrev.style.display = step > 1 ? 'inline-block' : 'none';
         updateNextButtonLabel(step === 2 ? '完成' : '下一步 →');
         btnNext.style.display = step === 2 ? 'none' : 'inline-block';
@@ -671,9 +751,7 @@
     stepItems.forEach(function(item) {
         item.addEventListener('click', function() {
             var step = parseInt(this.dataset.step);
-            if (step < appState.currentStep) {
-                goToStep(step);
-            }
+            if (window.WorkflowStepNavigation.canNavigateToStep([1, 2], getWorkflowHighestReachedStep(), step)) goToStep(step);
         });
     });
 
@@ -897,7 +975,7 @@
     }
 
     function normalizeSourceCategoryIcon(category, index) {
-        var allowedIcons = typeof GAME_EMOJI_ICONS !== 'undefined' ? GAME_EMOJI_ICONS : [];
+        var allowedIcons = typeof GAME_CATEGORY_EMOJI_ICONS !== 'undefined' ? GAME_CATEGORY_EMOJI_ICONS : [];
         var currentIcon = String(category && category.icon || '');
         if (allowedIcons.indexOf(currentIcon) !== -1) return currentIcon;
 
@@ -923,6 +1001,7 @@
         if (!games.length) throw new Error('没有找到同时包含标题、游戏地址和图片地址的有效游戏');
 
         appState.data = games;
+        resetWorkflowStepProgress(currentWorkflowProgressKey());
         appState.selectedPreviewGameIndex = 0;
         appState.isLocalImages = !!(sourceAssets && sourceAssets.localImages);
         appState.localImages = sourceAssets && sourceAssets.localImages ? sourceAssets.localImages : {};
@@ -1375,6 +1454,7 @@
 
         builtInGames = data.slice();
         appState.data = data;
+        resetWorkflowStepProgress(currentWorkflowProgressKey());
         var countSummary = document.getElementById('data-count-summary');
         if (countSummary) countSummary.textContent = data.length;
 
@@ -1541,6 +1621,19 @@
     // 实际交互由自定义菜单完成，以统一各浏览器中的视觉与操作体验。
     var openCustomSelect = null;
 
+    function getCustomSelectAccessibleLabel(select) {
+        var explicitLabel = select.getAttribute('aria-label');
+        if (explicitLabel) return explicitLabel;
+        var labels = select.labels;
+        if (labels && labels.length) {
+            var clone = labels[0].cloneNode(true);
+            clone.querySelectorAll('select, .custom-select').forEach(function(control) { control.remove(); });
+            var labelText = clone.textContent.replace(/\s+/g, ' ').trim();
+            if (labelText) return labelText;
+        }
+        return '选择选项';
+    }
+
     function refreshCustomConfigSelects(target) {
         var selects = target ? [target] : document.querySelectorAll('select[data-custom-select="true"]');
         Array.prototype.forEach.call(selects, function(select) {
@@ -1550,6 +1643,8 @@
             control.label.textContent = selectedOption ? selectedOption.textContent.trim() : '请选择';
             control.trigger.disabled = !!select.disabled;
             control.trigger.setAttribute('aria-disabled', select.disabled ? 'true' : 'false');
+            control.trigger.setAttribute('aria-label', getCustomSelectAccessibleLabel(select));
+            control.menu.setAttribute('aria-label', getCustomSelectAccessibleLabel(select));
             control.menu.querySelectorAll('[role="option"]').forEach(function(optionButton) {
                 var isSelected = optionButton.dataset.value === select.value;
                 optionButton.classList.toggle('is-selected', isSelected);
@@ -1563,6 +1658,7 @@
         if (!current || !current._customSelectControl) return;
         var control = current._customSelectControl;
         control.menu.hidden = true;
+        control.menu.classList.remove('is-open');
         control.trigger.setAttribute('aria-expanded', 'false');
         control.wrapper.classList.remove('is-open');
         if (openCustomSelect === current) openCustomSelect = null;
@@ -1622,7 +1718,7 @@
             optionButton.dataset.value = option.value;
             optionButton.setAttribute('role', 'option');
             optionButton.setAttribute('aria-selected', 'false');
-            optionButton.disabled = option.disabled;
+            optionButton.disabled = option.disabled || !!(option.parentElement && option.parentElement.disabled);
             optionButton.textContent = option.textContent.trim();
             optionButton.addEventListener('click', function() {
                 if (select.value !== option.value) {
@@ -1655,6 +1751,11 @@
     function createCustomSelect(select) {
         if (!select || select.dataset.customSelect === 'true') return;
 
+        if (!select.id) {
+            appState._customSelectSequence = (appState._customSelectSequence || 0) + 1;
+            select.id = 'game-select-' + appState._customSelectSequence;
+        }
+
         var wrapper = document.createElement('div');
         var trigger = document.createElement('button');
         var label = document.createElement('span');
@@ -1677,13 +1778,18 @@
         menu.id = menuId;
         menu.className = 'custom-select-menu';
         menu.setAttribute('role', 'listbox');
-        menu.setAttribute('aria-label', select.getAttribute('aria-label') || (select.labels && select.labels[0] ? select.labels[0].textContent.trim() : '选择选项'));
+        menu.setAttribute('aria-label', getCustomSelectAccessibleLabel(select));
         menu.hidden = true;
+        menu.addEventListener('keydown', function(event) {
+            if (event.key === 'Tab') closeCustomSelect(select);
+        });
 
         select.parentNode.insertBefore(wrapper, select);
         wrapper.appendChild(select);
         wrapper.appendChild(trigger);
         document.body.appendChild(menu);
+        select._customSelectOriginalTabIndex = select.getAttribute('tabindex');
+        select._customSelectOriginalAriaHidden = select.getAttribute('aria-hidden');
         select.classList.add('native-select');
         select.dataset.customSelect = 'true';
         select.tabIndex = -1;
@@ -1691,9 +1797,16 @@
 
         select._customSelectControl = { wrapper: wrapper, trigger: trigger, label: label, menu: menu };
         renderCustomSelectOptions(select);
-        new MutationObserver(function() {
+        select._customSelectOptionsObserver = new MutationObserver(function() {
             renderCustomSelectOptions(select);
-        }).observe(select, { childList: true, subtree: true, characterData: true });
+        });
+        select._customSelectOptionsObserver.observe(select, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: ['disabled', 'selected', 'aria-label']
+        });
         select.addEventListener('change', function() { refreshCustomConfigSelects(select); });
         trigger.addEventListener('click', function() {
             if (trigger.disabled) return;
@@ -1704,6 +1817,7 @@
             closeCustomSelect();
             openCustomSelect = select;
             menu.hidden = false;
+            menu.classList.add('is-open');
             trigger.setAttribute('aria-expanded', 'true');
             wrapper.classList.add('is-open');
             positionCustomSelectMenu(select);
@@ -1715,20 +1829,64 @@
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') focusCustomSelectOption(select, event.key === 'ArrowDown' ? 1 : -1);
             } else if (event.key === 'Escape') {
                 closeCustomSelect(select);
+            } else if (event.key === 'Tab' && openCustomSelect === select) {
+                closeCustomSelect(select);
             }
         });
     }
 
+    function releaseCustomSelect(select) {
+        if (!select || select.isConnected || select.dataset.customSelect !== 'true') return;
+        var control = select._customSelectControl;
+        if (openCustomSelect === select) closeCustomSelect(select);
+        if (select._customSelectOptionsObserver) select._customSelectOptionsObserver.disconnect();
+        if (control && control.menu.parentNode) control.menu.remove();
+        select.classList.remove('native-select');
+        delete select.dataset.customSelect;
+        if (select._customSelectOriginalTabIndex === null) select.removeAttribute('tabindex');
+        else if (select._customSelectOriginalTabIndex !== undefined) select.setAttribute('tabindex', select._customSelectOriginalTabIndex);
+        if (select._customSelectOriginalAriaHidden === null) select.removeAttribute('aria-hidden');
+        else if (select._customSelectOriginalAriaHidden !== undefined) select.setAttribute('aria-hidden', select._customSelectOriginalAriaHidden);
+        delete select._customSelectOriginalTabIndex;
+        delete select._customSelectOriginalAriaHidden;
+        delete select._customSelectOptionsObserver;
+        delete select._customSelectControl;
+    }
+
     function initCustomConfigSelects() {
-        document.querySelectorAll('#tab-structure .config-item select, #tab-style .config-item select').forEach(createCustomSelect);
+        document.querySelectorAll('select').forEach(createCustomSelect);
         if (!appState._customSelectDocumentBound) {
             document.addEventListener('pointerdown', function(event) {
                 if (!openCustomSelect || !openCustomSelect._customSelectControl) return;
                 var control = openCustomSelect._customSelectControl;
+                var guards = window.SiteFoundryDropdownEventGuards;
+                var openElements = [control.wrapper, control.menu];
+                if (guards && guards.isInteractionWithinAny(event, openElements)) return;
                 if (!control.wrapper.contains(event.target) && !control.menu.contains(event.target)) closeCustomSelect();
             });
             window.addEventListener('resize', function() { closeCustomSelect(); });
-            window.addEventListener('scroll', function() { closeCustomSelect(); }, true);
+            window.addEventListener('scroll', function(event) {
+                if (!openCustomSelect || !openCustomSelect._customSelectControl) return;
+                var guards = window.SiteFoundryDropdownEventGuards;
+                var menu = openCustomSelect._customSelectControl.menu;
+                if (guards && guards.isScrollWithinAny(event, [menu])) return;
+                closeCustomSelect();
+            }, true);
+            appState._customSelectMutationObserver = new MutationObserver(function(records) {
+                records.forEach(function(record) {
+                    Array.from(record.addedNodes).forEach(function(node) {
+                        if (node.nodeType !== 1) return;
+                        if (node.matches && node.matches('select')) createCustomSelect(node);
+                        node.querySelectorAll('select').forEach(createCustomSelect);
+                    });
+                    Array.from(record.removedNodes).forEach(function(node) {
+                        if (node.nodeType !== 1) return;
+                        if (node.matches && node.matches('select[data-custom-select="true"]')) releaseCustomSelect(node);
+                        node.querySelectorAll('select[data-custom-select="true"]').forEach(releaseCustomSelect);
+                    });
+                });
+            });
+            appState._customSelectMutationObserver.observe(document.body, { childList: true, subtree: true });
             appState._customSelectDocumentBound = true;
         }
     }
@@ -1795,7 +1953,7 @@
         // 调整分类数量
         while (currentCats.length < count) {
             var activeSet = getIconSetById(appState.config.iconSetId);
-            var nextIcon = activeSet ? activeSet.icons[currentCats.length % activeSet.icons.length] : GAME_EMOJI_ICONS[currentCats.length % GAME_EMOJI_ICONS.length];
+            var nextIcon = activeSet ? activeSet.icons[currentCats.length % activeSet.icons.length] : GAME_CATEGORY_EMOJI_ICONS[currentCats.length % GAME_CATEGORY_EMOJI_ICONS.length];
             currentCats.push({ name: 'Category ' + (currentCats.length + 1), icon: nextIcon, count: 6 });
         }
         appState.config.categories = currentCats.slice(0, count);
@@ -1807,7 +1965,7 @@
             html += '<div class="cat-icon-picker">';
             html += '<button type="button" class="cat-icon-trigger" data-cat-idx="' + i + '" aria-label="选择第 ' + (i + 1) + ' 个分类图标" aria-expanded="false">' + escapeHtml(cat.icon || '🎮') + '</button>';
             html += '<div class="cat-icon-menu" role="listbox" aria-label="游戏分类图标选项">';
-            GAME_EMOJI_ICONS.forEach(function(icon) {
+            GAME_CATEGORY_EMOJI_ICONS.forEach(function(icon) {
                 html += '<button type="button" class="cat-icon-option' + (cat.icon === icon ? ' selected' : '') + '" data-cat-idx="' + i + '" data-icon="' + icon + '" role="option" aria-selected="' + (cat.icon === icon ? 'true' : 'false') + '">' + icon + '</button>';
             });
             html += '</div></div>';
@@ -1938,6 +2096,12 @@
         relatedSlider.addEventListener('input', function() {
             relatedValue.textContent = this.value;
             appState.config.relatedCount = parseInt(this.value);
+            updatePreview();
+        });
+
+        // 图标显隐只更新显示偏好，保留每个分类已有的图标选择。
+        document.getElementById('category-icons-enabled').addEventListener('change', function() {
+            appState.config.categoryIconsEnabled = this.checked;
             updatePreview();
         });
 
@@ -2130,6 +2294,7 @@
         if (c.transitionSpeed) document.getElementById('transition-speed').value = c.transitionSpeed;
         if (c.metaBg) document.getElementById('meta-bg').value = c.metaBg;
         if (c.detailImgStyle) document.getElementById('detail-img-style').value = c.detailImgStyle;
+        document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
         if (c.categoryTitleStyle) document.getElementById('category-title-style').value = c.categoryTitleStyle;
         if (c.categoryTitleAlign) document.getElementById('category-title-align').value = c.categoryTitleAlign;
         if (c.cardImageHeight) document.getElementById('card-image-height').value = c.cardImageHeight;
@@ -2187,7 +2352,7 @@
         grid.innerHTML = LAYOUT_PRESETS.map(function(template) {
             var selected = appState.config.layoutTemplate === template.id ? ' selected' : '';
             return '<button type="button" class="layout-template-card' + selected + '" data-layout-id="' + template.id + '">' +
-                '<span class="layout-miniature ' + template.previewClass + '"><i></i><i></i><i></i><i></i><i></i></span>' +
+                (TemplateLayouts.thumbnail(template.id) || '<span class="layout-miniature ' + template.previewClass + '"><i></i><i></i><i></i><i></i><i></i></span>') +
                 '<strong>' + escapeHtml(template.name) + '</strong>' +
                 '<small>' + escapeHtml(template.desc) + '</small>' +
                 '</button>';
@@ -2198,6 +2363,10 @@
                 grid.querySelectorAll('.layout-template-card').forEach(function(item) { item.classList.remove('selected'); });
                 this.classList.add('selected');
                 appState.config.layoutTemplate = this.dataset.layoutId;
+                // 新布局有自己的领域样式；显隐和广告偏好不属于模板默认值。
+                var preset = LAYOUT_PRESETS.find(function(item) { return item.id === appState.config.layoutTemplate; });
+                if (preset && preset.style) Object.assign(appState.config, preset.style);
+                applyConfigToUI();
                 appState.config.detailLayout = 'single';
                 document.getElementById('detail-layout').value = 'single';
                 updatePreview();
@@ -2359,9 +2528,9 @@
                 var adId = appState.adPlacementMode;
                 var position = e.data.position;
                 var page = e.data.page || 'home';
-                if (!appState.config.adPlacements) appState.config.adPlacements = {};
-                if (!appState.config.adPlacements[adId]) appState.config.adPlacements[adId] = {};
-                appState.config.adPlacements[adId][page] = position;
+                var placements = getEditableAdPlacements();
+                if (!placements[adId]) placements[adId] = {};
+                placements[adId][page] = position;
                 exitAdPlacementMode();
                 updateAdPlacementUI();
                 updatePreview();
@@ -2388,6 +2557,51 @@
         return appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
     }
 
+    function hasValidatedDirectAdCode() {
+        return appState.siteBuildMode === 'normal' && appState.normalAdMode !== 'reserve' &&
+            !!(appState.adCodeMigration && appState.adCodeMigration.valid);
+    }
+
+    function isDirectCodeAdPlacementMode() {
+        return hasValidatedDirectAdCode();
+    }
+
+    function isManualAdPlacementModeActive() {
+        if (isReservedDirectAdMode()) return appState.reservePlacementMode !== 'fixed';
+        return isDirectCodeAdPlacementMode() && appState.directAdPlacementMode === 'manual';
+    }
+
+    function getEditableAdPlacements() {
+        var config = appState.config || (appState.config = {});
+        var key = isDirectCodeAdPlacementMode() && appState.directAdPlacementMode === 'manual'
+            ? 'adCodePlacements'
+            : 'adPlacements';
+        var placements = config[key];
+        if (!placements || typeof placements !== 'object' || Array.isArray(placements)) {
+            placements = {};
+            config[key] = placements;
+        }
+        return placements;
+    }
+
+    function getDisplayedAdPlacements() {
+        if (isDirectCodeAdPlacementMode()) {
+            if (appState.directAdPlacementMode !== 'manual') {
+                return typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+            }
+            return appState.config && appState.config.adCodePlacements || {};
+        }
+        return appState.config && appState.config.adPlacements || {};
+    }
+
+    function initializeDirectManualPlacements() {
+        var config = appState.config || (appState.config = {});
+        if (config.adCodePlacements !== null && config.adCodePlacements !== undefined) return;
+        config.adCodePlacements = typeof AdMigration !== 'undefined'
+            ? AdMigration.fixedPlacements()
+            : {};
+    }
+
     function reservedAdPlacementCount() {
         if (appState.reservePlacementMode === 'fixed') return 6;
         var placements = appState.config && appState.config.adPlacements || {};
@@ -2400,18 +2614,29 @@
     function syncDirectAdPlacementUI() {
         var automatic = hasValidatedDirectAdCode();
         var reserved = isReservedDirectAdMode();
+        var directCodeMode = automatic && !reserved;
+        var directCodeFixed = directCodeMode && appState.directAdPlacementMode !== 'manual';
+        var manualPlacementActive = (reserved && appState.reservePlacementMode !== 'fixed') ||
+            (directCodeMode && appState.directAdPlacementMode === 'manual');
         var manualGroup = document.getElementById('ad-placement-group');
         var modeGroup = document.getElementById('normal-ad-mode-group');
         var codePanel = document.getElementById('ad-code-mode-panel');
+        var directModeGroup = document.getElementById('direct-ad-placement-mode-group');
+        var reserveModeGroup = document.querySelector('#ad-placement-group [aria-label="游戏站预留广告位定位方式"]');
         var manualControls = document.getElementById('ad-manual-placement-controls');
         var fixedNote = document.getElementById('ad-fixed-placement-note');
         var automaticNote = document.getElementById('ad-auto-placement-note');
         if (modeGroup) modeGroup.hidden = appState.siteBuildMode !== 'normal';
-        if (manualGroup) manualGroup.hidden = !reserved;
+        if (manualGroup) manualGroup.hidden = !(reserved || directCodeMode);
         if (codePanel) codePanel.hidden = reserved || appState.siteBuildMode !== 'normal';
-        if (manualControls) manualControls.hidden = appState.reservePlacementMode === 'fixed';
-        if (fixedNote) fixedNote.hidden = appState.reservePlacementMode !== 'fixed';
-        if (automaticNote) automaticNote.hidden = !automatic;
+        if (directModeGroup) directModeGroup.hidden = !directCodeMode;
+        if (reserveModeGroup) reserveModeGroup.hidden = !reserved;
+        if (manualControls) manualControls.hidden = !manualPlacementActive;
+        if (fixedNote) fixedNote.hidden = !(reserved && appState.reservePlacementMode === 'fixed' || directCodeFixed);
+        if (automaticNote) automaticNote.hidden = !directCodeFixed;
+        document.querySelectorAll('input[name="direct-ad-placement-mode"]').forEach(function(input) {
+            input.checked = input.value === appState.directAdPlacementMode;
+        });
         document.querySelectorAll('input[name="normal-ad-mode"]').forEach(function(input) {
             input.checked = input.value === appState.normalAdMode;
         });
@@ -2421,7 +2646,7 @@
         document.querySelectorAll('input[name="reserve-placement-mode"]').forEach(function(input) {
             input.checked = input.value === appState.reservePlacementMode;
         });
-        if (!reserved || appState.reservePlacementMode === 'fixed') appState.adPlacementMode = null;
+        if (!manualPlacementActive) appState.adPlacementMode = null;
     }
 
     // ========== 广告放置模式 ==========
@@ -2431,10 +2656,11 @@
         var adCodeStatus = document.getElementById('ad-code-status');
         var adCodePreview = document.getElementById('ad-code-preview');
 
-        document.querySelectorAll('input[name="ad-js-version"]').forEach(function(input) {
-            input.addEventListener('change', function() {
-                if (!this.checked) return;
-                appState.adJsVersion = this.value;
+        document.querySelectorAll('.ad-js-version-grid').forEach(function(versionGroup) {
+            versionGroup.addEventListener('change', function(event) {
+                var input = event.target;
+                if (!input.matches('input[name="ad-js-version"]') || !input.checked) return;
+                appState.adJsVersion = input.value;
                 updatePreview();
             });
         });
@@ -2454,6 +2680,17 @@
                 if (!this.checked) return;
                 exitAdPlacementMode();
                 appState.reservePlacementMode = this.value === 'fixed' ? 'fixed' : 'manual';
+                syncDirectAdPlacementUI();
+                updateAdPlacementUI();
+                updatePreview();
+            });
+        });
+        document.querySelectorAll('input[name="direct-ad-placement-mode"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!this.checked) return;
+                exitAdPlacementMode();
+                appState.directAdPlacementMode = this.value === 'manual' ? 'manual' : 'fixed';
+                if (appState.directAdPlacementMode === 'manual') initializeDirectManualPlacements();
                 syncDirectAdPlacementUI();
                 updateAdPlacementUI();
                 updatePreview();
@@ -2533,8 +2770,9 @@
         document.querySelectorAll('.ad-remove-btn').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var adId = this.dataset.ad;
-                if (appState.config.adPlacements && appState.config.adPlacements[adId]) {
-                    delete appState.config.adPlacements[adId];
+                var placements = getEditableAdPlacements();
+                if (placements[adId]) {
+                    delete placements[adId];
                     updateAdPlacementUI();
                     updatePreview();
                 }
@@ -2545,13 +2783,8 @@
     }
 
     function enterAdPlacementMode(adId) {
-        if (!isReservedDirectAdMode()) {
-            showNotice('请先选择“先预留广告位”模式，再手动设置首页和详情页的位置。', '请选择广告接入方式');
-            return;
-        }
-        if (appState.reservePlacementMode === 'fixed') return;
-        if (hasValidatedDirectAdCode()) {
-            showNotice('广告 TXT 已通过校验，系统会自动插入三个广告位，无需手动选择位置。', '已自动放置广告');
+        if (!isManualAdPlacementModeActive()) {
+            showNotice('请先切换到“手动放置”，再调整首页和详情页的广告位置。', '请选择广告位放置方式');
             return;
         }
 
@@ -2559,13 +2792,18 @@
         // 先清理再进入放置模式，避免旧占位留在画面中且没有可点击的新位置。
         var activeTab = document.querySelector('.preview-tab.active');
         var currentPage = activeTab ? activeTab.dataset.page : 'home';
-        var placements = appState.config.adPlacements || {};
+        if (currentPage === 'all') {
+            var detailTab = document.querySelector('.preview-tab[data-page="detail"]');
+            if (activeTab) activeTab.classList.remove('active');
+            if (detailTab) detailTab.classList.add('active');
+            currentPage = 'detail';
+        }
+        var placements = getEditableAdPlacements();
         var currentPlacement = placements[adId];
         if (currentPlacement && currentPlacement[currentPage]) {
             delete currentPlacement[currentPage];
             if (Object.keys(currentPlacement).length === 0) delete placements[adId];
         }
-        appState.config.adPlacements = placements;
         updateAdPlacementUI();
         appState.adPlacementMode = adId;
         document.querySelectorAll('.ad-select-btn').forEach(function(btn) {
@@ -2596,7 +2834,7 @@
     }
 
     function updateAdPlacementUI() {
-        var placements = appState.config.adPlacements || {};
+        var placements = getDisplayedAdPlacements();
         var currentPage = 'home';
         var activeTab = document.querySelector('.preview-tab.active');
         if (activeTab) currentPage = activeTab.dataset.page;
@@ -2709,7 +2947,7 @@
     }
 
     // ========== Step 2: 导出 ==========
-    function generateExportSummary() {
+    function generateExportSummary(afterRender) {
         if (appState.siteBuildMode === 'differentiated' && typeof DifferentiatedBuilder !== 'undefined') {
             var target = document.getElementById('export-summary');
             target.innerHTML = '<h4>差异化精品游戏站审计</h4><p>正在检查可玩地址、本地文件、封面、控制说明、来源授权、法律信息与设计指纹…</p>';
@@ -2728,9 +2966,11 @@
                 document.querySelectorAll('[data-diff-export]').forEach(function(button) {
                     button.disabled = button.dataset.diffExport !== 'draft' && outcome.report.counts.blockers > 0;
                 });
+                if (typeof afterRender === 'function') afterRender();
             }).catch(function(error) {
                 target.innerHTML = '<section class="migration-validation invalid"><h5>审计无法完成</h5><p>' + escapeHtml(error.message) + '</p></section>';
                 document.querySelectorAll('[data-diff-export]').forEach(function(button) { button.disabled = button.dataset.diffExport !== 'draft'; });
+                if (typeof afterRender === 'function') afterRender();
             });
             return;
         }
@@ -2785,10 +3025,34 @@
 
         document.getElementById('export-summary').innerHTML = summaryHtml;
         document.getElementById('btn-export').disabled = (isMigration && !(migration && migration.valid)) || (!isMigration && !isReservedAds && !directAdValid) || (isReservedAds && !reservedCount);
+        if (typeof afterRender === 'function') afterRender();
     }
 
     function makeSummaryItem(label, value) {
         return '<div class="summary-item"><span class="label">' + escapeHtml(label) + '</span><span class="value">' + escapeHtml(value) + '</span></div>';
+    }
+
+    async function inspectExportBlob(blob, siteName) {
+        if (typeof SiteExportPreflight === 'undefined') throw new Error('导出前全站体检组件未加载，请刷新页面后重试。');
+        var report = await SiteExportPreflight.inspectBlob(blob, window.JSZip, { siteName: siteName || '游戏站' });
+        SiteExportPreflight.assertValid(report);
+        return report;
+    }
+
+    function renderExportPreflight(report) {
+        if (typeof SiteExportPreflight === 'undefined' || !report) return;
+        SiteExportPreflight.renderInto(document.getElementById('export-summary'), report);
+    }
+
+    // Use the detected ad-code host for the ZIP name and its site directory.
+    function getGameSiteArchiveDescriptor() {
+        var adSource = null;
+        if (appState.siteBuildMode === 'ad-migration') {
+            adSource = appState.legacyAdMigration;
+        } else if (appState.siteBuildMode === 'normal' && appState.normalAdMode !== 'reserve') {
+            adSource = appState.adCodeMigration;
+        }
+        return ArchiveNaming.siteZipDescriptor(adSource && adSource.detectedHost, 'gamehub-website.zip');
     }
 
     // 导出按钮
@@ -2811,15 +3075,20 @@
         var progressFill = document.getElementById('progress-fill');
         var progressText = document.getElementById('progress-text');
         progressDiv.style.display = 'block';
+        var archiveDescriptor = getGameSiteArchiveDescriptor();
 
         Generator.exportWebsite(appState, function(percent, text) {
             progressFill.style.width = percent + '%';
             progressText.textContent = text;
-        }).then(function(blob) {
-            saveAs(blob, 'gamehub-website.zip');
+        }, { siteFolderName: archiveDescriptor.siteFolderName }).then(async function(blob) {
+            progressText.textContent = '正在进行导出前全站体检…';
+            var preflightReport = await inspectExportBlob(blob, appState.config.siteTitle || '游戏建站');
+            renderExportPreflight(preflightReport);
+            saveAs(blob, archiveDescriptor.fileName);
             progressText.textContent = '✅ 导出成功！文件已开始下载';
             btn.disabled = false;
         }).catch(function(err) {
+            renderExportPreflight(err.preflightReport);
             progressText.textContent = '❌ 导出失败: ' + err.message;
             btn.disabled = false;
             console.error('Export error:', err);
@@ -2837,15 +3106,20 @@
         DifferentiatedBuilder.exportWebsite(appState, function(percent, text) {
             progressFill.style.width = percent + '%';
             progressText.textContent = text;
-        }, { variant: variant, siteType: 'games', JSZip: window.JSZip }).then(function(blob) {
+        }, { variant: variant, siteType: 'games', JSZip: window.JSZip }).then(async function(blob) {
             var config = DifferentiatedBuilder.buildConfig(appState, { variant: variant, siteType: 'games' });
+            progressText.textContent = '正在进行导出前全站体检…';
+            var preflightReport = await inspectExportBlob(blob, config.siteTitle || '差异化游戏站');
             saveAs(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'game-site') + '-' + variant + '.zip');
             progressText.textContent = '✅ 差异化游戏静态站导出成功；ZIP 已开始下载';
-            generateExportSummary();
+            generateExportSummary(function() { renderExportPreflight(preflightReport); });
         }).catch(function(error) {
+            if (error.preflightReport) {
+                generateExportSummary(function() { renderExportPreflight(error.preflightReport); });
+            }
             progressText.textContent = '❌ 导出失败：' + error.message;
             showNotice(error.message, '差异化导出未完成');
-            generateExportSummary();
+            if (!error.preflightReport) generateExportSummary();
         }).finally(function() {
             if (button) button.removeAttribute('aria-busy');
         });
@@ -2906,10 +3180,13 @@
         c.metaBg = randomPick(['dark', 'light', 'transparent', 'primary', 'bordered']);
         c.cardColumns = 'auto';
         c.cardDescLines = randomPick(['1', '2', '3']);
+        var preset = LAYOUT_PRESETS.find(function(item) { return item.id === c.layoutTemplate; });
+        if (preset && preset.style) Object.assign(c, preset.style);
     }
 
     function applyConfigToUI() {
         var c = appState.config;
+        document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
 
         var selectIds = [
             'navbar-layout', 'footer-style', 'back-link-style', 'card-columns',
@@ -2976,6 +3253,14 @@
         setTimeout(function() {
             btn.classList.remove('is-active');
         }, 400);
+    });
+
+    window.addEventListener('sitefoundry-ad-template-default-changed', function(event) {
+        var version = event.detail && event.detail.version;
+        if (!version) return;
+        appState.adJsVersion = version;
+        syncDirectAdPlacementUI();
+        updatePreview();
     });
 
     // ========== 初始化 ==========

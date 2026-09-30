@@ -11,13 +11,15 @@ function loadGenerator(base) {
 }
 
 describe.each(['.', 'game-builder'])('%s ad.js template selection', (base) => {
-  it('defaults to v1.0.1 and retains the homepage interstitial triggers', () => {
+  it('defaults to v1.0.2.1 with lazy loading enabled and extra interstitial triggers disabled', () => {
     const { generator } = loadGenerator(base);
     const output = generator.generateSelectedAdJs({ bannerPath1: '/123/banner-1' });
-    expect(output).toContain('ad.js v1.0.1');
+    expect(output).toContain('ad.js v1.0.2.1');
     expect(output).toContain('const adUnitBanner1 = "/123/banner-1";');
     expect(output).toContain('interstitialSlot.setConfig({');
-    expect(output).toContain('continueReading: true');
+    expect(output).toContain('const enableLazyLoad = true;');
+    expect(output).toContain('const enableInterstitialTriggers = false;');
+    expect(output).toContain('continueReading: enableInterstitialTriggers');
     expect(() => new Function(output)).not.toThrow();
   });
 

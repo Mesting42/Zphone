@@ -4,7 +4,7 @@ import vm from 'node:vm';
 
 const css = readFileSync(new URL('../css/tool.css', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
-const data = readFileSync(new URL('../js/data.js', import.meta.url), 'utf8');
+const data = ['template-catalog.js', 'template-layouts.js', 'navbar-layout.js', 'data.js'].map((name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8')).join('\n');
 
 describe('configuration floating controls', () => {
   it('portals open category menus out of the scrollable config panel', () => {

@@ -15,6 +15,60 @@ const Generator = (function() {
             .replace(/&/g, '\\u0026');
     }
 
+    // 预览与导出必须读取同一份不可变配置。这里只复制可序列化的建站数据；
+    // File/Blob 等本地图片对象仍由调用方单独保留，避免深拷贝破坏文件引用。
+    function clonePlain(value, fallback) {
+        try {
+            return JSON.parse(JSON.stringify(value == null ? fallback : value));
+        } catch (error) {
+            return fallback;
+        }
+    }
+
+    function stableSerialize(value) {
+        if (Array.isArray(value)) return '[' + value.map(stableSerialize).join(',') + ']';
+        if (value && typeof value === 'object') {
+            return '{' + Object.keys(value).sort().map(function(key) {
+                return JSON.stringify(key) + ':' + stableSerialize(value[key]);
+            }).join(',') + '}';
+        }
+        return JSON.stringify(value);
+    }
+
+    // FNV-1a 足以作为本地构建指纹。它不承担安全用途，只负责让每次不同的
+    // 样式与脚本得到不同资源地址，杜绝浏览器把旧 CSS/JS 混入新导出页面。
+    function hashBuildText(value) {
+        var text = String(value == null ? '' : value);
+        var hash = 2166136261;
+        for (var i = 0; i < text.length; i++) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(36);
+    }
+
+    function createRenderSignature(config, data) {
+        var payload = {
+            templateDomain: config.templateDomain,
+            templateId: config.templateId,
+            fieldMapping: config.fieldMapping,
+            structure: config.structure,
+            style: config.style,
+            siteBuildMode: config.siteBuildMode,
+            adPlacements: config.adPlacements,
+            adPaths: config.adPaths,
+            adJsVersion: config.adJsVersion,
+            data: data || []
+        };
+        return hashBuildText(stableSerialize(payload));
+    }
+
+    function resolveGeneratedAssetHref(config, requestedHref, type) {
+        var fileName = config && config.generatedAssets && config.generatedAssets[type];
+        if (!fileName) return requestedHref;
+        return String(requestedHref || '').replace(/[^/]+$/, fileName);
+    }
+
     function hasAdRuntime(config) {
         return !!(config && (config.adRuntimeEnabled || (config.siteBuildMode === 'ad-migration' && config.adMigration && config.adMigration.valid)));
     }
@@ -27,8 +81,12 @@ const Generator = (function() {
     // 目录或返回错误 MIME 类型；页面仍使用与预览完全相同的生成样式。
     function renderExportStyles(config, stylesheetHref) {
         const inlineFallback = config && config.inlineStyleTag ? config.inlineStyleTag + '\n    ' : '';
+        const generatedHref = resolveGeneratedAssetHref(config, stylesheetHref, 'style');
+        // 外链样式先加载，当前构建的内联样式最后覆盖。即使部署环境错误缓存了
+        // 外部文件，页面也不会被旧主题、旧字体或旧布局反向覆盖。
         return `${_googleFontLink || ''}
-    ${inlineFallback}<link rel="stylesheet" href="${stylesheetHref}">`;
+    <link rel="stylesheet" href="${generatedHref}">
+    ${inlineFallback}`;
     }
 
     function validateMigratedPage(html, pageType) {
@@ -89,11 +147,12 @@ const Generator = (function() {
         return imgVal;
     }
 
+    // 占位标签继承页面文字颜色，避免深色主题中的广告位标记不可见。
     // ========== 广告代码模板 ==========
     const AD_TEMPLATES = {
-        adv1: '<div id="adv1" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:black;font-size:13px;">advertisement1</div><div id="div-gpt-ad-banner1" style="min-width:300px;min-height:250px;"></div></div>',
-        adv2: '<div id="adv2" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:black;font-size:13px;">advertisement2</div><div id="div-gpt-ad-banner2" style="min-width:300px;min-height:250px;"></div></div>',
-        adv3: '<div id="adv3" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:black;font-size:13px;">advertisement3</div><div id="div-gpt-ad-banner3" style="min-width:300px;min-height:250px;"></div></div>'
+        adv1: '<div id="adv1" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:inherit!important;-webkit-text-fill-color:currentColor!important;font-size:13px;">advertisement1</div><div id="div-gpt-ad-banner1" style="min-width:300px;min-height:250px;"></div></div>',
+        adv2: '<div id="adv2" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:inherit!important;-webkit-text-fill-color:currentColor!important;font-size:13px;">advertisement2</div><div id="div-gpt-ad-banner2" style="min-width:300px;min-height:250px;"></div></div>',
+        adv3: '<div id="adv3" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:inherit!important;-webkit-text-fill-color:currentColor!important;font-size:13px;">advertisement3</div><div id="div-gpt-ad-banner3" style="min-width:300px;min-height:250px;"></div></div>'
     };
 
     // 全部文章页沿用详情页广告配置；正文相关广告位在文章列表中段展示。
@@ -127,10 +186,13 @@ const Generator = (function() {
         return firstGrid + middleAds + lastGrid;
     }
 
-    const AD_RUNTIME_CACHE_VERSION = '20260923-ad-runtime-v101';
+    const AD_RUNTIME_CACHE_VERSION = '20260928-ad-runtime-v1021';
+    const BUILT_IN_AD_JS_VERSIONS = ['initial', 'v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];
 
     function normalizeAdJsVersion(version) {
-        return version === 'initial' || version === 'v1.0.0' || version === 'v1.0.2' ? version : 'v1.0.1';
+        if (BUILT_IN_AD_JS_VERSIONS.indexOf(version) !== -1) return version;
+        const catalog = typeof window !== 'undefined' && window.AdTemplateCatalog;
+        return catalog && catalog.isKnownVersion(version) ? version : 'v1.0.2.1';
     }
 
     function getAdRuntimeVersion(adPaths, version) {
@@ -517,8 +579,27 @@ if (gaMeasurementId) {
         return source;
     }
 
+    // v1.0.2.1 changes only the native lazy-load default. Building on v1.0.2
+    // preserves its disabled interstitial triggers and per-site identifiers.
+    function generateV1021AdJs(baseSource) {
+        const source = generateV102AdJs(baseSource)
+            .replace('ad.js v1.0.2', 'ad.js v1.0.2.1')
+            .replace('Updated: 2026-09-24', 'Updated: 2026-09-28')
+            .replace(
+                'const enableLazyLoad = false;              // 关闭广告延迟加载',
+                'const enableLazyLoad = true;               // 开启 GPT 原生懒加载'
+            );
+        if (!/const enableLazyLoad = true;/.test(source)) {
+            throw new Error('v1.0.2.1 广告模板生成失败：无法启用 GPT 原生懒加载。');
+        }
+        return source;
+    }
+
     function generateSelectedAdJs(adPaths, version) {
         const selectedVersion = normalizeAdJsVersion(version);
+        const catalog = typeof window !== 'undefined' && window.AdTemplateCatalog;
+        // Uploaded templates retain their complete source; only mapped ID literals change.
+        if (catalog && catalog.getTemplate(selectedVersion)) return catalog.render(selectedVersion, adPaths || {});
         if (selectedVersion === 'initial') {
             const source = typeof window !== 'undefined' && window.AD_JS_SOURCE;
             if (!source) throw new Error('初版 ad.js 模板未加载。');
@@ -530,6 +611,7 @@ if (gaMeasurementId) {
         const latest = generateNormalAdJs(adPaths);
         if (selectedVersion === 'v1.0.1') return latest;
         if (selectedVersion === 'v1.0.2') return generateV102AdJs(latest);
+        if (selectedVersion === 'v1.0.2.1') return generateV1021AdJs(latest);
         const triggerBlock = /\n\s*\/\/ 触发器\n\s*interstitialSlot\.setConfig\(\{[\s\S]*?\n\s*\}\);/;
         if (!triggerBlock.test(latest)) throw new Error('v1.0.0 广告模板生成失败：找不到插页广告触发器。');
         return latest.replace('ad.js v1.0.1', 'ad.js v1.0.0').replace(triggerBlock, '');
@@ -1299,7 +1381,7 @@ ${style.cardViewMode === 'list' ? `
 }
 ` : ''}
 
-${style.cardViewMode !== 'list' ? `
+${style.cardViewMode !== 'list' && !TemplateLayouts.design(config) ? `
 /* 分类数量布局不变量：2→2；3→3；4→2+2；5→1+2+2；6→3+3；7→1+2+2+2。
    此规则位于模板和固定列数规则之后，保证分类数量优先决定卡片编排。 */
 @media (min-width: 769px) {
@@ -2088,6 +2170,14 @@ ${style.detailLayout === 'sidebar' ? `
         margin-bottom: 28px;
     }
 }
+${TemplateLayouts.css(config)}
+${NavbarLayout.css()}
+/* 保留 300px 固定广告槽位；窄屏时避免详情页广告包装层裁切它。 */
+@media (min-width: 300px) and (max-width: 400px) {
+    .detail-page #adv1,
+    .detail-page #adv2,
+    .detail-page #adv3 { overflow: visible !important; }
+}
 `;
     }
 
@@ -2214,6 +2304,56 @@ ${style.detailLayout === 'sidebar' ? `
         return result;
     }
 
+    function createSeededRandom(seedText) {
+        var state = parseInt(hashBuildText(seedText), 36) >>> 0;
+        if (!state) state = 0x6d2b79f5;
+        return function() {
+            state += 0x6d2b79f5;
+            var value = state;
+            value = Math.imul(value ^ value >>> 15, value | 1);
+            value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+            return ((value ^ value >>> 14) >>> 0) / 4294967296;
+        };
+    }
+
+    function seededShuffle(items, seedText) {
+        var output = items.slice();
+        var random = createSeededRandom(seedText);
+        for (var index = output.length - 1; index > 0; index--) {
+            var swapIndex = Math.floor(random() * (index + 1));
+            var current = output[index];
+            output[index] = output[swapIndex];
+            output[swapIndex] = current;
+        }
+        return output;
+    }
+
+    // 首页预览与导出共用同一份卡片分配计划。保留原有“随机排序”的产品语义，
+    // 但使用当前模板和数据生成稳定种子，使同一次配置的预览、ZIP 与刷新结果一致。
+    function buildHomeCategoryPlan(config, data) {
+        var indexedItems = (data || []).map(function(item, index) {
+            return { item: item, index: index };
+        });
+        var used = Object.create(null);
+        var baseSeed = [
+            config.templateDomain || '',
+            config.templateId || '',
+            config.theme && config.theme.siteTitle || '',
+            hashBuildText(stableSerialize(data || []))
+        ].join('|');
+
+        return (config.structure.categories || []).map(function(category, categoryIndex) {
+            var available = indexedItems.filter(function(entry) { return !used[entry.index]; });
+            if (config.structure.randomSort) {
+                available = seededShuffle(available, baseSeed + '|category-' + categoryIndex);
+            }
+            var requested = Math.max(0, Math.floor(Number(category && category.count) || 0));
+            var selected = available.slice(0, Math.min(requested, available.length));
+            selected.forEach(function(entry) { used[entry.index] = true; });
+            return selected;
+        });
+    }
+
     function generateNavbar(config, pageContext) {
         const theme = config.theme;
         const navLinks = ['home'];
@@ -2293,7 +2433,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     }
 
     function generateNavbarInteractionScript() {
-        return `(function() {
+        return `${NavbarLayout.script()}
+(function() {
     var hamburger = document.querySelector('.hamburger');
     var navLinks = document.querySelector('.nav-links');
     var drawerPanel = document.querySelector('.side-drawer-panel');
@@ -2425,17 +2566,30 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         </div>
     </section>` : '';
 
-        // 分类容器：广告容器静态写入，卡片grid由JS动态填充
+        // 分类容器与卡片全部在导出时静态生成。预览也使用同一份分配计划，
+        // 避免运行时脚本缓存旧的分类数量，或再次随机排序后偏离预览。
         const categories = config.structure.categories;
+        const categoryPlan = buildHomeCategoryPlan(config, data);
         let categoriesHtml = '';
         // 内容区顶部广告
         categoriesHtml += '\n' + getHomeAd('content-top');
+        // 内容布局不接触广告内容，原广告位置仍由 getHomeAd 负责。
+        categoriesHtml += TemplateLayouts.openHome(config, data, categoryAnchorId);
         categories.forEach((cat, i) => {
+            let staticCards = '';
+            const categoryItems = categoryPlan[i] || [];
+            const count = categoryItems.length;
+            for (let cardIndex = 0; cardIndex < count; cardIndex++) {
+                const entry = categoryItems[cardIndex];
+                staticCards += generateAllArticlesCard(entry.item, entry.index, config,
+                    getImageSrc(entry.item, config.fieldMapping.image, config.isLocalImages), false);
+                if (cardIndex < count - 1) staticCards += getHomeAd('cat-' + i + '-between-' + cardIndex + '-' + (cardIndex + 1));
+            }
             categoriesHtml += `
         <section id="${categoryAnchorId(cat, i)}" class="category-section">
-            <h2 class="category-title">${cat.icon} ${cat.name}</h2>
+            ${TemplateLayouts.categoryHeader(config, cat, i)}
             ${getHomeAd('cat-' + i + '-after-title')}
-            <div class="items-grid" data-category="cat-${i}"></div>
+            <div class="items-grid${count >= 1 && count <= 7 ? ' item-count-' + count : ''}" data-category="cat-${i}" data-static-rendered="true">${staticCards}</div>
             ${getHomeAd('cat-' + i + '-after-last')}
         </section>`;
             // 分类区块之间广告
@@ -2448,6 +2602,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             categoriesHtml += '\n<div class="view-all-articles"><a class="action-btn" href="all-articles.html">View All ' + data.length + ' Articles</a></div>';
         }
         // 内容区底部广告
+        categoriesHtml += TemplateLayouts.closeHome(config);
         categoriesHtml += '\n' + getHomeAd('content-bottom');
 
         return `<!DOCTYPE html>
@@ -2457,16 +2612,16 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${siteName}</title>
     <meta name="description" content="${theme.siteSubtitle}">
-    <script defer src="js/script.js"></script>
+    <script defer src="${resolveGeneratedAssetHref(config, 'js/script.js', 'script')}"></script>
     ${adScripts}
     ${renderExportStyles(config, 'css/style.css')}
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${getHomeAd('after-navbar')}
     ${heroHtml}
     ${getHomeAd('after-hero')}
-    <main class="main-content layout-${config.structure.homeLayout || 'standard'}">
+    <main class="main-content layout-${config.structure.homeLayout || 'standard'}" data-static-rendered="true">
         <div class="container">
             ${categoriesHtml}
         </div>
@@ -2521,7 +2676,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     ${adScripts}
     ${renderExportStyles(config, 'css/style.css')}
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${generateNavbar(config, 'all')}
     ${getAllArticlesDetailAds(config, ['after-navbar'])}
     <main class="main-content layout-standard">
@@ -2670,6 +2825,16 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             var grid = document.querySelector('.items-grid[data-category="cat-' + c + '"]');
             if (!grid) continue;
 
+            // 新导出站点的卡片已经与预览共用同一份静态分配计划。运行时只需
+            // 适配图片，不得再次追加卡片或重新洗牌。
+            if (grid.getAttribute('data-static-rendered') === 'true') {
+                var renderedImages = grid.querySelectorAll('.item-card .card-image');
+                for (var renderedIndex = 0; renderedIndex < renderedImages.length; renderedIndex++) {
+                    adaptCardImage(renderedImages[renderedIndex]);
+                }
+                continue;
+            }
+
             // 分配卡片到分类
             var available = data.filter(function(d) {
                 return usedItems.indexOf(d) === -1;
@@ -2702,6 +2867,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
     // 汉堡菜单交互
     function initNavbar() {
+        ${NavbarLayout.script()}
         var hamburger = document.querySelector('.hamburger');
         var navLinks = document.querySelector('.nav-links');
         var drawerPanel = document.querySelector('.side-drawer-panel');
@@ -2751,7 +2917,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     function init() {
         initNavbar();
         var mainContent = document.querySelector('.main-content');
-        if (mainContent) {
+        if (mainContent && mainContent.getAttribute('data-static-rendered') !== 'true') {
             loadData(function(data) {
                 if (data && data.length > 0) {
                     renderCategories(data);
@@ -2923,7 +3089,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     ${adScripts}
     ${renderExportStyles(config, '../css/style.css')}
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${getDetailAd('after-navbar')}
     <div class="detail-page">
@@ -3038,7 +3204,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>Contact Us - ${theme.siteTitle}</title>
     ${renderExportStyles(config, 'css/style.css')}
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${generateContactBody(config)}
     ${footer}
@@ -3063,7 +3229,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>About Us - ${theme.siteTitle}</title>
     ${renderExportStyles(config, 'css/style.css')}
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${generateAboutBody(config)}
     ${footer}
@@ -3088,7 +3254,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>Privacy Policy - ${theme.siteTitle}</title>
     ${renderExportStyles(config, 'css/style.css')}
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${generatePrivacyBody(config)}
     ${footer}
@@ -3113,7 +3279,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
     <title>Terms of Service - ${theme.siteTitle}</title>
     ${renderExportStyles(config, 'css/style.css')}
 </head>
-<body>
+<body${TemplateLayouts.bodyAttributes(config)}>
     ${navbar}
     ${generateTermsBody(config)}
     ${footer}
@@ -3227,21 +3393,42 @@ if __name__ == '__main__':
     }
 
     // ========== 主导出函数 ==========
-    async function exportWebsite(appState, onProgress) {
+    async function exportWebsite(appState, onProgress, exportOptions) {
         const config = buildConfig(appState);
-        const data = appState.data;
+        const data = clonePlain(appState.data || [], []);
         const isLocalImages = appState.isLocalImages;
         const localImages = appState.localImages || {};
+
+        // 已展示过预览时，导出必须仍是那份配置。批量流程会为每个站点分别
+        // 保存签名；如果中途有旧状态覆盖，直接阻止导出并指出原因。
+        if (appState._lastPreviewSignature && appState._lastPreviewSignature !== config.renderSignature) {
+            throw new Error('预览配置与导出配置不一致，请返回配置页刷新预览后再导出。');
+        }
 
         onProgress(5, '正在生成CSS...');
 
         const zip = new JSZip();
-        const siteFolder = zip.folder('website');
+        // Keep one directory around the site source. Ad exports use the
+        // validated host supplied by the app; other exports keep `website`.
+        const requestedFolderName = exportOptions && exportOptions.siteFolderName;
+        const safeFolderName = typeof requestedFolderName === 'string'
+            && /^[a-z0-9.-]+$/i.test(requestedFolderName)
+            && requestedFolderName.indexOf('..') === -1
+            ? requestedFolderName
+            : 'website';
+        const siteFolder = zip.folder(safeFolderName);
 
         // CSS：保留独立文件给正常托管；同一份样式也内联至所有页面，作为
         // 忽略 css/ 目录或错误返回 MIME 类型的静态托管环境的可靠兜底。
         const generatedCss = generateCSS(config);
+        const generatedScript = generateScriptJs(config);
+        config.generatedAssets = {
+            style: 'style.' + hashBuildText(generatedCss) + '.css',
+            script: 'script.' + hashBuildText(generatedScript) + '.js'
+        };
         config.inlineStyleTag = '<style data-generated-site-style>' + generatedCss.replace(/<\/style/gi, '<\\/style') + '</style>';
+        siteFolder.folder('css').file(config.generatedAssets.style, generatedCss);
+        // 保留固定文件名给旧部署脚本和人工检查使用；页面本身只引用带指纹版本。
         siteFolder.folder('css').file('style.css', generatedCss);
         onProgress(15, '正在生成首页...');
 
@@ -3265,7 +3452,8 @@ if __name__ == '__main__':
         onProgress(25, '正在生成script.js...');
 
         // script.js
-        siteFolder.folder('js').file('script.js', generateScriptJs(config));
+        siteFolder.folder('js').file(config.generatedAssets.script, generatedScript);
+        siteFolder.folder('js').file('script.js', generatedScript);
 
         // 本生成器负责普通建站、广告移植和批量建站加广告，按广告配置输出所选版本。
         if (hasAdRuntime(config)) {
@@ -3285,6 +3473,18 @@ if __name__ == '__main__':
             });
         }
         siteFolder.file('data.json', JSON.stringify(dataForJson, null, 2));
+        siteFolder.file('SITE_RENDER_MANIFEST.json', JSON.stringify({
+            schema: 'sitefoundry-render-manifest/v1',
+            renderSignature: config.renderSignature,
+            templateDomain: config.templateDomain,
+            templateId: config.templateId,
+            selectedStyle: config.style.selectedStyle,
+            fontStyle: config.style.fontStyle,
+            categories: config.structure.categories.map(function(category) {
+                return { name: category.name, count: category.count };
+            }),
+            assets: config.generatedAssets
+        }, null, 2) + '\n');
 
         onProgress(35, '正在生成通用页面...');
 
@@ -3355,7 +3555,7 @@ if __name__ == '__main__':
     function buildConfig(appState, options) {
         const baseTheme = THEMES[appState.selectedTheme];
         const profile = typeof DOMAIN_CATALOG !== 'undefined' ? DOMAIN_CATALOG[appState.selectedTheme] : null;
-        const selectedCategories = appState.config.categories || baseTheme.categories || [];
+        const selectedCategories = clonePlain(appState.config.categories || baseTheme.categories || [], []);
         const populatedNavigationCategories = getPopulatedNavigationCategories(selectedCategories, (appState.data || []).length);
         const contactEmail = resolveContactEmail(appState.config.contactEmail);
         const theme = Object.assign({}, baseTheme, {
@@ -3365,23 +3565,39 @@ if __name__ == '__main__':
         });
         // 四个信任页面必须跟随当前领域、分类、品牌和联系邮箱，而不是复用某个默认资讯主题的文案。
         theme.pages = buildDomainTrustPages(appState.selectedTheme, profile, theme, selectedCategories, contactEmail);
-        const mapping = appState.fieldMapping;
-        const reserveAds = appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
+        const mapping = clonePlain(appState.fieldMapping || {}, {});
+        // 批量流程把当前站点同步到单站预览状态；这里显式识别批量预留模式，
+        // 让预览与最终 createSiteState 导出使用完全相同的广告容器规则。
+        const batchAdMode = appState.siteBuildMode === 'batch-ad-build' && appState.batchAdBuild
+            ? appState.batchAdBuild.adMode
+            : '';
+        const reserveAds = (appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve') || batchAdMode === 'reserve';
         const migration = appState.siteBuildMode === 'ad-migration' && appState.legacyAdMigration && appState.legacyAdMigration.valid
             ? appState.legacyAdMigration
-            : (appState.siteBuildMode === 'normal' && !reserveAds && appState.adCodeMigration && appState.adCodeMigration.valid
+            : ((appState.siteBuildMode === 'normal' || appState.siteBuildMode === 'batch-ad-build') && !reserveAds && appState.adCodeMigration && appState.adCodeMigration.valid
                 ? appState.adCodeMigration
                 : null);
-        // 已验证广告代码及固定预留使用相同布局；手动预留保留用户选择的位置。
+        // 上传代码默认固定放置；普通与批量建站切换为手动时读取独立的位置配置。
         const fixedReserveAds = reserveAds && appState.reservePlacementMode === 'fixed';
-        const automaticAdPlacements = (migration || fixedReserveAds) && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+        const directCodeManualAds = (appState.siteBuildMode === 'normal'
+            && appState.normalAdMode !== 'reserve'
+            || appState.siteBuildMode === 'batch-ad-build' && batchAdMode === 'code')
+            && !!(appState.adCodeMigration && appState.adCodeMigration.valid)
+            && appState.directAdPlacementMode === 'manual';
+        const useAutomaticAdPlacements = (migration && !directCodeManualAds) || fixedReserveAds;
+        const automaticAdPlacements = useAutomaticAdPlacements && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
         if (fixedReserveAds && automaticAdPlacements.adv2 && selectedCategories.length < 2) automaticAdPlacements.adv2.home = 'content-bottom';
         if (fixedReserveAds && automaticAdPlacements.adv3 && selectedCategories.length < 2) automaticAdPlacements.adv3.home = 'footer-top';
-        const manualAdPlacements = appState.config.adPlacements || {};
-        const exportedAdPlacements = migration || fixedReserveAds ? automaticAdPlacements : (reserveAds ? manualAdPlacements : {});
+        const manualAdPlacements = clonePlain(directCodeManualAds
+            ? appState.config.adCodePlacements || {}
+            : appState.config.adPlacements || {}, {});
+        const exportedAdPlacements = useAutomaticAdPlacements
+            ? automaticAdPlacements
+            : (reserveAds || directCodeManualAds ? manualAdPlacements : {});
 
-        return {
+        const result = {
             theme: theme,
+            templateDomain: appState.selectedTheme,
             templateId: appState.config.templateId || ((DOMAIN_CATALOG[appState.selectedTheme] && DOMAIN_CATALOG[appState.selectedTheme].blueprints[0]) || null),
             fieldMapping: mapping,
             structure: {
@@ -3401,7 +3617,7 @@ if __name__ == '__main__':
                 hasAllArticlesPage: appState.siteBuildMode === 'normal' && appState.config.allArticlesEnabled !== false && Array.isArray(appState.data) && appState.data.length > 0,
                 cardColumns: appState.config.cardColumns || 'auto',
                 randomSort: true,
-                cardFields: appState.config.cardFields || theme.cardFields,
+                cardFields: clonePlain(appState.config.cardFields || theme.cardFields, []),
                 metaLayout: appState.config.metaLayout || theme.detail.metaLayout,
                 contentRender: appState.config.contentRender || theme.detail.contentRender,
                 actionButtonEnabled: appState.config.actionButtonEnabled !== undefined ?
@@ -3409,7 +3625,7 @@ if __name__ == '__main__':
                 actionButtonText: appState.config.actionButtonText || theme.detail.actionButton.text,
                 actionButtonLinkField: appState.config.actionButtonLinkField || theme.detail.actionButton.linkField,
                 relatedCount: appState.config.relatedCount || 4,
-                relatedCardFields: appState.config.relatedCardFields || theme.relatedCardFields,
+                relatedCardFields: clonePlain(appState.config.relatedCardFields || theme.relatedCardFields, []),
                 aboutEnabled: appState.config.aboutEnabled !== undefined ? appState.config.aboutEnabled : true,
                 contactFields: appState.config.contactFields || ['name', 'email', 'subject', 'message'],
                 privacyLength: appState.config.privacyLength || 'full',
@@ -3435,6 +3651,8 @@ if __name__ == '__main__':
                 metaLayout: appState.config.metaLayout || 'grid',
                 metaBg: appState.config.metaBg || 'dark',
                 detailImgStyle: appState.config.detailImgStyle || 'fullwidth',
+                // 缺省保持现有图标可见，隐藏时不修改分类保存的 icon。
+                categoryIconsEnabled: appState.config.categoryIconsEnabled !== false,
                 categoryTitleStyle: appState.config.categoryTitleStyle || 'single',
                 categoryTitleAlign: appState.config.categoryTitleAlign || 'left',
                 cardImageHeight: appState.config.cardImageHeight || '180px',
@@ -3452,6 +3670,8 @@ if __name__ == '__main__':
             adPlacementMode: appState.adPlacementMode || null,
             isLocalImages: appState.isLocalImages || false
         };
+        result.renderSignature = createRenderSignature(result, appState.data || []);
+        return result;
     }
 
     // ========== 生成预览HTML ==========
@@ -3582,12 +3802,15 @@ if __name__ == '__main__':
             bodyContent += '<main class="main-content layout-' + (config.structure.homeLayout || 'standard') + '"><div class="container">';
             if (isPlacingAds) bodyContent += genMarker('content-top', pageType);
             bodyContent += getAdCodeAt('content-top', pageType, adPlacements);
+            bodyContent += TemplateLayouts.openHome(config, data, categoryAnchorId);
 
-            // 用前几条数据渲染预览
+            // 与导出首页共用完全相同的分类卡片分配计划。
             const categories = config.structure.categories;
-            let itemIndex = 0;
+            const categoryPlan = buildHomeCategoryPlan(config, data);
+            let renderedItemCount = 0;
             categories.forEach((cat, ci) => {
-                const previewItemCount = Math.min(cat.count, Math.max(0, data.length - itemIndex));
+                const categoryItems = categoryPlan[ci] || [];
+                const previewItemCount = categoryItems.length;
                 const itemCountClass = previewItemCount === 1 ? ' item-count-1' :
                     (previewItemCount === 2 ? ' item-count-2' :
                     (previewItemCount === 3 ? ' item-count-3' :
@@ -3596,40 +3819,25 @@ if __name__ == '__main__':
                     (previewItemCount === 6 ? ' item-count-6' :
                     (previewItemCount === 7 ? ' item-count-7' : ''))))));
                 bodyContent += `<section id="${categoryAnchorId(cat, ci)}" class="category-section">
-                    <h2 class="category-title">${cat.icon} ${cat.name}</h2>`;
+                    ${TemplateLayouts.categoryHeader(config, cat, ci)}`;
                 if (isPlacingAds) bodyContent += genMarker('cat-' + ci + '-after-title', pageType);
                 bodyContent += getAdCodeAt('cat-' + ci + '-after-title', pageType, adPlacements);
                 bodyContent += '<div class="items-grid' + itemCountClass + '">';
 
-                for (let i = 0; i < cat.count && itemIndex < data.length; i++, itemIndex++) {
-                    const item = data[itemIndex];
-                    const title = item[mapping.title] || 'Untitled';
+                for (let i = 0; i < categoryItems.length; i++) {
+                    const entry = categoryItems[i];
+                    const item = entry.item;
+                    const itemIndex = entry.index;
                     const image = getPreviewImageSrc(item);
-
-                    bodyContent += `<a class="item-card" href="#detail-item-${itemIndex}" data-preview-item="${itemIndex}">
-                        ${image ? `<div class="card-image-frame"><img class="card-image image-cover" src="${image}" alt="${title}"></div>` : ''}
-                        <div class="card-body">
-                            <div class="card-title">${title}</div>`;
-
-                    // 其他字段
-                    config.structure.cardFields.forEach(field => {
-                        if (field === 'image' || field === 'title') return;
-                        const val = item[mapping[field]];
-                        if (val !== undefined && val !== null) {
-                            const isFreePrice = field === 'price' && String(val).toLowerCase() === 'free';
-                            const fieldClass = field === 'excerpt' ? 'desc' : field;
-                            bodyContent += `<div class="card-${fieldClass}${isFreePrice ? ' price-free' : ''}">${val}</div>`;
-                        }
-                    });
-
-                    bodyContent += '</div></a>';
+                    bodyContent += generateAllArticlesCard(item, itemIndex, config, image, true);
 
                     // 卡片之间的标记和广告
-                    if (i < cat.count - 1 && itemIndex + 1 < data.length) {
+                    if (i < categoryItems.length - 1) {
                         if (isPlacingAds) bodyContent += genMarker('cat-' + ci + '-between-' + i + '-' + (i + 1), pageType);
                         bodyContent += getAdCodeAt('cat-' + ci + '-between-' + i + '-' + (i + 1), pageType, adPlacements);
                     }
                 }
+                renderedItemCount += categoryItems.length;
 
                 bodyContent += '</div>';
                 if (isPlacingAds) bodyContent += genMarker('cat-' + ci + '-after-last', pageType);
@@ -3643,9 +3851,10 @@ if __name__ == '__main__':
                 }
             });
 
+            bodyContent += TemplateLayouts.closeHome(config);
             if (isPlacingAds) bodyContent += genMarker('content-bottom', pageType);
             bodyContent += getAdCodeAt('content-bottom', pageType, adPlacements);
-            if (config.structure.hasAllArticlesPage && data.length > itemIndex) {
+            if (config.structure.hasAllArticlesPage && data.length > renderedItemCount) {
                 bodyContent += '<div class="view-all-articles"><a class="action-btn" href="all-articles.html" data-preview-page="all">View All ' + data.length + ' Articles</a></div>';
             }
             bodyContent += '</div></main>';
@@ -3811,7 +4020,7 @@ if __name__ == '__main__':
     ${_googleFontLink}
     <style>${css}</style>
 </head>
-<body>${bodyContent}
+<body${TemplateLayouts.bodyAttributes(config)}>${bodyContent}
 <script>
 (function() {
     function adaptCardImage(img) {
@@ -3878,6 +4087,9 @@ if __name__ == '__main__':
         exportWebsite: exportWebsite,
         generatePreviewHtml: generatePreviewHtml,
         buildConfig: buildConfig,
+        getBuildSignature: function(appState) {
+            return buildConfig(appState).renderSignature;
+        },
         // 广告恢复保留带策略的运行时；静态新建站流程由 generateNormalAdJs 生成。
         generateAdJs: generateAdJs,
         generateNormalAdJs: generateNormalAdJs,

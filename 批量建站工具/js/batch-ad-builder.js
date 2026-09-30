@@ -1,13 +1,19 @@
 /*
- * 批量新建站 + 独占广告代码。
- * 这个模块只使用已经通过单站流程验证的 Generator 与 AdMigration：
- * 每个数据源仍然独立生成，外层 ZIP 只负责汇总，避免出现另一套广告模板。
+ * 批量建站广告编排器。
+ *
+ * 两种接入方式共用同一个导出入口：
+ * 1. code：每个站点绑定一份独占广告 TXT；
+ * 2. reserve：先输出广告容器与空配置 ad.js，运营拿到代码后只需填写 ID。
+ *
+ * 站点生成仍完全复用单站 Generator，避免批量流程维护第二套页面和广告模板。
  */
 const BatchAdBuilder = (function() {
     'use strict';
 
     const REQUIRED_FIELDS = ['bannerPath1', 'bannerPath2', 'bannerPath3'];
     const AD_PATH_FIELDS = ['bannerPath1', 'bannerPath2', 'bannerPath3', 'bannerPath4', 'interstitialPath', 'anchorPath'];
+    const PLACEHOLDER_DOMAIN = 'your-domain.com';
+    const HOST_PATTERN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 
     function issue(message, code) {
         return { message: message, code: code || 'BATCH_AD_INVALID' };
@@ -56,12 +62,88 @@ const BatchAdBuilder = (function() {
         return REQUIRED_FIELDS.every(function(key) { return !!config[key]; });
     }
 
-    function validateAssignments(sites, codes) {
-        const sourceSites = Array.from(sites || []);
-        const sourceCodes = Array.from(codes || []);
+    function normalizeAdMode(value) {
+        return value === 'reserve' ? 'reserve' : 'code';
+    }
+
+    function normalizeDomainInput(value) {
+        const raw = String(value || '').trim();
+        const normalized = raw.toLowerCase().replace(/\.$/, '');
+        const valid = !!normalized && normalized.length <= 253 && HOST_PATTERN.test(normalized);
+        return {
+            raw: raw,
+            normalized: valid ? normalized : '',
+            valid: valid,
+            effective: valid ? normalized : PLACEHOLDER_DOMAIN,
+            placeholder: !valid,
+            warning: !raw ? '未填写域名，将使用占位域名 ' + PLACEHOLDER_DOMAIN + '。' : (!valid ? '域名格式无法识别，将使用占位域名 ' + PLACEHOLDER_DOMAIN + '。' : '')
+        };
+    }
+
+    function normalizeReserveSettings(settings) {
+        const source = settings || {};
+        return {
+            placementMode: source.placementMode === 'fixed' ? 'fixed' : 'manual',
+            adJsVersion: String(source.adJsVersion || 'v1.0.2.1'),
+            adPlacements: clone(source.adPlacements || {})
+        };
+    }
+
+    function resolveReserveSettings(batch, site) {
+        const source = site && site.reserveOverrideEnabled && site.reserveSettings
+            ? site.reserveSettings
+            : (batch && batch.reserveDefaults);
+        return normalizeReserveSettings(source);
+    }
+
+    function normalizeCodePlacementSettings(settings) {
+        const source = settings || {};
+        const placementMode = source.placementMode === 'manual' ? 'manual' : 'fixed';
+        const suppliedPlacements = source.adPlacements;
+        const hasPlacementMap = suppliedPlacements && typeof suppliedPlacements === 'object' && !Array.isArray(suppliedPlacements);
+        return {
+            placementMode: placementMode,
+            // 兼容旧会话：手动模式尚无位置表时从自动位置开始；显式空对象仍代表用户移除全部广告位。
+            adPlacements: hasPlacementMap
+                ? clone(suppliedPlacements)
+                : (placementMode === 'manual' && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : null)
+        };
+    }
+
+    function resolveCodePlacementSettings(batch, site) {
+        const source = site && site.codePlacementOverrideEnabled && site.codePlacementSettings
+            ? site.codePlacementSettings
+            : (batch && batch.codePlacementDefaults);
+        return normalizeCodePlacementSettings(source);
+    }
+
+    function countReservedPlacements(settings) {
+        if (settings && settings.placementMode === 'fixed') return 6;
+        const placements = settings && settings.adPlacements || {};
+        return Object.keys(placements).reduce(function(total, adId) {
+            const pages = placements[adId] || {};
+            return total + (pages.home ? 1 : 0) + (pages.detail ? 1 : 0);
+        }, 0);
+    }
+
+    function collectTemplateErrors(sourceSites) {
+        const templateUsage = {};
+        const errors = [];
+        sourceSites.forEach(function(site) {
+            const templateId = String(site && site.config && site.config.templateId || '').trim();
+            if (templateId) (templateUsage[templateId] = templateUsage[templateId] || []).push(site);
+        });
+        Object.keys(templateUsage).forEach(function(templateId) {
+            if (templateUsage[templateId].length > 1) {
+                errors.push(issue('检测到重复模板：' + templateUsage[templateId].map(function(site) { return site.fileName || site.id; }).join('、') + '。同一领域的批量站点必须使用不同模板。', 'BATCH_TEMPLATE_REUSED'));
+            }
+        });
+        return { errors: errors, templateUsage: templateUsage };
+    }
+
+    function validateCodeAssignments(sourceSites, sourceCodes) {
         const codeById = {};
         const usage = {};
-        const templateUsage = {};
         const errors = [];
         const assignments = [];
 
@@ -71,8 +153,6 @@ const BatchAdBuilder = (function() {
         });
         sourceSites.forEach(function(site) {
             const code = codeById[site && site.codeId] || null;
-            const templateId = String(site && site.config && site.config.templateId || '').trim();
-            if (templateId) (templateUsage[templateId] = templateUsage[templateId] || []).push(site);
             if (!code) {
                 errors.push(issue('站点“' + String(site && site.fileName || '未命名数据源') + '”尚未指定广告代码。', 'BATCH_AD_CODE_REQUIRED'));
             } else {
@@ -110,16 +190,76 @@ const BatchAdBuilder = (function() {
                 errors.push(issue('检测到多个广告代码指向同一子域名 ' + host + '。请为每个站点保留唯一代码。', 'BATCH_AD_HOST_DUPLICATE'));
             }
         });
-        Object.keys(templateUsage).forEach(function(templateId) {
-            if (templateUsage[templateId].length > 1) {
-                errors.push(issue('检测到重复模板：' + templateUsage[templateId].map(function(site) { return site.fileName || site.id; }).join('、') + '。同一领域的批量站点必须使用不同模板。', 'BATCH_TEMPLATE_REUSED'));
-            }
-        });
+        const templateReport = collectTemplateErrors(sourceSites);
+        Array.prototype.push.apply(errors, templateReport.errors);
 
-        return { valid: errors.length === 0, errors: errors, assignments: assignments, codeUsage: usage, templateUsage: templateUsage };
+        return { valid: errors.length === 0, mode: 'code', errors: errors, warnings: [], assignments: assignments, codeUsage: usage, templateUsage: templateReport.templateUsage };
     }
 
-    function validateGeneratedSiteFiles(files, code) {
+    function validateReserveAssignments(sourceSites, batch) {
+        const errors = [];
+        const warnings = [];
+        const domains = {};
+        const assignments = sourceSites.map(function(site) {
+            const domain = normalizeDomainInput(site && site.adDomain);
+            const settings = resolveReserveSettings(batch, site);
+            if (!countReservedPlacements(settings)) {
+                errors.push(issue('站点“' + String(site && site.fileName || '未命名数据源') + '”尚未放置广告位。', 'BATCH_RESERVE_PLACEMENT_REQUIRED'));
+            }
+            if (domain.valid) {
+                (domains[domain.normalized] = domains[domain.normalized] || []).push(site);
+            } else if (domain.warning) {
+                warnings.push(issue('站点“' + String(site && site.fileName || '未命名数据源') + '”：' + domain.warning, 'BATCH_DOMAIN_PLACEHOLDER'));
+            }
+            return { site: site, code: null, domain: domain, reserveSettings: settings };
+        });
+        Object.keys(domains).forEach(function(host) {
+            if (domains[host].length > 1) {
+                errors.push(issue('域名 ' + host + ' 被多个站点重复使用。请修改为唯一域名后再导出。', 'BATCH_DOMAIN_DUPLICATE'));
+            }
+        });
+        const templateReport = collectTemplateErrors(sourceSites);
+        Array.prototype.push.apply(errors, templateReport.errors);
+        return { valid: errors.length === 0, mode: 'reserve', errors: errors, warnings: warnings, assignments: assignments, domainUsage: domains, templateUsage: templateReport.templateUsage };
+    }
+
+    function validateAssignments(sites, codes, options) {
+        const sourceSites = Array.from(sites || []);
+        const sourceCodes = Array.from(codes || []);
+        const batch = options && typeof options === 'object' ? options : {};
+        return normalizeAdMode(batch.adMode) === 'reserve'
+            ? validateReserveAssignments(sourceSites, batch)
+            : validateCodeAssignments(sourceSites, sourceCodes);
+    }
+
+    function countContainer(html, id) {
+        const escaped = String(id || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const matches = String(html || '').match(new RegExp('id=["\']' + escaped + '["\']', 'gi'));
+        return matches ? matches.length : 0;
+    }
+
+    function validateReservedPage(html, pageType, settings) {
+        const errors = [];
+        const label = pageType === 'home' ? '首页' : '详情页';
+        const expectedScript = pageType === 'home' ? 'js/ad.js' : '../js/ad.js';
+        const gptCount = (String(html || '').match(/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js/gi) || []).length;
+        const adScriptCount = (String(html || '').match(new RegExp(expectedScript.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')) || []).length;
+        if (gptCount !== 1) errors.push(issue(label + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'BATCH_RESERVE_GPT_INVALID'));
+        if (adScriptCount !== 1) errors.push(issue(label + ' ad.js 引用数量为 ' + adScriptCount + '，应为 1。', 'BATCH_RESERVE_RUNTIME_REF_INVALID'));
+        const placements = settings && settings.placementMode === 'fixed' && typeof AdMigration !== 'undefined'
+            ? AdMigration.fixedPlacements()
+            : (settings && settings.adPlacements || {});
+        ['adv1', 'adv2', 'adv3'].forEach(function(adId, index) {
+            const expected = placements[adId] && placements[adId][pageType] ? 1 : 0;
+            const actual = countContainer(html, 'div-gpt-ad-banner' + (index + 1));
+            if (actual !== expected) {
+                errors.push(issue(label + ' banner' + (index + 1) + ' 容器数量为 ' + actual + '，应为 ' + expected + '。', 'BATCH_RESERVE_CONTAINER_INVALID'));
+            }
+        });
+        return errors;
+    }
+
+    function validateGeneratedSiteFiles(files, code, options) {
         const errors = [];
         const fileMap = files || {};
         const home = fileMap['website/index.html'];
@@ -128,17 +268,37 @@ const BatchAdBuilder = (function() {
         if (!home) errors.push(issue('导出包缺少首页 index.html。', 'BATCH_AD_HOME_MISSING'));
         if (!details.length) errors.push(issue('导出包缺少详情页，无法确认详情页广告运行时。', 'BATCH_AD_DETAIL_MISSING'));
         if (!adJs) errors.push(issue('导出包缺少 js/ad.js。', 'BATCH_AD_RUNTIME_MISSING'));
-        if (home && details.length && typeof AdMigration !== 'undefined') {
-            const report = AdMigration.validateGeneratedPages(home, details);
-            report.errors.forEach(function(error) { errors.push(issue(error.message, error.code)); });
+        const reserve = options && options.mode === 'reserve';
+        if (home && details.length) {
+            if (reserve) {
+                validateReservedPage(home, 'home', options.settings).forEach(function(error) { errors.push(error); });
+                details.forEach(function(html, index) {
+                    validateReservedPage(html, 'detail', options.settings).forEach(function(error) {
+                        errors.push(issue('详情页 #' + (index + 1) + '：' + error.message, error.code));
+                    });
+                });
+            } else if (typeof AdMigration !== 'undefined') {
+                const report = AdMigration.validateGeneratedPages(home, details);
+                report.errors.forEach(function(error) { errors.push(issue(error.message, error.code)); });
+            }
         }
-        if (adJs) {
+        if (adJs && !reserve) {
             const config = (code && code.config) || {};
             REQUIRED_FIELDS.forEach(function(key) {
                 if (config[key] && String(adJs).indexOf(String(config[key])) === -1) {
                     errors.push(issue('生成的 js/ad.js 未包含 ' + key + ' 对应的广告单元。', 'BATCH_AD_RUNTIME_PATH_MISSING'));
                 }
             });
+        } else if (adJs && reserve) {
+            // 预留模式必须保持脚本模板完整但 ID 为空，确保运营后续只改 ad.js 即可启用。
+            const inspected = typeof AdMigration !== 'undefined' && typeof AdMigration.inspectAdCodeText === 'function'
+                ? AdMigration.inspectAdCodeText(String(adJs), 'ad.js')
+                : null;
+            const discovered = inspected && inspected.config || {};
+            const hasConfiguredId = AD_PATH_FIELDS.concat(['analyticsID']).some(function(key) {
+                return !!String(discovered[key] || '').trim();
+            }) || /["']\/\d{3,}\/[^"']+["']/.test(String(adJs)) || /["']G-[A-Z0-9]+["']/i.test(String(adJs));
+            if (hasConfiguredId) errors.push(issue('预留模式生成的 js/ad.js 含有非空广告或统计 ID。', 'BATCH_RESERVE_RUNTIME_NOT_EMPTY'));
         }
         return { valid: errors.length === 0, errors: errors, detailCount: details.length };
     }
@@ -147,28 +307,30 @@ const BatchAdBuilder = (function() {
         return JSON.parse(JSON.stringify(value || {}));
     }
 
-    function safeFolderName(value, fallback, used) {
-        let base = String(value || fallback || 'website').replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || fallback || 'website';
-        let result = base;
-        let index = 2;
-        while (used[result]) result = base + '-' + index++;
-        used[result] = true;
-        return result;
-    }
-
-    function createSiteState(appState, site, code) {
+    function createSiteState(appState, site, code, batch) {
         // 批量预览允许每个站点独立选择模板和样式；导出必须采用该站点的配置，
         // 而不是导出瞬间停留在界面上的另一个站点配置。
         const config = clone(site && site.config ? site.config : appState.config);
-        const host = String(code.detectedHost || '').trim().toLowerCase();
+        const reserve = normalizeAdMode(batch && batch.adMode) === 'reserve';
+        const domain = reserve ? normalizeDomainInput(site && site.adDomain) : null;
+        const settings = reserve ? resolveReserveSettings(batch, site) : null;
+        const codePlacementSettings = reserve ? null : resolveCodePlacementSettings(batch, site);
+        const host = reserve ? domain.effective : String(code && code.detectedHost || '').trim().toLowerCase();
         // 每份广告代码指向独立域名；导出的联系邮箱也随站点变化，避免一批站共享默认地址。
         if (host) config.contactEmail = 'contact@' + host;
         // “全部文章”是普通单站工作流的开关；批量建站加广告暂不改变导出页面集合。
         config.allArticlesEnabled = false;
-        config.adPaths = clone(code.config);
-        config.adPlacements = typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
+        config.adPaths = reserve ? {} : clone(code && code.config);
+        config.adPlacements = reserve ? clone(settings.adPlacements) : (typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {});
+        config.adCodePlacements = reserve || codePlacementSettings.adPlacements === null
+            ? null
+            : clone(codePlacementSettings.adPlacements);
         return Object.assign({}, appState, {
             siteBuildMode: 'normal',
+            normalAdMode: reserve ? 'reserve' : 'code',
+            reservePlacementMode: reserve ? settings.placementMode : appState.reservePlacementMode,
+            directAdPlacementMode: reserve ? 'fixed' : codePlacementSettings.placementMode,
+            adJsVersion: reserve ? settings.adJsVersion : appState.adJsVersion,
             // 批量站点可来自不同领域；导出时必须使用该站自己的领域，不能沿用
             // 当前界面停留站点的 selectedTheme，否则会导致字段与模板被错误解释。
             selectedTheme: site.themeId || appState.selectedTheme,
@@ -177,7 +339,9 @@ const BatchAdBuilder = (function() {
             fieldMapping: clone(site.fieldMapping),
             isLocalImages: !!site.isLocalImages,
             localImages: site.localImages || {},
-            adCodeMigration: code,
+            adCodeMigration: reserve ? null : code,
+            // 每个批量站点只与自己的最后预览比较，不能继承当前界面停留站点的签名。
+            _lastPreviewSignature: site.previewSignature || '',
             config: config
         });
     }
@@ -190,58 +354,112 @@ const BatchAdBuilder = (function() {
         const result = {};
         const paths = Object.keys(zip.files).filter(function(path) { return !zip.files[path].dir; });
         await Promise.all(paths.map(async function(path) {
-            if (/\.(?:html?|js)$/i.test(path)) result[path] = await zip.files[path].async('text');
+            if (/\.(?:html?|css|mjs|cjs|js|jsx|ts|tsx)$/i.test(path) || /(?:^|\/)(?:data|manifest|ad-policy|site|config)\.json$/i.test(path)) {
+                result[path] = await zip.files[path].async('text');
+            }
         }));
         return { zip: zip, textFiles: result, paths: paths };
     }
 
     async function exportBatch(appState, onProgress, JSZipImpl) {
         const batch = appState && appState.batchAdBuild || {};
-        const validation = validateAssignments(batch.sites, batch.codes);
+        const validation = validateAssignments(batch.sites, batch.codes, batch);
         if (!validation.valid) throw new Error(validation.errors.map(function(error) { return error.message; }).join(' '));
-        if (!JSZipImpl || typeof JSZipImpl.loadAsync !== 'function' || typeof Generator === 'undefined') {
+        if (!JSZipImpl || typeof JSZipImpl.loadAsync !== 'function' || typeof Generator === 'undefined' || typeof ArchiveNaming === 'undefined') {
             throw new Error('批量导出组件未加载。请刷新页面后重试。');
         }
-        const outer = new JSZipImpl();
         const reports = [];
-        const usedFolders = {};
+        const preflightReports = [];
+        const runtimeFailures = [];
+        const siteArchives = [];
+        const usedFileNames = Object.create(null);
         const count = validation.assignments.length;
+        if (!count) throw new Error('没有可导出的批量站点。');
 
         for (let index = 0; index < count; index++) {
             const assignment = validation.assignments[index];
             const label = assignment.site.fileName || ('site-' + (index + 1));
             onProgress(Math.round(index / count * 85), '正在生成并验证 ' + label + '（' + (index + 1) + '/' + count + '）…');
-            const siteState = createSiteState(appState, assignment.site, assignment.code);
+            const siteState = createSiteState(appState, assignment.site, assignment.code, batch);
             const siteBlob = await Generator.exportWebsite(siteState, function(percent) {
                 onProgress(Math.min(90, Math.round((index + percent / 100) / count * 85)), '正在生成 ' + label + '（' + (index + 1) + '/' + count + '）…');
             });
             const inspected = await readZipTextFiles(siteBlob, JSZipImpl);
-            const runtime = validateGeneratedSiteFiles(inspected.textFiles, assignment.code);
+            const preflight = typeof SiteExportPreflight !== 'undefined'
+                ? SiteExportPreflight.inspectEntries(inspected.textFiles, { paths: inspected.paths, siteName: label })
+                : { valid: false, siteName: label, pageCount: 0, localReferenceCount: 0, fileCount: inspected.paths.length, errors: [{ message: '导出前全站体检组件未加载。' }], warnings: [] };
+            preflightReports.push(preflight);
+            const runtime = validateGeneratedSiteFiles(inspected.textFiles, assignment.code, {
+                mode: validation.mode,
+                settings: assignment.reserveSettings || null
+            });
             if (!runtime.valid) {
-                throw new Error('站点“' + label + '”运行时广告检查未通过：' + runtime.errors.map(function(error) { return error.message; }).join(' '));
+                runtimeFailures.push('站点“' + label + '”运行时广告检查未通过：' + runtime.errors.map(function(error) { return error.message; }).join(' '));
             }
-            const folderName = safeFolderName(assignment.code.detectedHost || label, 'site-' + (index + 1), usedFolders);
-            const folder = outer.folder(folderName);
+            const fallbackName = label.replace(/\.[^.]+$/, '') || ('site-' + (index + 1));
+            const exportHost = validation.mode === 'reserve' ? assignment.domain.effective : assignment.code.detectedHost;
+            const fileName = ArchiveNaming.uniqueZipFileName(exportHost, fallbackName, usedFileNames);
+            const siteZip = new JSZipImpl();
+            const siteFolderName = ArchiveNaming.siteZipDescriptor(exportHost, fallbackName).siteFolderName;
+            const siteFolder = siteZip.folder(siteFolderName);
             for (const path of inspected.paths) {
                 const relative = path.replace(/^website\//, '');
                 if (!relative || relative === path && path.indexOf('/') === -1) continue;
-                folder.file(relative, await inspected.zip.files[path].async('uint8array'));
+                siteFolder.file(relative, await inspected.zip.files[path].async('uint8array'));
             }
-            reports.push({ folder: folderName, dataSource: label, adCodeFile: assignment.code.fileName || '', adHost: assignment.code.detectedHost || '', detailPages: runtime.detailCount, valid: true });
+            siteArchives.push({ zip: siteZip, siteFolderName: siteFolderName, fileName: fileName, dataSource: label, adHost: exportHost || '' });
+            reports.push({
+                fileName: fileName,
+                dataSource: label,
+                mode: validation.mode,
+                adCodeFile: assignment.code && assignment.code.fileName || '',
+                adHost: exportHost || '',
+                domainPlaceholder: !!(assignment.domain && assignment.domain.placeholder),
+                reserveScope: validation.mode === 'reserve' ? (assignment.site.reserveOverrideEnabled ? 'site' : 'global') : '',
+                adJsVersion: assignment.reserveSettings && assignment.reserveSettings.adJsVersion || siteState.adJsVersion,
+                detailPages: runtime.detailCount,
+                valid: runtime.valid && preflight.valid,
+                preflight: preflight
+            });
         }
 
-        outer.file('BATCH_AD_EXPORT_REPORT.json', JSON.stringify({
-            schema: 'sitefoundry-batch-ad-export/v1',
-            generatedAt: new Date().toISOString(),
-            rule: 'Each site has one validated, non-reused advertisement code. Home and detail pages were validated after generation.',
-            sites: reports
-        }, null, 2) + '\n');
-        onProgress(93, '所有站点广告运行时检查通过，正在打包总 ZIP…');
-        const blob = await outer.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, function(metadata) {
-            onProgress(93 + Math.round(metadata.percent * 0.07), '正在压缩批量站点…');
-        });
-        onProgress(100, '批量站点导出完成');
-        return { blob: blob, reports: reports };
+        const preflightReport = typeof SiteExportPreflight !== 'undefined'
+            ? SiteExportPreflight.combine(preflightReports)
+            : { valid: false, siteCount: preflightReports.length, pageCount: 0, localReferenceCount: 0, fileCount: 0, errors: [{ message: '导出前全站体检组件未加载。' }], warnings: [], sites: preflightReports };
+        if (!preflightReport.valid) {
+            if (typeof SiteExportPreflight !== 'undefined') throw SiteExportPreflight.createBlockingError(preflightReport);
+            throw new Error(preflightReport.errors.map(function(error) { return error.message; }).join(' '));
+        }
+        if (runtimeFailures.length) {
+            const error = new Error(runtimeFailures.join('\n'));
+            error.preflightReport = preflightReport;
+            throw error;
+        }
+
+        onProgress(85, '所有站点广告运行时检查通过，正在分别打包域名 ZIP…');
+        const downloads = [];
+        const generatedAt = new Date().toISOString();
+        for (let index = 0; index < siteArchives.length; index++) {
+            const siteArchive = siteArchives[index];
+            // 每个站点独立成包；保留原有机器可读报告，但报告只包含该站点的数据。
+            siteArchive.zip.folder(siteArchive.siteFolderName).file('BATCH_AD_EXPORT_REPORT.json', JSON.stringify({
+                schema: 'sitefoundry-batch-ad-export/v2',
+                generatedAt: generatedAt,
+                mode: validation.mode,
+                rule: validation.mode === 'reserve'
+                    ? 'Each site exports reserved advertisement containers and an empty ad.js. Valid domains must be unique; missing or invalid domains use your-domain.com.'
+                    : 'Each site has one validated, non-reused advertisement code. Home and detail pages were validated after generation.',
+                preflight: reports[index].preflight,
+                sites: [reports[index]]
+            }, null, 2) + '\n');
+            const blob = await siteArchive.zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, function(metadata) {
+                const fraction = (index + metadata.percent / 100) / siteArchives.length;
+                onProgress(85 + Math.round(fraction * 15), '正在压缩 ' + siteArchive.fileName + '（' + (index + 1) + '/' + siteArchives.length + '）…');
+            });
+            downloads.push({ blob: blob, fileName: siteArchive.fileName, dataSource: siteArchive.dataSource, adHost: siteArchive.adHost });
+        }
+        onProgress(100, '批量站点已分别打包完成');
+        return { downloads: downloads, reports: reports, preflightReport: preflightReport };
     }
 
     return {
@@ -249,6 +467,14 @@ const BatchAdBuilder = (function() {
         collectFields: collectFields,
         autoMapFields: autoMapFields,
         codeUnitSignature: codeUnitSignature,
+        normalizeAdMode: normalizeAdMode,
+        normalizeDomainInput: normalizeDomainInput,
+        normalizeReserveSettings: normalizeReserveSettings,
+        resolveReserveSettings: resolveReserveSettings,
+        normalizeCodePlacementSettings: normalizeCodePlacementSettings,
+        resolveCodePlacementSettings: resolveCodePlacementSettings,
+        countReservedPlacements: countReservedPlacements,
+        placeholderDomain: PLACEHOLDER_DOMAIN,
         validateAssignments: validateAssignments,
         validateGeneratedSiteFiles: validateGeneratedSiteFiles,
         createSiteState: createSiteState,

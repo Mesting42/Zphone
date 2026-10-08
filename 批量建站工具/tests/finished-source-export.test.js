@@ -66,6 +66,25 @@ function unpack(entries) {
 }
 
 describe('finished-site source export', () => {
+  it('classifies editable React source correctly when root HTML references a built UI bundle', () => {
+    const entries = [entry('package.json', JSON.stringify({ dependencies: { react: '19' }, scripts: { build: 'node scripts/build.mjs' } })),
+      entry('index.html', '<html><head><script type="module" src="/assets/app.js"></script></head><body><div id="root"></div></body></html>'),
+      entry('src/main.jsx', 'export default function App(){return <main>Source</main>}'), entry('dist/index.html', home)];
+    const project = context.ads.classifyInjectableSiteEntries(entries, 'mixed-react');
+    expect(project.kind).toBe('react-source');
+    expect(context.ads.staticDeploymentSite({ name: 'mixed-react', entries, project }).entries.some(entry => entry.path === 'src/main.jsx')).toBe(false);
+  });
+  it('re-plans partially injected pages and stays free of duplicates on re-import', async () => {
+    const partial = home.replace('</nav>', '</nav><div id="adv2"><div id="div-gpt-ad-banner2"></div></div>');
+    const first = await exportBatch([entry('index.html', partial), entry('games/2048/index.html', detail)], settings('fixed', 'static'));
+    const second = await exportBatch(first.sites[0].entries, settings('fixed', 'static'));
+    for (const batch of [first, second]) {
+      const html = files(batch).get('index.html').toString();
+      for (const n of [1, 2, 3]) expect((html.match(new RegExp('id="div-gpt-ad-banner' + n + '"', 'g')) || []).length).toBe(1);
+      expect((html.match(/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js/g) || []).length).toBe(1);
+      expect(html.indexOf('id="adv3"')).toBeLessThan(html.indexOf('<footer'));
+    }
+  });
   it('exports only deployment files when static content is selected', async () => {
     const batch = await exportBatch(projectEntries(), settings('manual', 'static'));
     const output = files(batch);

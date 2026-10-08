@@ -20,12 +20,75 @@ const BatchAdBuilder = (function() {
     }
 
     function normalizeData(data) {
-        if (Array.isArray(data)) return data;
-        if (data && typeof data === 'object') {
-            const list = Object.keys(data).map(function(key) { return data[key]; }).find(Array.isArray);
-            if (list) return list;
+        // Prefer conventional content keys over unrelated metadata arrays. The
+        // depth limit also prevents malformed wrappers from blocking the UI.
+        const preferred = ['articles', 'items', 'records', 'results', 'games', 'posts', 'data', 'list'];
+        function find(value, depth) {
+            if (Array.isArray(value)) return value;
+            if (!value || typeof value !== 'object' || depth > 6) return null;
+            const keys = preferred.filter(function(key) { return Object.hasOwn(value, key); })
+                .concat(Object.keys(value).filter(function(key) { return preferred.indexOf(key) < 0; }));
+            for (const key of keys) {
+                const result = find(value[key], depth + 1);
+                if (result && result.some(function(row) { return row && typeof row === 'object' && !Array.isArray(row); })) return result;
+            }
+            return null;
         }
-        return [];
+        const rows = find(data, 0) || [];
+        const invalid = rows.findIndex(function(row) { return !row || typeof row !== 'object' || Array.isArray(row); });
+        if (invalid >= 0) throw new Error('数据源第 ' + (invalid + 1) + ' 条不是有效对象。请修正该条记录后重新上传；其余记录不会被静默丢弃。');
+        return rows;
+    }
+
+    // Flatten scalar leaves without guessing how arrays of tags should render.
+    // The original nested object is retained for integrations using raw data.
+    function flattenRecords(data) {
+        return normalizeData(data).map(function(row) {
+            const copy = Object.assign({}, row);
+            function visit(value, prefix, depth) {
+                if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 4) return;
+                Object.keys(value).forEach(function(key) {
+                    const field = prefix ? prefix + '.' + key : key;
+                    if (value[key] && typeof value[key] === 'object' && !Array.isArray(value[key])) visit(value[key], field, depth + 1);
+                    else if (!Object.hasOwn(copy, field)) copy[field] = value[key];
+                });
+            }
+            visit(row, '', 0);
+            return copy;
+        });
+    }
+
+    function prepareSource(data, images) {
+        const rows = flattenRecords(data);
+        const source = images || {};
+        const keys = Object.keys(source);
+        const output = {};
+        const names = {};
+        keys.forEach(function(key, index) {
+            const base = key.replace(/\\/g, '/').split('/').pop();
+            // Prefixing each archive asset avoids collisions between a/1.webp
+            // and b/1.webp, while keeping generated URLs readable and portable.
+            const name = index + '-' + base;
+            names[key] = name;
+            output['images/' + name] = source[key];
+        });
+        function resolve(value) {
+            if (typeof value !== 'string' || /^(?:https?:|data:|blob:|\/\/)/i.test(value)) return value;
+            const path = value.replace(/\\/g, '/').replace(/^\.\//, '').split(/[?#]/)[0];
+            if (!/\.(?:png|jpe?g|webp|gif|svg|avif)$/i.test(path)) return value;
+            const matches = keys.filter(function(key) {
+                const normalized = key.replace(/\\/g, '/');
+                return normalized === path || normalized.endsWith('/' + path);
+            });
+            const candidates = matches.length ? matches : keys.filter(function(key) { return key.replace(/\\/g, '/').split('/').pop() === path.split('/').pop(); });
+            if (candidates.length > 1) throw new Error('图片路径存在歧义：' + value + '。请在 JSON 中填写完整相对路径。');
+            return candidates.length === 1 ? 'images/' + names[candidates[0]] : value;
+        }
+        return { data: rows.map(function(row) {
+            const copy = Object.assign({}, row);
+            Object.keys(copy).forEach(function(key) { copy[key] = resolve(copy[key]); });
+            return copy;
+        }), localImages: output };
     }
 
     function collectFields(data) {
@@ -39,15 +102,46 @@ const BatchAdBuilder = (function() {
         return Object.keys(fields).map(function(name) { return { name: name, type: fields[name] }; });
     }
 
+    async function selectDataJson(entries, readText) {
+        const candidates = Array.from(entries || []).filter(function(entry) { return /\.json$/i.test(entry.path); });
+        candidates.sort(function(a, b) {
+            function priority(entry) {
+                return /(?:^|\/)(?:data|articles?|posts?|games?|items?|records?)(?:[_-][^/]*)?\.json$/i.test(entry.path) ? 0 : 1;
+            }
+            return priority(a) - priority(b) || a.path.localeCompare(b.path);
+        });
+        let firstError;
+        for (const entry of candidates) {
+            try {
+                const parsed = JSON.parse(String(await readText(entry)).replace(/^\uFEFF/, ''));
+                if (normalizeData(parsed).length) return entry;
+            } catch (error) { if (!firstError) firstError = error; }
+        }
+        throw new Error(firstError ? '未找到可用的数据列表：' + firstError.message : '压缩包中未找到包含对象列表的 JSON 数据文件。');
+    }
+
     function autoMapFields(theme, fields) {
         const mapping = {};
+        const aliases = {
+            title: ['headline', 'name', '标题', 'article_title'], content: ['body', 'text', '正文', 'article_content', 'description'],
+            image: ['cover', 'thumbnail', 'thumb', 'picture', 'image_url', 'cover_url', '封面'],
+            excerpt: ['summary', 'abstract', '简介'], category: ['section', 'topic', '分类'],
+            published_at: ['date', 'publish_date', 'created_at'], source_url: ['source', 'url', 'link'],
+            id: ['identifier', 'post_id', 'article_id'], author: ['writer', '作者'], date: ['published_at', 'publish_date', 'created_at', '日期']
+        };
         if (!theme || !Array.isArray(theme.fields)) return mapping;
         theme.fields.forEach(function(field) {
             const match = (fields || []).find(function(candidate) {
                 const source = String(candidate.name || '').toLowerCase();
-                return source === String(field.id || '').toLowerCase() || source === String(field.label || '').toLowerCase();
+                return candidate.type !== 'object' && (source === String(field.id || '').toLowerCase() || source === String(field.label || '').toLowerCase());
             });
-            if (match) mapping[field.id] = match.name;
+            const alias = !match && (fields || []).find(function(candidate) {
+                const leaf = String(candidate.name || '').toLowerCase().split('.').pop();
+                const nestedImage = field.id === 'image' && /(?:^|\.)(?:image|cover|thumbnail)\.(?:url|src)$/i.test(candidate.name);
+                const nestedBody = field.id === 'content' && /(?:^|\.)(?:content|body)\.rendered$/i.test(candidate.name);
+                return candidate.type !== 'object' && (nestedImage || nestedBody || (aliases[field.id] || []).indexOf(leaf) >= 0 || leaf === field.id);
+            });
+            if (match || alias) mapping[field.id] = (match || alias).name;
         });
         return mapping;
     }
@@ -318,8 +412,8 @@ const BatchAdBuilder = (function() {
         const host = reserve ? domain.effective : String(code && code.detectedHost || '').trim().toLowerCase();
         // 每份广告代码指向独立域名；导出的联系邮箱也随站点变化，避免一批站共享默认地址。
         if (host) config.contactEmail = 'contact@' + host;
-        // “全部文章”是普通单站工作流的开关；批量建站加广告暂不改变导出页面集合。
-        config.allArticlesEnabled = false;
+        // 批量站点同样提供完整内容列表，沿用各站显式开关，默认开启。
+        config.allArticlesEnabled = config.allArticlesEnabled !== false;
         config.adPaths = reserve ? {} : clone(code && code.config);
         config.adPlacements = reserve ? clone(settings.adPlacements) : (typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {});
         config.adCodePlacements = reserve || codePlacementSettings.adPlacements === null
@@ -464,6 +558,8 @@ const BatchAdBuilder = (function() {
 
     return {
         normalizeData: normalizeData,
+        prepareSource: prepareSource,
+        selectDataJson: selectDataJson,
         collectFields: collectFields,
         autoMapFields: autoMapFields,
         codeUnitSignature: codeUnitSignature,

@@ -15,7 +15,7 @@ const THEMES = {
         fields: [
             { id: 'title', label: 'Title', labelZh: '文章标题', required: true, detailDisplay: 'main-title' },
             { id: 'content', label: 'Content', labelZh: '文章正文', required: true, detailDisplay: 'body' },
-            { id: 'image', label: 'Image', labelZh: '文章头图', required: true, detailDisplay: 'hero-image' },
+            { id: 'image', label: 'Image', labelZh: '文章头图', required: false, detailDisplay: 'hero-image' },
             { id: 'excerpt', label: 'Excerpt', labelZh: '文章摘要', required: false, detailDisplay: 'excerpt' },
             { id: 'id', label: 'ID', labelZh: '文章ID', required: false, detailDisplay: 'filename' }
         ],
@@ -136,7 +136,7 @@ const THEMES = {
         fields: [
             { id: 'title', label: 'Title', labelZh: '游戏标题', required: true, detailDisplay: 'main-title' },
             { id: 'content', label: 'Content', labelZh: '游戏介绍正文', required: true, detailDisplay: 'body' },
-            { id: 'image', label: 'Image', labelZh: '游戏头图', required: true, detailDisplay: 'hero-image' },
+            { id: 'image', label: 'Image', labelZh: '游戏头图', required: false, detailDisplay: 'hero-image' },
             { id: 'developer', label: 'Developer', labelZh: '开发商', required: false, detailDisplay: 'meta' },
             { id: 'publisher', label: 'Publisher', labelZh: '发行商', required: false, detailDisplay: 'meta' },
             { id: 'genres', label: 'Genres', labelZh: '游戏类型', required: false, detailDisplay: 'card+meta' },
@@ -257,7 +257,7 @@ const THEMES = {
         fields: [
             { id: 'title', label: 'Title', labelZh: '美食名称', required: true, detailDisplay: 'main-title' },
             { id: 'content', label: 'Content', labelZh: '美食介绍正文', required: true, detailDisplay: 'body' },
-            { id: 'image', label: 'Image', labelZh: '美食图片', required: true, detailDisplay: 'hero-image' },
+            { id: 'image', label: 'Image', labelZh: '美食图片', required: false, detailDisplay: 'hero-image' },
             { id: 'ingredients', label: 'Ingredients', labelZh: '食材清单', required: false, detailDisplay: 'meta' },
             { id: 'cook_time', label: 'Cook Time', labelZh: '烹饪时间', required: false, detailDisplay: 'card+meta' },
             { id: 'difficulty', label: 'Difficulty', labelZh: '难度', required: false, detailDisplay: 'card+meta' },
@@ -373,7 +373,7 @@ const THEMES = {
         fields: [
             { id: 'title', label: 'Title', labelZh: '动漫名称', required: true, detailDisplay: 'main-title' },
             { id: 'content', label: 'Content', labelZh: '动漫介绍正文', required: true, detailDisplay: 'body' },
-            { id: 'image', label: 'Image', labelZh: '动漫图片', required: true, detailDisplay: 'hero-image' },
+            { id: 'image', label: 'Image', labelZh: '动漫图片', required: false, detailDisplay: 'hero-image' },
             { id: 'studio', label: 'Studio', labelZh: '制作公司', required: false, detailDisplay: 'meta' },
             { id: 'genres', label: 'Genres', labelZh: '动漫类型', required: false, detailDisplay: 'card+meta' },
             { id: 'rating', label: 'Rating', labelZh: '评分', required: false, detailDisplay: 'card+meta' },
@@ -730,7 +730,7 @@ function createDomainTheme(id, profile, options) {
     var commonFields = [
         { id: 'title', label: 'Title', labelZh: '文章标题', required: true, detailDisplay: 'main-title' },
         { id: 'content', label: 'Content', labelZh: '文章正文', required: true, detailDisplay: 'body' },
-        { id: 'image', label: 'Image', labelZh: '文章头图', required: true, detailDisplay: 'hero-image' },
+        { id: 'image', label: 'Image', labelZh: '文章头图', required: false, detailDisplay: 'hero-image' },
         { id: 'excerpt', label: 'Excerpt', labelZh: '文章摘要', required: false, detailDisplay: 'excerpt' },
         { id: 'category', label: 'Category', labelZh: '内容分类', required: false, detailDisplay: 'meta' },
         { id: 'author', label: 'Author', labelZh: '作者', required: false, detailDisplay: 'meta' },

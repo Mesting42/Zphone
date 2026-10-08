@@ -378,12 +378,13 @@ const state = {
     const previewMessages = [];
     const previewDocument = {
         querySelector: function() { return null; },
+        querySelectorAll: function() { return []; },
         addEventListener: function(type, listener) { previewListeners[type] = listener; }
     };
     assert.doesNotThrow(function() {
         new Function('document', 'window', previewScriptMatch[1])(
             previewDocument,
-            { parent: { postMessage: function(message) { previewMessages.push(message); } } }
+            { addEventListener: function() {}, parent: { postMessage: function(message) { previewMessages.push(message); } } }
         );
     }, 'preview click interception script must parse and initialize');
     const previewCardTarget = {
@@ -430,8 +431,8 @@ const state = {
     assert.deepEqual(directAdConfig.adPaths.bannerPath1, '/1/demo-banner1', 'normal game-site ads must use the validated TXT paths');
     assert.deepEqual(directAdConfig.adPlacements, {
         adv1: { home: 'after-navbar', detail: 'after-navbar' },
-        adv2: { home: 'after-section-0', detail: 'detail-after-content' },
-        adv3: { home: 'after-section-1', detail: 'footer-top' }
+        adv2: { home: 'content-middle', detail: 'detail-middle' },
+        adv3: { home: 'footer-top', detail: 'footer-top' }
     }, 'validated TXT ads must use the same automatic placements as the news tool');
     const directAdPreview = PrincipalGenerator.generatePreviewHtml({
         ...state,
@@ -496,9 +497,7 @@ const state = {
     };
     const savedGamePositions = JSON.stringify(reservedGameState.config.adPlacements);
     assert.deepEqual(PrincipalGenerator.buildConfig(reservedGameState).adPlacements, {
-        ...PrincipalAdMigration.fixedPlacements(),
-        adv2: { home: 'content-bottom', detail: 'detail-after-content' },
-        adv3: { home: 'footer-top', detail: 'footer-top' }
+        ...PrincipalAdMigration.fixedPlacements()
     }, 'fixed reserve mode must keep the third banner visible when only one homepage category exists');
     assert.ok(PrincipalGenerator.generatePreviewHtml(reservedGameState, 'home').includes('div-gpt-ad-banner3'), 'fixed reserve positions must appear in game preview');
     await PrincipalGenerator.exportWebsite(reservedGameState, function() {});
@@ -992,12 +991,13 @@ const state = {
     const fourGamePreview = PrincipalGenerator.generatePreviewHtml(fourGameState, 'all');
     for (const page of [fourGameAll, fourGamePreview]) {
         assert.equal((page.match(/class="item-card"/g) || []).length, 4, 'all games must remain in one continuous card grid');
-        assert.equal((page.match(/class="all-games-middle-ads"/g) || []).length, 1, 'middle banner must be emitted once');
-        assert.ok(page.indexOf('style="order:4"') < page.indexOf('class="all-games-middle-ads"'), 'desktop middle banner must follow three complete cards');
-        assert.ok(page.indexOf('class="all-games-middle-ads"') < page.indexOf('style="order:6"'), 'desktop middle banner must precede the fourth card');
-        assert.ok(page.includes('--desktop-ad-order:5;--mobile-ad-order:3'), 'mobile layout must move banner after a complete two-card row');
+        assert.equal((page.match(/data-sitefoundry-middle-ad style=/g) || []).length, 1, 'middle banner must be emitted once');
+        const boundary = page.indexOf('<div data-sitefoundry-middle-ad');
+        assert.equal((page.slice(0, boundary).match(/class="item-card"/g) || []).length, 3, 'desktop middle banner must follow a complete three-card row');
+        assert.equal((page.slice(boundary).match(/class="item-card"/g) || []).length, 1, 'fourth game must follow the banner');
+        assert.ok(page.includes('grid-column:1 / -1'), 'banner must span the complete grid');
+        assert.ok((page + generatedFiles['website/js/script.js']).includes('function adLayoutRuntime()'), 'responsive row correction must be included inline or in main.js');
     }
-    assert.ok(generatedFiles['website/css/style.css'].includes('#all-games .all-games-middle-ads { grid-column: 1 / -1; order: var(--desktop-ad-order); }'), 'banner must span the full game grid row');
     await PrincipalGenerator.exportWebsite({
         ...normalAdsState,
         config: { ...normalAdsState.config, allGamesEnabled: false }

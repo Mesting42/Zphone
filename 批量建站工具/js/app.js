@@ -399,7 +399,8 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
     }
 
     function syncAllArticlesUI() {
-        var normalMode = appState.siteBuildMode === 'normal';
+        // All generated-content workflows export the same listing page.
+        var normalMode = ['normal', 'ad-migration', 'batch-ad-build'].indexOf(appState.siteBuildMode) !== -1;
         var enabled = normalMode && appState.config && appState.config.allArticlesEnabled !== false && !!(appState.data && appState.data.length);
         var settings = document.getElementById('all-articles-settings');
         var input = document.getElementById('all-articles-enabled');
@@ -600,7 +601,7 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
         'detail-between-p-1': '第 1 段之后',
         'detail-between-p-2': '第 2 段之后',
         'detail-between-p-3': '第 3 段之后',
-        'detail-after-content': '正文中部',
+        'detail-middle': '正文中部', 'content-middle': '内容中段', 'detail-after-content': '正文中部',
         'detail-before-related': '相关推荐之前',
         'detail-after-related': '相关推荐之后',
         'footer-top': '页脚上方'
@@ -1181,7 +1182,7 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             'after-section-0': '第 1 个区块后', 'after-section-1': '第 2 个区块后', 'after-section-2': '第 3 个区块后',
             'content-bottom': '内容底部', 'footer-top': '页脚前', 'detail-before-content': '详情正文前',
             'detail-between-p-1': '详情第 1 段后', 'detail-between-p-2': '详情第 2 段后', 'detail-between-p-3': '详情第 3 段后',
-            'detail-after-content': '详情内容中部', 'detail-before-related': '相关推荐前', 'detail-after-related': '相关推荐后'
+            'content-middle': '内容中段', 'detail-middle': '正文中部', 'detail-after-content': '详情内容中部', 'detail-before-related': '相关推荐前', 'detail-after-related': '相关推荐后'
         };
         if (/^custom-after-(?:\d+)(?:-\d+)*$/.test(String(position || ''))) return '自定义内容位置';
         return labels[position] || position;
@@ -3548,7 +3549,8 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             if (!window.JSZip) throw new Error('ZIP 解析组件未加载，请刷新页面后重试。');
             report(0.08, '正在打开 ZIP 压缩包');
             var zip = await window.JSZip.loadAsync(await file.arrayBuffer());
-            var jsonPath = Object.keys(zip.files).find(function(path) { return !zip.files[path].dir && /\.json$/i.test(path); });
+            var selectedJson = await BatchAdBuilder.selectDataJson(Object.keys(zip.files).filter(function(path) { return !zip.files[path].dir; }).map(function(path) { return { path: path }; }), function(entry) { return zip.files[entry.path].async('text'); });
+            var jsonPath = selectedJson.path;
             if (!jsonPath) throw new Error(file.name + ' 中没有找到 JSON 数据文件。');
             report(0.42, '正在读取压缩包内 JSON');
             data = BatchAdBuilder.normalizeData(parseUploadedJson(await zip.files[jsonPath].async('text')));
@@ -3605,6 +3607,9 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             throw new Error(file.name + ' 不支持；批量建站只接受 .json 或包含 JSON+图片的 .zip、.rar、.7z。');
         }
         if (!data.length) throw new Error(file.name + ' 不是包含对象列表的有效数据源。');
+        var prepared = BatchAdBuilder.prepareSource(data, localImages);
+        data = prepared.data;
+        localImages = prepared.localImages;
         report(1, '数据解析完成');
         return {
             id: 'batch-site-' + index + '-' + Date.now(), fileName: file.name, data: data,
@@ -4338,7 +4343,7 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             setSingleImportProgress(5 + Math.round(fraction * 28), '正在读取 ZIP：' + file.name, 'loading');
         };
         reader.onload = function(e) {
-            window.JSZip.loadAsync(e.target.result).then(function(zip) {
+            window.JSZip.loadAsync(e.target.result).then(async function(zip) {
                 setSingleImportProgress(42, '正在检查 ZIP 内的数据与图片…', 'loading');
                 var jsonFile = null;
                 var jsonFilePath = '';
@@ -4369,6 +4374,9 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
                     return;
                 }
 
+                var selectedJson = await BatchAdBuilder.selectDataJson(Object.keys(archiveFiles).filter(function(path) { return !archiveFiles[path].dir; }).map(function(path) { return { path: path }; }), function(entry) { return archiveFiles[entry.path].async('text'); });
+                jsonFilePath = selectedJson.path;
+                jsonFile = archiveFiles[jsonFilePath];
                 // 读取JSON
                 return jsonFile.async('string').then(function(jsonStr) {
                     try {
@@ -4536,21 +4544,11 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
     }
 
     function processData(data, isLocalImages, localImages, skipLocalImageWarning, source) {
-        // 兼容对象包裹格式
-        if (!Array.isArray(data)) {
-            var keys = Object.keys(data);
-            for (var i = 0; i < keys.length; i++) {
-                if (Array.isArray(data[keys[i]])) {
-                    data = data[keys[i]];
-                    break;
-                }
-            }
-        }
-
-        if (!Array.isArray(data) || data.length === 0) {
-            showNotice('JSON 数据格式不正确或为空。请上传包含对象列表的数据文件。', '无法导入数据');
-            return;
-        }
+        // Single and batch imports share normalization, aliases and asset naming.
+        const prepared = BatchAdBuilder.prepareSource(data, localImages);
+        data = prepared.data;
+        localImages = prepared.localImages;
+        if (!data.length) throw new Error('JSON 数据为空或没有可识别的对象列表。');
 
         appState.data = data;
         resetWorkflowStepProgress(currentWorkflowProgressKey());
@@ -4656,18 +4654,7 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
         var theme = THEMES[appState.selectedTheme];
         if (!theme) return;
 
-        appState.fieldMapping = {};
-
-        // 尝试自动匹配：按字段名相同匹配
-        theme.fields.forEach(function(tf) {
-            var match = appState.jsonFields.find(function(jf) {
-                return jf.name.toLowerCase() === tf.id.toLowerCase() ||
-                       jf.name.toLowerCase() === tf.label.toLowerCase();
-            });
-            if (match) {
-                appState.fieldMapping[tf.id] = match.name;
-            }
-        });
+        appState.fieldMapping = BatchAdBuilder.autoMapFields(theme, appState.jsonFields);
     }
 
     function renderFieldMapping() {
@@ -6536,7 +6523,7 @@ import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data
             'content-bottom': '内容区底部',
             'footer-top': '页脚上方',
             'detail-before-content': '正文前',
-            'detail-after-content': '正文中部',
+            'detail-middle': '正文中部', 'content-middle': '内容中段', 'detail-after-content': '正文中部',
             'detail-before-related': '相关推荐前',
             'detail-after-related': '相关推荐后'
         };

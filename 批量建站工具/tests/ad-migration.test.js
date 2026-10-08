@@ -595,7 +595,7 @@ describe('legacy ad migration', () => {
     expect(migrated['website/js/ad.js']).toContain('const adUnitBanner1 = "/100/banner-1";');
     expect(migrated['website/js/ad.js']).toContain('interstitialSlot.setConfig({');
     const migratedNav = home.slice(home.indexOf('<nav'), home.indexOf('</nav>') + 6);
-    expect((migratedNav.match(/<li>/g) || []).length).toBe(Math.min(ordinaryState.config.categories.length, 3) + 1);
+    expect((migratedNav.match(/<li>/g) || []).length).toBe(Math.min(ordinaryState.config.categories.length, 3) + 2);
     expect(migratedNav).toContain('>Home</a>');
     expect(migratedNav).not.toContain('Contact Us');
     expect(detail).toMatch(/href="\.\.\/index\.html#category-[a-z0-9-]+"/);

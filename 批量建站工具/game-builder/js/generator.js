@@ -5,6 +5,16 @@
 
 const Generator = (function() {
 
+    // The renderer can also be used without ad integration (for example in
+    // domain-only previews); keep that path independent of the migration module.
+    const adLayoutTools = typeof AdMigration !== 'undefined' ? AdMigration : {
+        matchesPlacement: function(saved, position) { return saved === position; },
+        middleGridMarkup: function(markup) { return markup || ''; },
+        middleParagraphNumber: function(html) { return Math.max(1, Math.ceil((String(html || '').match(/<\/p>/gi) || []).length / 2)); },
+        layoutRuntimeSource: function() { return ''; }
+    };
+
+
     // 模块级变量：Google Fonts链接（由generateCSS计算，供HTML生成使用）
     var _googleFontLink = '';
 
@@ -295,16 +305,11 @@ body > * { position: relative; z-index: 1; }
     }
 
     function buildAllGamesCardGrid(adPlacements, cards) {
-        const middleAds = getAllGamesDetailAds(adPlacements, ['detail-between-p-*', 'detail-after-content', 'detail-before-related']);
+        const middleAds = getAllGamesDetailAds(adPlacements, ['detail-middle', 'detail-between-p-*', 'detail-after-content', 'detail-before-related']);
         if (!middleAds) return '<div class="items-grid">' + cards.join('') + '</div>';
-        const desktopEnd = getAllGamesMiddleRowEnd(cards.length, 3);
-        const mobileEnd = getAllGamesMiddleRowEnd(cards.length, 2);
-        const orderedCards = cards.map(function(card, index) {
-            return card.replace('class="item-card"', 'class="item-card" style="order:' + (index * 2) + '"');
-        });
-        orderedCards.splice(desktopEnd, 0,
-            '<div class="all-games-middle-ads" style="--desktop-ad-order:' + (desktopEnd * 2 - 1) + ';--mobile-ad-order:' + (mobileEnd * 2 - 1) + '">' + middleAds + '</div>');
-        return '<div class="items-grid">' + orderedCards.join('') + '</div>';
+        const columns = Math.max(1, parseInt(3, 10) || 2);
+        const gap = Math.min(cards.length - 1, Math.max(1, Math.ceil(cards.length / 2 / columns) * columns));
+        return '<div class="items-grid">' + cards.slice(0, gap).join('') + adLayoutTools.middleGridMarkup(middleAds) + cards.slice(gap).join('') + '</div>';
     }
 
     const AD_RUNTIME_CACHE_VERSION = '20260928-ad-runtime-v1021';
@@ -2410,6 +2415,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
     function generateNavbarInteractionScript() {
         return `${NavbarLayout.script()}
+${adLayoutTools.layoutRuntimeSource()}
 (function() {
     var hamburger = document.querySelector('.hamburger');
     var navLinks = document.querySelector('.nav-links');
@@ -2593,7 +2599,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         function getHomeAd(position) {
             let code = '';
             for (const [adId, pages] of Object.entries(adPlacements)) {
-                if (pages && pages.home === position) {
+                if (pages && adLayoutTools.matchesPlacement(pages.home, position, 'home', config.structure.categories.length)) {
                     code += AD_TEMPLATES[adId] || '';
                 }
             }
@@ -2625,6 +2631,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                     cardsHtml += getHomeAd('cat-' + i + '-between-' + cardIndex + '-' + (cardIndex + 1));
                 }
             }
+            if (categories.length === 1) cardsHtml += adLayoutTools.middleGridMarkup(getHomeAd('content-middle'));
             categoriesHtml += `
         <section id="${categoryAnchorId(cat, i)}" class="category-section${i === 0 ? ' category-featured' : ''}">
             ${TemplateLayouts.categoryHeader(config, cat, i)}
@@ -2743,7 +2750,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             count: cat.count
         }));
 
-        return `(function() {
+        return `${adLayoutTools.layoutRuntimeSource()}
+(function() {
     // 网站配置
     var CONFIG = {
         dataFile: 'data.json',
@@ -3005,7 +3013,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         // 图片
         let imageSrc = item[mapping.image] || '';
         // 本地图片需要加 ../ 前缀，因为详情页在 details/ 子目录
-        if (imageSrc && !imageSrc.startsWith('http') && config.isLocalImages) {
+        if (imageSrc && !/^(?:https?:|data:|blob:|\/\/)/i.test(imageSrc) && config.isLocalImages) {
             const filename = imageSrc.split('/').pop().split('\\').pop();
             imageSrc = '../images/' + filename;
         }
@@ -3082,7 +3090,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             const relTitle = escapeHtml(relItem[mapping.title] || '');
             let relImage = relItem[mapping.image] || '';
             // 本地图片需要加 ../ 前缀
-            if (relImage && !relImage.startsWith('http') && config.isLocalImages) {
+            if (relImage && !/^(?:https?:|data:|blob:|\/\/)/i.test(relImage) && config.isLocalImages) {
                 const filename = relImage.split('/').pop().split('\\').pop();
                 relImage = '../images/' + filename;
             }
@@ -3113,7 +3121,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         function getDetailAd(position) {
             let code = '';
             for (const [adId, pages] of Object.entries(adPlacements)) {
-                if (pages && pages.detail === position) {
+                if (pages && adLayoutTools.matchesPlacement(pages.detail, position, 'detail', 0, renderedContent)) {
                     code += AD_TEMPLATES[adId] || '';
                 }
             }
@@ -3122,7 +3130,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
         // 正文内容中插入段落间广告
         let contentWithAds = renderedContent;
-        if (Object.keys(adPlacements).some(([, pages]) => pages && pages.detail && pages.detail.indexOf('detail-between-p-') === 0)) {
+        if (Object.values(adPlacements).some(pages => pages && (pages.detail === 'detail-middle' || /^detail-between-p-/.test(pages.detail || '')))) {
             const paragraphs = renderedContent.split(/(<\/p>)/);
             let pCount = 0;
             let rebuilt = '';
@@ -3407,7 +3415,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         if (isLocalImages) {
             const imageField = config.fieldMapping.image;
             dataForJson = dataForJson.map(item => {
-                if (item[imageField] && !item[imageField].startsWith('http')) {
+                if (item[imageField] && !/^(?:https?:|data:|blob:|\/\/)/i.test(item[imageField])) {
                     const filename = item[imageField].split('/').pop().split('\\').pop();
                     item[imageField] = 'images/' + filename;
                 }
@@ -3547,7 +3555,6 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         const useAutomaticAdPlacements = (activeAdCode && !directCodeManualAds) || fixedReserveAds;
         const automaticAdPlacements = useAutomaticAdPlacements && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
         const homeCategoryCount = (appState.config.categories || theme.categories).length;
-        if (fixedReserveAds && automaticAdPlacements.adv2 && homeCategoryCount < 2) automaticAdPlacements.adv2.home = 'content-bottom';
         if (fixedReserveAds && automaticAdPlacements.adv3 && homeCategoryCount < 2) automaticAdPlacements.adv3.home = 'footer-top';
         const manualAdPlacements = directCodeManualAds
             ? (appState.config.adCodePlacements || {})
@@ -3664,7 +3671,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         function getPreviewImageSrc(item) {
             let src = item[mapping.image] || '';
             if (!src || !isLocalImages) return src;
-            if (src.startsWith('http') || src.startsWith('blob:')) return src;
+            if (/^(?:https?:|data:|blob:|\/\/)/i.test(src)) return src;
             const filename = src.split('/').pop().split('\\').pop();
             return localImageUrls[filename] || src;
         }
@@ -3679,6 +3686,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 'footer-top': '页脚上方',
                 'detail-before-content': '正文前',
                 'detail-after-content': '正文后',
+                'detail-middle': '正文中部',
+                'content-middle': '内容中段',
                 'detail-after-related': '相关推荐后'
             };
             if (position === 'after-section-0') return '第一个分类后';
@@ -3696,11 +3705,11 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         }
 
         // 获取指定位置的广告代码
-        function getAdCodeAt(position, page, placements) {
+        function getAdCodeAt(position, page, placements, content) {
             let code = '';
             for (const [adId, pages] of Object.entries(placements)) {
                 // 新结构: { adv1: { home: 'after-hero', detail: '...' } }
-                if (pages && pages[page] === position) {
+                if (pages && adLayoutTools.matchesPlacement(pages[page], position, page, config.structure.categories.length, content)) {
                     code += AD_TEMPLATES[adId] || '';
                 }
             }
@@ -3802,6 +3811,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                     }
                 }
 
+                if (categories.length === 1) bodyContent += adLayoutTools.middleGridMarkup(getAdCodeAt('content-middle', pageType, adPlacements));
                 bodyContent += '</div>';
                 if (isPlacingAds) bodyContent += genMarker('cat-' + ci + '-after-last', pageType);
                 bodyContent += getAdCodeAt('cat-' + ci + '-after-last', pageType, adPlacements);
@@ -3932,13 +3942,13 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                     // 在段落之间插入标记（跳过最后一对）
                     if (pi < paragraphs.length - 2) {
                         if (isPlacingAds) bodyContent += genMarker('detail-between-p-' + pCount, pageType);
-                        bodyContent += getAdCodeAt('detail-between-p-' + pCount, pageType, adPlacements);
+                        bodyContent += getAdCodeAt('detail-between-p-' + pCount, pageType, adPlacements, renderedContent);
                     }
                 }
             }
 
             if (isPlacingAds) bodyContent += genMarker('detail-after-content', pageType);
-            bodyContent += getAdCodeAt('detail-after-content', pageType, adPlacements);
+            bodyContent += getAdCodeAt('detail-after-content', pageType, adPlacements, renderedContent);
 
             if (isPlacingAds) bodyContent += genMarker('detail-before-related', pageType);
             bodyContent += getAdCodeAt('detail-before-related', pageType, adPlacements);

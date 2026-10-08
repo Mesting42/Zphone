@@ -5,6 +5,16 @@
 
 const Generator = (function() {
 
+    // The renderer can also be used without ad integration (for example in
+    // domain-only previews); keep that path independent of the migration module.
+    const adLayoutTools = typeof AdMigration !== 'undefined' ? AdMigration : {
+        matchesPlacement: function(saved, position) { return saved === position; },
+        middleGridMarkup: function(markup) { return markup || ''; },
+        middleParagraphNumber: function(html) { return Math.max(1, Math.ceil((String(html || '').match(/<\/p>/gi) || []).length / 2)); },
+        layoutRuntimeSource: function() { return ''; }
+    };
+
+
     // 模块级变量：Google Fonts链接（由generateCSS计算，供HTML生成使用）
     var _googleFontLink = '';
 
@@ -139,7 +149,7 @@ const Generator = (function() {
     function getImageSrc(item, imageField, isLocalImages) {
         const imgVal = item[imageField];
         if (!imgVal) return '';
-        if (isLocalImages) {
+        if (isLocalImages && !/^(?:https?:|data:|blob:|\/\/)/i.test(imgVal)) {
             // 本地图片：重写路径
             const filename = imgVal.split('/').pop().split('\\').pop();
             return 'images/' + filename;
@@ -170,20 +180,12 @@ const Generator = (function() {
     }
 
     function buildAllArticlesCardGrid(config, cards) {
-        const middleAds = getAllArticlesDetailAds(config, ['detail-between-p-*', 'detail-after-content', 'detail-before-related']);
+        const middleAds = getAllArticlesDetailAds(config, ['detail-middle', 'detail-between-p-*', 'detail-after-content', 'detail-before-related']);
         if (!middleAds) return '<div class="items-grid">' + cards.join('') + '</div>';
-        const requestedColumns = Number(config.structure.cardColumns);
-        const columns = config.style.cardViewMode === 'list' ? 1 :
-            (Number.isInteger(requestedColumns) && requestedColumns >= 2 && requestedColumns <= 4 ? requestedColumns : 2);
-        const completeRowsBeforeEnd = Math.floor((cards.length - 1) / columns);
-        // 广告必须接在完整卡片行之后；不能按文章数一半截断网格，留下孤立卡片。
-        const middleRow = completeRowsBeforeEnd > 0
-            ? Math.max(1, Math.min(completeRowsBeforeEnd, Math.round(cards.length / (2 * columns))))
-            : 0;
-        const middleIndex = middleRow ? middleRow * columns : cards.length;
-        const firstGrid = middleIndex ? '<div class="items-grid">' + cards.slice(0, middleIndex).join('') + '</div>' : '';
-        const lastGrid = middleIndex < cards.length ? '<div class="items-grid">' + cards.slice(middleIndex).join('') + '</div>' : '';
-        return firstGrid + middleAds + lastGrid;
+        // Keep one grid so the shared runtime can choose complete rows at every breakpoint.
+        const columns = Math.max(1, parseInt(config.structure.cardColumns, 10) || 2);
+        const gap = Math.min(cards.length - 1, Math.max(1, Math.ceil(cards.length / 2 / columns) * columns));
+        return '<div class="items-grid">' + cards.slice(0, gap).join('') + adLayoutTools.middleGridMarkup(middleAds) + cards.slice(gap).join('') + '</div>';
     }
 
     const AD_RUNTIME_CACHE_VERSION = '20260928-ad-runtime-v1021';
@@ -2434,6 +2436,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
     function generateNavbarInteractionScript() {
         return `${NavbarLayout.script()}
+${adLayoutTools.layoutRuntimeSource()}
 (function() {
     var hamburger = document.querySelector('.hamburger');
     var navLinks = document.querySelector('.nav-links');
@@ -2551,7 +2554,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         function getHomeAd(position) {
             let code = '';
             for (const [adId, pages] of Object.entries(adPlacements)) {
-                if (pages && pages.home === position) {
+                if (pages && adLayoutTools.matchesPlacement(pages.home, position, 'home', config.structure.categories.length)) {
                     code += AD_TEMPLATES[adId] || '';
                 }
             }
@@ -2585,6 +2588,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                     getImageSrc(entry.item, config.fieldMapping.image, config.isLocalImages), false);
                 if (cardIndex < count - 1) staticCards += getHomeAd('cat-' + i + '-between-' + cardIndex + '-' + (cardIndex + 1));
             }
+            if (categories.length === 1) staticCards += adLayoutTools.middleGridMarkup(getHomeAd('content-middle'));
             categoriesHtml += `
         <section id="${categoryAnchorId(cat, i)}" class="category-section">
             ${TemplateLayouts.categoryHeader(config, cat, i)}
@@ -2710,7 +2714,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             count: cat.count
         }));
 
-        return `(function() {
+        return `${adLayoutTools.layoutRuntimeSource()}
+(function() {
     // 网站配置
     var CONFIG = {
         dataFile: 'data.json',
@@ -2973,7 +2978,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         // 图片
         let imageSrc = item[mapping.image] || '';
         // 本地图片需要加 ../ 前缀，因为详情页在 details/ 子目录
-        if (imageSrc && !imageSrc.startsWith('http') && config.isLocalImages) {
+        if (imageSrc && !/^(?:https?:|data:|blob:|\/\/)/i.test(imageSrc) && config.isLocalImages) {
             const filename = imageSrc.split('/').pop().split('\\').pop();
             imageSrc = '../images/' + filename;
         }
@@ -3025,7 +3030,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             const relTitle = relItem[mapping.title] || '';
             let relImage = relItem[mapping.image] || '';
             // 本地图片需要加 ../ 前缀
-            if (relImage && !relImage.startsWith('http') && config.isLocalImages) {
+            if (relImage && !/^(?:https?:|data:|blob:|\/\/)/i.test(relImage) && config.isLocalImages) {
                 const filename = relImage.split('/').pop().split('\\').pop();
                 relImage = '../images/' + filename;
             }
@@ -3053,7 +3058,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         function getDetailAd(position) {
             let code = '';
             for (const [adId, pages] of Object.entries(adPlacements)) {
-                if (pages && pages.detail === position) {
+                if (pages && adLayoutTools.matchesPlacement(pages.detail, position, 'detail', 0, renderedContent)) {
                     code += AD_TEMPLATES[adId] || '';
                 }
             }
@@ -3062,7 +3067,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 
         // 正文内容中插入段落间广告
         let contentWithAds = renderedContent;
-        if (Object.keys(adPlacements).some(([, pages]) => pages && pages.detail && pages.detail.indexOf('detail-between-p-') === 0)) {
+        if (Object.values(adPlacements).some(pages => pages && (pages.detail === 'detail-middle' || /^detail-between-p-/.test(pages.detail || '')))) {
             const paragraphs = renderedContent.split(/(<\/p>)/);
             let pCount = 0;
             let rebuilt = '';
@@ -3363,7 +3368,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         if (isLocalImages) {
             const imageField = config.fieldMapping.image;
             dataForJson = dataForJson.map(item => {
-                if (item[imageField] && !item[imageField].startsWith('http')) {
+                if (item[imageField] && !/^(?:https?:|data:|blob:|\/\/)/i.test(item[imageField])) {
                     const filename = item[imageField].split('/').pop().split('\\').pop();
                     item[imageField] = 'images/' + filename;
                 }
@@ -3482,7 +3487,6 @@ ${config.style.navbarStyle === 'side-drawer' ? `
             && appState.directAdPlacementMode === 'manual';
         const useAutomaticAdPlacements = (migration && !directCodeManualAds) || fixedReserveAds;
         const automaticAdPlacements = useAutomaticAdPlacements && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : {};
-        if (fixedReserveAds && automaticAdPlacements.adv2 && selectedCategories.length < 2) automaticAdPlacements.adv2.home = 'content-bottom';
         if (fixedReserveAds && automaticAdPlacements.adv3 && selectedCategories.length < 2) automaticAdPlacements.adv3.home = 'footer-top';
         const manualAdPlacements = clonePlain(directCodeManualAds
             ? appState.config.adCodePlacements || {}
@@ -3510,7 +3514,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 heroSubtitle: appState.config.heroSubtitle || theme.hero.subtitle,
                 categories: selectedCategories,
                 populatedNavigationCategories: populatedNavigationCategories,
-                hasAllArticlesPage: appState.siteBuildMode === 'normal' && appState.config.allArticlesEnabled !== false && Array.isArray(appState.data) && appState.data.length > 0,
+                hasAllArticlesPage: ['normal', 'batch-ad-build', 'ad-migration'].includes(appState.siteBuildMode) && appState.config.allArticlesEnabled !== false && Array.isArray(appState.data) && appState.data.length > 0,
                 cardColumns: appState.config.cardColumns || 'auto',
                 randomSort: true,
                 cardFields: clonePlain(appState.config.cardFields || theme.cardFields, []),
@@ -3595,7 +3599,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         function getPreviewImageSrc(item) {
             let src = item[mapping.image] || '';
             if (!src || !isLocalImages) return src;
-            if (src.startsWith('http') || src.startsWith('blob:')) return src;
+            if (/^(?:https?:|data:|blob:|\/\/)/i.test(src)) return src;
             const filename = src.split('/').pop().split('\\').pop();
             return localImageUrls[filename] || src;
         }
@@ -3610,6 +3614,8 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                 'footer-top': '页脚上方',
                 'detail-before-content': '正文前',
                 'detail-after-content': '正文后',
+                'detail-middle': '正文中部',
+                'content-middle': '内容中段',
                 'detail-after-related': '相关推荐后'
             };
             if (position === 'after-section-0') return '第一个分类后';
@@ -3636,11 +3642,11 @@ ${config.style.navbarStyle === 'side-drawer' ? `
         }
 
         // 获取指定位置的广告代码
-        function getAdCodeAt(position, page, placements) {
+        function getAdCodeAt(position, page, placements, content) {
             let code = '';
             for (const [adId, pages] of Object.entries(placements)) {
                 // 新结构: { adv1: { home: 'after-hero', detail: '...' } }
-                if (pages && pages[page] === position) {
+                if (pages && adLayoutTools.matchesPlacement(pages[page], position, page, config.structure.categories.length, content)) {
                     code += AD_TEMPLATES[adId] || '';
                 }
             }
@@ -3734,6 +3740,7 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                     }
                 }
                 renderedItemCount += categoryItems.length;
+                if (categories.length === 1) bodyContent += adLayoutTools.middleGridMarkup(getAdCodeAt('content-middle', pageType, adPlacements));
 
                 bodyContent += '</div>';
                 if (isPlacingAds) bodyContent += genMarker('cat-' + ci + '-after-last', pageType);
@@ -3834,13 +3841,13 @@ ${config.style.navbarStyle === 'side-drawer' ? `
                     // 在段落之间插入标记（跳过最后一对）
                     if (pi < paragraphs.length - 2) {
                         if (isPlacingAds) bodyContent += genMarker('detail-between-p-' + pCount, pageType);
-                        bodyContent += getAdCodeAt('detail-between-p-' + pCount, pageType, adPlacements);
+                        bodyContent += getAdCodeAt('detail-between-p-' + pCount, pageType, adPlacements, renderedContent);
                     }
                 }
             }
 
             if (isPlacingAds) bodyContent += genMarker('detail-after-content', pageType);
-            bodyContent += getAdCodeAt('detail-after-content', pageType, adPlacements);
+            bodyContent += getAdCodeAt('detail-after-content', pageType, adPlacements, renderedContent);
 
             if (isPlacingAds) bodyContent += genMarker('detail-before-related', pageType);
             bodyContent += getAdCodeAt('detail-before-related', pageType, adPlacements);

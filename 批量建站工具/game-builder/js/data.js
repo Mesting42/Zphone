@@ -15,7 +15,7 @@ const THEMES = {
         fields: [
             { id: 'title', label: 'Title', labelZh: '游戏标题', required: true, detailDisplay: 'main-title' },
             { id: 'content', label: 'Content', labelZh: '游戏描述', required: true, detailDisplay: 'body' },
-            { id: 'image', label: 'Image', labelZh: '游戏缩略图', required: true, detailDisplay: 'hero-image' },
+            { id: 'image', label: 'Image', labelZh: '游戏缩略图', required: false, detailDisplay: 'hero-image' },
             { id: 'store_url', label: 'Game URL', labelZh: '游戏链接', required: true, detailDisplay: 'action-btn' },
             { id: 'id', label: 'ID', labelZh: '游戏ID', required: false, detailDisplay: 'filename' }
         ],

@@ -10,16 +10,16 @@ const finishedSiteAds = readFileSync(new URL('../js/finished-site-ads.js', impor
 const css = readFileSync(new URL('../css/tool.css', import.meta.url), 'utf8');
 
 describe('batch ad upload formats', () => {
-  it('offers a labeled, normal-mode-only all-articles toggle and preview tab', () => {
+  it('offers a labeled all-articles toggle and preview tab for generated-content workflows', () => {
     expect(html).toContain('<label for="all-articles-enabled">全部文章页面</label>');
     expect(html).toContain('id="all-articles-enabled" checked aria-describedby="all-articles-help"');
     expect(html).toContain('class="preview-tab" data-page="all" hidden>全部文章</button>');
-    expect(app).toContain("var normalMode = appState.siteBuildMode === 'normal';");
+    expect(app).toContain("var normalMode = ['normal', 'ad-migration', 'batch-ad-build'].indexOf(appState.siteBuildMode) !== -1;");
     expect(app).toContain("tab.hidden = !enabled;");
     expect(app).toContain("appState.config.allArticlesEnabled = this.checked;");
     expect(app).toContain("if (currentPage === 'all') currentPage = 'detail';");
     expect(app).toContain("var detailTab = document.querySelector('.preview-tab[data-page=\"detail\"]');");
-    expect(builder).toContain('config.allArticlesEnabled = false;');
+    expect(builder).toContain('config.allArticlesEnabled = config.allArticlesEnabled !== false;');
   });
 
   it('always includes the complete color-theme library when randomizing a template', () => {

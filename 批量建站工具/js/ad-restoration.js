@@ -12,8 +12,8 @@ const AdRestoration = (function() {
         bannerPath1: 'adUnitBanner1', bannerPath2: 'adUnitBanner2', bannerPath3: 'adUnitBanner3',
         interstitialPath: 'adUnitInterstitial', anchorPath: 'adUnitAnchor', analyticsID: 'gaMeasurementId'
     };
-    const HOME_PLACEMENTS = ['off', 'after-navbar', 'after-hero', 'content-top', 'after-section-0', 'after-section-1', 'after-section-2', 'content-bottom', 'footer-top'];
-    const DETAIL_PLACEMENTS = ['off', 'after-navbar', 'detail-before-content', 'detail-between-p-1', 'detail-between-p-2', 'detail-between-p-3', 'detail-after-content', 'detail-before-related', 'detail-after-related', 'footer-top'];
+    const HOME_PLACEMENTS = ['off', 'after-navbar', 'after-hero', 'content-top', 'content-middle', 'after-section-0', 'after-section-1', 'after-section-2', 'content-bottom', 'footer-top'];
+    const DETAIL_PLACEMENTS = ['off', 'after-navbar', 'detail-before-content', 'detail-middle', 'detail-between-p-1', 'detail-between-p-2', 'detail-between-p-3', 'detail-after-content', 'detail-before-related', 'detail-after-related', 'footer-top'];
     const BANNER_UNITS = ['off', 'banner1', 'banner2', 'banner3'];
     const BATCH_AD_JS_VERSIONS = ['v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];
     const CUSTOM_PLACEMENT_PATTERN = /^custom-after-(?:\d{1,3})(?:-\d{1,3}){0,7}$/;
@@ -23,19 +23,19 @@ const AdRestoration = (function() {
         slots: {
             home: [
                 { position: 'after-navbar', unit: 'banner1' },
-                { position: 'after-section-0', unit: 'banner2' },
-                { position: 'after-section-1', unit: 'banner3' }
+                { position: 'content-middle', unit: 'banner2' },
+                { position: 'footer-top', unit: 'banner3' }
             ],
             detail: [
                 { position: 'after-navbar', unit: 'banner1' },
-                { position: 'detail-after-content', unit: 'banner2' },
+                { position: 'detail-middle', unit: 'banner2' },
                 { position: 'footer-top', unit: 'banner3' }
             ]
         },
         placements: {
             banner1: { home: 'after-navbar', detail: 'after-navbar' },
-            banner2: { home: 'after-section-0', detail: 'detail-after-content' },
-            banner3: { home: 'after-section-1', detail: 'footer-top' }
+            banner2: { home: 'content-middle', detail: 'detail-middle' },
+            banner3: { home: 'footer-top', detail: 'footer-top' }
         },
         outOfPage: {
             interstitial: { home: true, detail: false },
@@ -395,6 +395,12 @@ const AdRestoration = (function() {
             siteRoot: siteRoot,
             homePath: home ? home.path : '',
             detailPaths: details.map(function(entry) { return entry.path; }),
+            // Listing pages follow the detail-page policy but have a card grid,
+            // not a prose container. Keep them separate for placement planning.
+            listingPaths: htmlEntries.filter(function(entry) {
+                return entry.path.indexOf(siteRoot) === 0 && /(?:^|\/)all-(?:articles|games)\.html?$/i.test(entry.path)
+                    && !details.some(function(detail) { return detail.path === entry.path; });
+            }).map(function(entry) { return entry.path; }),
             adPath: adPath,
             adRuntimeFormat: adRuntimeFormat,
             adJsVersion: adJsVersion,
@@ -705,7 +711,7 @@ const AdRestoration = (function() {
     function insertPlacement(html, pageType, position, adIds, options) {
         const offsetAfterNavigation = position === 'after-navbar' && adIds.indexOf('adv1') !== -1
             && hasAdjacentScrollProgressAfterNavigation(html);
-        const markup = adGroupMarkup(html, position, adIds, offsetAfterNavigation);
+        let markup = adGroupMarkup(html, position, adIds, offsetAfterNavigation);
         let anchor = null;
         let index = -1;
 
@@ -714,14 +720,42 @@ const AdRestoration = (function() {
         } else if (position === 'footer-top') {
             anchor = findFooter(html);
             index = anchor ? anchor.start : -1;
+        } else if (options && options.listingPage) {
+            const main = findFirstElement(html, 'main');
+            const nav = findNavigationElement(html);
+            const grid = findElementByClass(html, 'div', 'items-grid') || findElementByClass(html, 'div', 'grid');
+            if (position === 'after-navbar') index = nav ? nav.end : main ? main.start : -1;
+            else if (position === 'detail-before-content') index = grid ? grid.start : main ? main.openEnd : -1;
+            else if (position === 'detail-before-related' || position === 'detail-after-related') {
+                const footer = findFooter(html);
+                index = footer ? footer.start : closeStart(html, main, 'main');
+            } else {
+                const cards = grid ? directHtmlElementChildren(html, grid) : [];
+                if (cards.length) {
+                    index = cards[Math.max(0, Math.ceil(cards.length / 2) - 1)].end;
+                    markup = '<div data-sitefoundry-middle-ad style="grid-column:1 / -1;flex-basis:100%;width:100%;min-width:0;order:0;">' + markup + '</div>';
+                }
+            }
         } else if (pageType === 'home') {
-            const main = findElementByClass(html, 'main', 'main-content') || (options && options.finishedSite ? findFirstElement(html, 'main') : null);
+            const main = findElementByClass(html, 'main', 'main-content') || findFirstElement(html, 'main');
             const hero = findElementByClass(html, 'section', 'hero') || (options && options.finishedSite ? findElementByClass(html, 'div', 'hero') : null);
             if (position === 'after-navbar') {
                 anchor = hero || main;
                 index = anchor ? anchor.start : -1;
             } else if (position === 'after-hero') {
                 index = hero ? hero.end : -1;
+            } else if (position === 'content-middle') {
+                const sections = elementsByClass(html, 'section', 'category-section');
+                if (sections.length > 1) index = sections[Math.floor((sections.length - 1) / 2)].end;
+                else {
+                    const grid = findElementByClass(html, 'div', 'items-grid', main && main.openEnd)
+                        || findElementByClass(html, 'div', 'grid');
+                    const cards = grid ? directHtmlElementChildren(html, grid).filter(function(child) { return !/\bid=["']adv[123]/i.test(child.openTag || ''); }) : [];
+                    if (cards.length) {
+                        index = cards[Math.max(0, Math.ceil(cards.length / 2) - 1)].end;
+                        markup = '<div data-sitefoundry-middle-ad style="grid-column:1 / -1;flex-basis:100%;width:100%;min-width:0;order:0;">' + markup + '</div>';
+                    } else index = detailContentMiddleIndex(html, main || hero || findFirstElement(html, 'body'));
+                }
             } else if (position === 'content-top' || position === 'content-bottom') {
                 const container = main && findElementByClass(html, 'div', 'container', main.openEnd);
                 const target = container && container.start < main.end ? container : main;
@@ -757,7 +791,7 @@ const AdRestoration = (function() {
                     : nav && nav.end > 0 && (!detailContent || nav.end <= detailContent.start) ? nav.end : -1;
             }
             else if (position === 'detail-before-content') index = detailContent ? detailContent.start : -1;
-            else if (position === 'detail-after-content') index = detailContentMiddleIndex(html, detailContent);
+            else if (position === 'detail-after-content' || position === 'detail-middle') index = detailContentMiddleIndex(html, detailContent);
             else if (position === 'detail-before-related') index = related ? related.start : -1;
             else if (position === 'detail-after-related') index = related ? related.end : -1;
             else if (/^detail-between-p-\d+$/.test(position) && detailContent) {
@@ -862,10 +896,16 @@ const AdRestoration = (function() {
         }
 
         html = injectAdScripts(html, scriptPath);
+        // Keep policy output responsive and remove the prior copy on re-import.
+        html = html.replace(/<script\b[^>]*data-sitefoundry-ad-layout[^>]*>[\s\S]*?<\/script>/gi, '');
+        if (typeof AdMigration !== 'undefined' && AdMigration.layoutRuntimeSource) {
+            html = html.replace(/<\/body\s*>/i, '<script data-sitefoundry-ad-layout>' + AdMigration.layoutRuntimeSource() + '</script></body>');
+        }
         if (!/<\/head\s*>/i.test(source)) errors.push(issue('页面缺少 </head>，无法恢复广告脚本。', 'RESTORE_HEAD_MISSING'));
         if (!errors.length) errors.push.apply(errors, validateRestoredHtml(html, pageType, scriptPath, policy, options));
         // 移除旧容器后只会留下空白行；统一收敛，保证重复恢复不会不断增加空白。
-        html = html.replace(/^[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
+        html = html.replace(/^[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n')
+            .replace(/\s+(<div id="adv[123]")/g, '\n    $1');
         return { valid: errors.length === 0, errors: errors, html: html };
     }
 
@@ -882,7 +922,10 @@ const AdRestoration = (function() {
         const dynamicHomeAds = {};
         policy.slots.home.forEach(function(slot) {
             if (slot.unit === 'off' || slot.position === 'footer-top') return;
-            dynamicHomeAds[slot.position] = (dynamicHomeAds[slot.position] || '') + template('adv' + slot.unit.replace('banner', ''));
+            const home = entries.find(function(entry) { return entry.path === metadata.homePath; });
+            const sections = home ? elementsByClass(entryText(home), 'section', 'category-section') : [];
+            const position = slot.position === 'content-middle' ? 'after-section-' + Math.max(0, Math.floor((sections.length - 1) / 2)) : slot.position;
+            dynamicHomeAds[position] = (dynamicHomeAds[position] || '') + template('adv' + slot.unit.replace('banner', ''));
         });
         const standardHomeAds = JSON.stringify(dynamicHomeAds);
 
@@ -1032,10 +1075,12 @@ const AdRestoration = (function() {
 
         [{ path: metadata.homePath, type: 'home' }].concat(metadata.detailPaths.map(function(path) {
             return { path: path, type: 'detail' };
+        })).concat((metadata.listingPaths || []).map(function(path) {
+            return { path: path, type: 'detail', listingPage: true };
         })).forEach(function(page) {
             const entry = byPath[page.path.toLowerCase()];
             const scriptPath = relativeAdScriptPath(page.path, metadata.siteRoot) + (policyMode ? '?v=ad-policy-1' : '');
-            const result = restoreHtml(entryText(entry), page.type, scriptPath, policy, options);
+            const result = restoreHtml(entryText(entry), page.type, scriptPath, policy, Object.assign({}, options, { listingPage: !!page.listingPage }));
             if (!result.valid) {
                 result.errors.forEach(function(error) {
                     pageErrors.push(issue(page.path + '：' + error.message, error.code));
@@ -1677,6 +1722,16 @@ const AdRestoration = (function() {
             const archiveEntries = await readArchive(file, function(stage) {
                 onProgress(baseProgress, file.name + '：' + stage);
             });
+            // Batch exports contain multiple independent roots. Split before
+            // stripping a wrapper; otherwise selecting one root loses siblings.
+            const containedSites = splitSiteEntries(archiveEntries);
+            if (containedSites.length > 1) {
+                containedSites.forEach(function(site, siteIndex) {
+                    site.id = 'archive:' + index + ':' + siteIndex + ':' + site.name;
+                    sites.push(site);
+                });
+                continue;
+            }
             const originalMetadata = inspectSiteEntries(archiveEntries, file.name);
             let entries = archiveEntries;
             if (originalMetadata.siteRoot) {
@@ -1806,7 +1861,7 @@ const AdRestoration = (function() {
                 };
             }
             if (viteIndex) {
-                const built = /\/(?:assets|static)\/[^"']+\.(?:js|mjs)/i.test(viteIndex.text) && !/\/src\/[^"']+\.(?:jsx?|tsx?)/i.test(viteIndex.text);
+                const built = !hasReactSource && /\/(?:assets|static)\/[^"']+\.(?:js|mjs)/i.test(viteIndex.text) && !/\/src\/[^"']+\.(?:jsx?|tsx?)/i.test(viteIndex.text);
                 return {
                     valid: true,
                     kind: built ? 'static-html' : 'react-source',
@@ -2390,16 +2445,15 @@ const AdRestoration = (function() {
         });
         if (!htmlEntries.length) return { valid: false, errors: [issue('未找到可添加广告的内容页。', 'AD_FIXED_CONTENT_MISSING')], warnings: [], entries: entries };
         for (const entry of htmlEntries) {
-            const source = entryText(entry);
+            // Re-imported sites may already contain one or all known slots.
+            // Re-plan those slots instead of treating a partial old layout as
+            // a successful injection. Content and unrelated widgets are kept.
+            const source = removeAdScripts(removeExistingAds(entryText(entry)));
             if (!/<head\b[^>]*>[\s\S]*?<\/head\s*>/i.test(source) || !/<body\b/i.test(source)) {
                 warnings.push(issue(entry.path + '：缺少完整 head/body，已跳过固定广告位。', 'AD_FIXED_DOCUMENT_INCOMPLETE'));
                 continue;
             }
             const doc = new DOMParser().parseFromString(source, 'text/html');
-            if (doc.querySelector('[id^="div-gpt-ad-banner"], [id^="adv"]')) {
-                warnings.push(issue(entry.path + '：原站已有广告容器，已跳过自动插入以避免重复。', 'AD_FIXED_EXISTING_AD'));
-                continue;
-            }
             const pageType = FinishedSiteAds.isHomePath(entry.path, home) ? 'home' : 'detail';
             const result = FinishedSiteAds.place(doc, pageType, config);
             result.skipped.forEach(function(item) {

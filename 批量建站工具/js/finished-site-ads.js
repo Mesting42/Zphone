@@ -342,8 +342,16 @@ function createFinishedSiteAds() {
     }
 
     function cardGrid(main) {
-        const candidates = Array.from(main.querySelectorAll('[class*="grid"], [class*="list"], ul, ol'));
-        return candidates.map(function(node) {
+        // Third-party sites may use arbitrary grid class names. Repeated article
+        // and image-card parents provide structural evidence without a theme ID.
+        const candidates = new Set(main.querySelectorAll('[class*="grid"], [class*="list"], ul, ol'));
+        main.querySelectorAll('article, [class*="card"], [class*="tile"], img').forEach(function(node) {
+            if (node.parentElement) candidates.add(node.parentElement);
+            if (node.tagName === 'IMG' && node.parentElement && node.parentElement.parentElement) {
+                candidates.add(node.parentElement.parentElement);
+            }
+        });
+        return Array.from(candidates).map(function(node) {
             const children = contentChildren(node);
             const cards = children.filter(function(child) {
                 const name = String(child.className || '');
@@ -400,13 +408,23 @@ function createFinishedSiteAds() {
                 for (let i = 0; i + 1 < rows.length; i++) {
                     if (rows[i].cards.length === columns && rows[i + 1].cards.length === columns) boundaries.push(i);
                 }
-                if (columns < 2 || !boundaries.length) { ad.hidden = true; return; }
+                // A one-column phone layout still needs its middle ad. Short
+                // lists keep the placement visible instead of silently hiding it.
+                if (!boundaries.length) { ad.hidden = false; return; }
                 const selected = boundaries.reduce(function(best, index) {
                     return Math.abs(index - (rows.length - 1) / 2) < Math.abs(best - (rows.length - 1) / 2) ? index : best;
                 }, boundaries[0]);
                 const next = rows[selected + 1].cards[0];
                 if (next && ad.nextElementSibling !== next) grid.insertBefore(ad, next);
                 ad.hidden = false;
+            });
+            document.querySelectorAll('[data-sitefoundry-fixed-ad]').forEach(function(ad) {
+                // Center against the page, including layouts with a side column.
+                // Reset before measuring so resize never accumulates offsets.
+                ad.style.transform = 'none';
+                const rect = ad.getBoundingClientRect();
+                const offset = document.documentElement.clientWidth / 2 - (rect.left + rect.width / 2);
+                ad.style.transform = 'translateX(' + Math.round(offset * 100) / 100 + 'px)';
             });
         }
         if (window.__sitefoundryGridRuntimeReady) { position(); return; }
@@ -456,10 +474,9 @@ function createFinishedSiteAds() {
             placed.push(unit);
         }
         add('banner1', header || bodyContentStart, header ? 'after' : 'before', '未识别到导航栏或可用的主要内容位置');
-        if (pageType === 'home') {
-            const blocks = homepageContentModules(main);
-            add('banner2', blocks[0], 'after', '未识别到第一个独立内容模块');
-            add('banner3', blocks[1], 'after', '未识别到第二个独立内容模块');
+        const blocks = pageType === 'home' ? homepageContentModules(main) : [];
+        if (pageType === 'home' && blocks.length >= 2) {
+            add('banner2', blocks[Math.floor((blocks.length - 1) / 2)], 'after', '未识别到内容中段');
         } else {
             const grid = cardGrid(main);
             if (grid && wanted.indexOf('banner2') >= 0) {
@@ -475,8 +492,12 @@ function createFinishedSiteAds() {
                 add('banner2', paragraphs.length >= 2 ? paragraphs[Math.floor((paragraphs.length - 1) / 2)] : null,
                     'after', '未识别到完整卡片行或足够的正文段落');
             }
-            add('banner3', footer, 'before', '未识别到页脚');
         }
+        add('banner3', footer, 'before', '未识别到页脚');
+        // Both the card boundary and page-level centering are shared by static
+        // exports and live React routing; run the same runtime in both modes.
+        if (options && options.live) gridRowRuntime();
+        else addGridRuntime(doc);
         return { placed: placed, skipped: skipped };
     }
 

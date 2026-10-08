@@ -446,8 +446,8 @@ describe('batch ad restoration', () => {
       expect(visibleHome).toContain('id="div-gpt-ad-banner' + banner + '"');
       expect(visibleDetail).toContain('id="div-gpt-ad-banner' + banner + '"');
     }
-    expect(visibleHome).toMatch(/class="ad-slot"[^>]*>[\s\S]*?div-gpt-ad-banner2/);
-    expect(visibleHome).toMatch(/class="ad-slot"[^>]*>[\s\S]*?div-gpt-ad-banner3/);
+    expect(visibleHome).toContain('data-sitefoundry-middle-ad');
+    expect(visibleHome.indexOf('id="div-gpt-ad-banner3"')).toBeLessThan(visibleHome.indexOf('<footer'));
     expect(visibleDetail.indexOf('div-gpt-ad-banner2')).toBeLessThan(visibleDetail.indexOf('class="related"'));
     expect(files['js/ad.js']).toMatch(/^const adUnitInterstitial = "\/23343622020\/fixture\.example-INT1";/m);
     expect(files['js/ad.js']).toMatch(/^const adUnitAnchor = "\/23343622020\/fixture\.example-ANC1";/m);
@@ -698,10 +698,11 @@ describe('batch ad restoration', () => {
     expect(restored.valid).toBe(true);
     const runtimeScript = restored.entries.find((entry) => entry.path === 'website/js/script.js');
     const runtimeSource = new TextDecoder().decode(runtimeScript.bytes);
-    expect(runtimeSource).toContain('"after-section-0"');
+    expect(runtimeSource).not.toContain('"after-section-0"');
     expect(runtimeSource).toContain('div-gpt-ad-banner2');
     expect(runtimeSource).toContain('"after-section-1"');
-    expect(runtimeSource).toContain('div-gpt-ad-banner3');
+    expect(runtimeSource).not.toContain('div-gpt-ad-banner3');
+    expect(new TextDecoder().decode(restored.entries.find(entry => entry.path === 'website/index.html').bytes)).toMatch(/id="adv3"[\s\S]*?<footer/);
     const restoredHome = restored.entries.find((entry) => entry.path === 'website/index.html');
     expect(new TextDecoder().decode(restoredHome.bytes)).toContain('src="js/script.js?v=ads-restored-1"');
   });
@@ -1763,5 +1764,39 @@ describe('batch ad restoration', () => {
     );
     expect(matched.validCount).toBe(2);
     expect(matched.mappings.map((item) => item.host)).toEqual(['main.example.pro', 'child.main.example.pro']);
+  });
+});
+
+
+describe('listing pages and multi-site policy archives', () => {
+  it.each(['all-articles.html', 'all-games.html'])('closes and restores banners on %s', (listingPath) => {
+    const listing = '<html><head></head><body><nav>Navigation</nav><main id="all-articles"><div class="items-grid">' + Array.from({ length: 30 }, (_, i) => '<a class="item-card">Item ' + i + '</a>').join('') + '</div></main><footer>Footer</footer></body></html>';
+    const entries = [{path:'index.html',text:homeHtml},{path:'details/article1.html',text:detailHtml},{path:listingPath,text:listing},{path:'js/ad.js',text:versionedAdJs('listing.test','v1.0.2.1')}];
+    const metadata = context.__restoration.inspectSiteEntries(entries,'listing');
+    expect(Array.from(metadata.listingPaths)).toEqual([listingPath]);
+    const limited = context.__restoration.restoreEntries(entries,metadata.embeddedConfig,'listing',context.__restoration.createPolicy('traffic-limit'),{batchPolicy:true});
+    expect(limited.valid).toBe(true);
+    const closed = new TextDecoder().decode(limited.entries.find(e=>e.path===listingPath).bytes).replace(/<!--[\s\S]*?-->/g,'');
+    expect(closed).not.toContain('id="div-gpt-ad-banner');
+    const restored = context.__restoration.restoreEntries(limited.entries,metadata.embeddedConfig,'listing',context.__restoration.createPolicy(),{batchPolicy:true});
+    expect(restored.valid).toBe(true);
+    const html = new TextDecoder().decode(restored.entries.find(e=>e.path===listingPath).bytes);
+    for (const n of [1,2,3]) expect((html.match(new RegExp('id="div-gpt-ad-banner'+n+'"','g'))||[]).length).toBe(1);
+    expect(html).toContain('data-sitefoundry-middle-ad');
+    expect(html.indexOf('id="adv3"')).toBeLessThan(html.indexOf('<footer'));
+    expect((html.match(/class="item-card"/g)||[]).length).toBe(30);
+  });
+  it('reimports every site from a combined policy ZIP', async () => {
+    const zip = new JSZip();
+    for (const host of ['alpha.test','beta.test','gamma.test']) {
+      zip.file(host+'/index.html',homeHtml);
+      zip.file(host+'/details/article1.html',detailHtml);
+      zip.file(host+'/js/ad.js',versionedAdJs(host,'v1.0.2.1'));
+    }
+    const file = new Blob([await zip.generateAsync({type:'uint8array'})]);
+    Object.defineProperty(file,'name',{value:'combined.zip'});
+    const result = await context.__restoration.readSiteArchiveFiles([file]);
+    expect(result.sites.map(s=>s.name)).toEqual(['alpha.test','beta.test','gamma.test']);
+    expect(result.sites.every(s=>s.entries.some(e=>e.path==='index.html'))).toBe(true);
   });
 });

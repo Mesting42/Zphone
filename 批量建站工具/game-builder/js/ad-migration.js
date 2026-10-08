@@ -338,9 +338,75 @@ const AdMigration = (function() {
     function fixedPlacements() {
         return {
             adv1: { home: 'after-navbar', detail: 'after-navbar' },
-            adv2: { home: 'after-section-0', detail: 'detail-after-content' },
-            adv3: { home: 'after-section-1', detail: 'footer-top' }
+            adv2: { home: 'content-middle', detail: 'detail-middle' },
+            adv3: { home: 'footer-top', detail: 'footer-top' }
         };
+    }
+
+
+    // Semantic placements follow content length instead of a fixed category number.
+    function middleParagraphNumber(html) {
+        return Math.max(1, Math.ceil((String(html || '').match(/<\/p>/gi) || []).length / 2));
+    }
+
+    function matchesPlacement(saved, position, page, categoryCount, content) {
+        if (saved === position) return true;
+        if (page === 'home' && saved === 'content-middle' && categoryCount > 1) {
+            return position === 'after-section-' + Math.floor((categoryCount - 1) / 2);
+        }
+        if (page === 'detail' && saved === 'detail-middle') {
+            return (String(content || '').match(/<\/p>/gi) || []).length >= 2
+                ? position === 'detail-between-p-' + middleParagraphNumber(content)
+                : position === 'detail-after-content';
+        }
+        return false;
+    }
+
+    function middleGridMarkup(markup) {
+        return markup ? '<div data-sitefoundry-middle-ad style="grid-column:1 / -1;flex-basis:100%;width:100%;min-width:0;order:0;">' + markup + '</div>' : '';
+    }
+
+    // This serialized runtime is shared by previews and exported pages. It uses
+    // rendered rows, so changing the viewport cannot split a card row in half.
+    function adLayoutRuntime() {
+        function update() {
+            document.querySelectorAll('[data-sitefoundry-middle-ad]').forEach(function(ad) {
+                const grid = ad.parentElement;
+                const rows = [];
+                Array.from(grid.children).filter(function(card) { return card !== ad; }).forEach(function(card) {
+                    const rect = card.getBoundingClientRect();
+                    if (rect.width < 1 || rect.height < 1) return;
+                    let row = rows.find(function(item) { return Math.abs(item.top - rect.top) < 4; });
+                    if (!row) { row = { top: rect.top, cards: [] }; rows.push(row); }
+                    row.cards.push(card);
+                });
+                rows.sort(function(a, b) { return a.top - b.top; });
+                if (rows.length < 2) return;
+                const columns = Math.max.apply(null, rows.map(function(row) { return row.cards.length; }));
+                const boundaries = rows.map(function(row, i) { return i; }).filter(function(i) {
+                    return i + 1 < rows.length && rows[i].cards.length === columns && rows[i + 1].cards.length === columns;
+                });
+                if (!boundaries.length) return;
+                const middle = boundaries.reduce(function(best, i) {
+                    return Math.abs(i + 1 - rows.length / 2) < Math.abs(best + 1 - rows.length / 2) ? i : best;
+                }, boundaries[0]);
+                const next = rows[middle + 1].cards[0];
+                if (ad.nextElementSibling !== next) grid.insertBefore(ad, next);
+            });
+            document.querySelectorAll('#adv1, #adv2, #adv3').forEach(function(ad) {
+                ad.style.transform = 'none';
+                const rect = ad.getBoundingClientRect();
+                const offset = document.documentElement.clientWidth / 2 - rect.left - rect.width / 2;
+                ad.style.transform = 'translateX(' + Math.round(offset * 100) / 100 + 'px)';
+            });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', update, { once: true });
+        else update();
+        window.addEventListener('resize', function() { requestAnimationFrame(update); });
+    }
+
+    function layoutRuntimeSource() {
+        return '(' + adLayoutRuntime.toString() + ')();';
     }
 
     function countMatch(html, pattern) {
@@ -380,6 +446,10 @@ const AdMigration = (function() {
         inspectArchive: inspectArchive,
         inspectAdCodeText: inspectAdCodeText,
         fixedPlacements: fixedPlacements,
+        matchesPlacement: matchesPlacement,
+        middleParagraphNumber: middleParagraphNumber,
+        middleGridMarkup: middleGridMarkup,
+        layoutRuntimeSource: layoutRuntimeSource,
         validateGeneratedPage: validateGeneratedPage,
         validateGeneratedPages: validateGeneratedPages,
         containerIds: CONTAINER_IDS.slice(),

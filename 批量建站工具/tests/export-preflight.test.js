@@ -8,6 +8,13 @@ vm.runInNewContext(source, context);
 const preflight = context.SiteExportPreflight;
 
 describe('export preflight', () => {
+  it('resolves Browserify dependencies internally without hiding real missing modules', () => {
+    const bundle = `(function(){return {1:[function(require,module,exports){require('./Scalar'); require('./missing');},{"./Scalar":2}],2:[function(require,module,exports){module.exports=1;},{}]};})();\nrequire('./outside');`;
+    const report = preflight.inspectEntries({ 'index.html': '<script src="bundle.js"></script>', 'bundle.js': bundle });
+    expect(report.errors.some(error => error.reference === './Scalar')).toBe(false);
+    expect(report.errors.some(error => error.reference === './missing')).toBe(true);
+    expect(report.errors.some(error => error.reference === './outside')).toBe(true);
+  });
   it('accepts a complete static site and resolves references from nested pages and CSS', () => {
     const paths = [
       'website/index.html', 'website/details/story.html', 'website/css/site.css',

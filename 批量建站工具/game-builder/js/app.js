@@ -2878,6 +2878,8 @@
             'footer-top': '页脚上方',
             'detail-before-content': '正文前',
             'detail-after-content': '正文后',
+                'detail-middle': '正文中部',
+                'content-middle': '内容中段',
             'detail-before-related': '相关推荐前',
             'detail-after-related': '相关推荐后'
         };

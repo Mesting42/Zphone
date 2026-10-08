@@ -215,14 +215,37 @@
 
     function collectScriptReferences(path, script) {
         const refs = [];
+        const source = String(script || '');
+        // Browserify keeps CommonJS dependency names in a per-module map.
+        // Those names resolve to bundled numeric modules, not adjacent files.
+        // Only skip a require inside its own mapped module; imports and real
+        // external requires elsewhere in the same script are still checked.
+        const bundled = [];
+        const starts = Array.from(source.matchAll(/(?:^|[,\{])\s*(\d+)\s*:\s*\[\s*function\s*\([^)]*\)\s*\{/g));
+        const ids = new Set(starts.map(function(match) { return Number(match[1]); }));
+        starts.forEach(function(start, i) {
+            const end = i + 1 < starts.length ? starts[i + 1].index : source.length;
+            const moduleSource = source.slice(start.index, end);
+            const maps = Array.from(moduleSource.matchAll(/\},\s*(\{(?:\s*["'][^"']+["']\s*:\s*\d+\s*,?)*\s*\})\s*\]/g));
+            const map = maps[maps.length - 1];
+            if (!map) return;
+            const names = new Set();
+            for (const dependency of map[1].matchAll(/["']([^"']+)["']\s*:\s*(\d+)/g)) {
+                if (ids.has(Number(dependency[2]))) names.add(dependency[1]);
+            }
+            bundled.push({ start: start.index, end: start.index + map.index, names: names });
+        });
         const patterns = [
             /(?:\bimport\s+(?:[^'";]*?\s+from\s+)?|\bexport\s+[^'";]*?\s+from\s+|\bimport\s*\(|\brequire\s*\()\s*['"]([^'"]+)['"]/g,
             /\bfetch\s*\(\s*['"]([^'"]+)['"]/g
         ];
         patterns.forEach(function(pattern, index) {
             let match;
-            while ((match = pattern.exec(String(script || '')))) {
+            while ((match = pattern.exec(source))) {
                 const url = match[1];
+                if (index === 0 && /^require\s*\(/.test(match[0]) && bundled.some(function(module) {
+                    return match.index >= module.start && match.index < module.end && module.names.has(url);
+                })) continue;
                 if (/^(?:\.\.?\/|\/)/.test(url) || (index === 1 && /\.(?:json|xml|txt|csv|html?)(?:[?#]|$)/i.test(url))) {
                     refs.push({ url: url, kind: 'resource', source: path, module: index === 0, documentRelative: index === 1 });
                 }

@@ -8,7 +8,8 @@ function createFinishedSiteAds() {
     'use strict';
 
     const UNITS = ['banner1', 'banner2', 'banner3'];
-    const UTILITY_PATH = /(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-service)?|legal|faq|404)(?:[/.]|$)/i;
+    // 法律、联系和编辑透明度页面保持原样，不加入广告容器或运行时。
+    const UTILITY_PATH = /(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|cookie(?:-policy)?|terms(?:-of-(?:service|use))?|legal|faq|404|accessibility|editorial(?:-policy|-standards)?|sources?-methodology|corrections|disclaimer|disclosures|copyright)(?:[/.]|$)/i;
     // These HTML files run inside content pages or belong to project resources.
     // Preserve them in the export without applying the host site's ad layout.
     const RESOURCE_PATH = /(?:^|\/)(?:vendor-games|assets|node_modules|\.git|\.tmp[^/]*)(?:\/|$)/i;
@@ -529,7 +530,7 @@ var FinishedSiteAds = createFinishedSiteAds();
  */
 FinishedSiteAds.dynamicRuntimeSource = function(config, version, options) {
     const payload = JSON.stringify({ paths: config || {}, version: FinishedSiteAds.normalizeVersion(version),
-        previewPageType: options && options.previewPageType || '' })
+        previewPageType: options && options.previewPageType || '', waitForLoad: !!(options && options.waitForLoad) })
         .replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
     function runtime(input) {
         const planner = createFinishedSiteAds();
@@ -603,7 +604,7 @@ FinishedSiteAds.dynamicRuntimeSource = function(config, version, options) {
             document.querySelectorAll('[data-sitefoundry-fixed-ad]').forEach(function(node) { node.remove(); });
             const content = input.previewPageType ? true : planner.isContentPath(location.pathname);
             const home = input.previewPageType ? input.previewPageType === 'home'
-                : location.pathname === '/' || /\/index\.html?$/i.test(location.pathname);
+                : location.pathname === '/' || /^\/index\.html?$/i.test(location.pathname);
             const plan = content ? planner.place(document, home ? 'home' : 'detail', paths, { live: true }) : { placed: [], skipped: [] };
             if (plan.skipped.length) {
                 console.warn('[SiteFoundry Ads] 固定广告位已跳过，请手动选择：', plan.skipped);
@@ -614,7 +615,13 @@ FinishedSiteAds.dynamicRuntimeSource = function(config, version, options) {
             state.route = route;
             if (plan.placed.length || state.slots.length) refreshAds(home, content);
         }
-        function schedule() { clearTimeout(state.timer); state.timer = setTimeout(mount, 120); }
+        function schedule() {
+            clearTimeout(state.timer);
+            // Preserve the server-rendered tree until Next's application
+            // scripts load; DOMContentLoaded alone can race React hydration.
+            if (input.waitForLoad && document.readyState !== 'complete') return;
+            state.timer = setTimeout(mount, 120);
+        }
         window.refreshClarivoBanners = schedule;
         ['pushState', 'replaceState'].forEach(function(method) {
             const original = history[method];
@@ -624,6 +631,7 @@ FinishedSiteAds.dynamicRuntimeSource = function(config, version, options) {
             history[method] = wrapped;
         });
         addEventListener('popstate', schedule);
+        if (input.waitForLoad) addEventListener('load', schedule, { once: true });
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', schedule, { once: true });
         else schedule();
         new MutationObserver(function() {

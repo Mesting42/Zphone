@@ -17,8 +17,10 @@ describe('batch ad upload formats', () => {
     expect(app).toContain("var normalMode = ['normal', 'ad-migration', 'batch-ad-build'].indexOf(appState.siteBuildMode) !== -1;");
     expect(app).toContain("tab.hidden = !enabled;");
     expect(app).toContain("appState.config.allArticlesEnabled = this.checked;");
-    expect(app).toContain("if (currentPage === 'all') currentPage = 'detail';");
-    expect(app).toContain("var detailTab = document.querySelector('.preview-tab[data-page=\"detail\"]');");
+    expect(app).not.toContain("if (currentPage === 'all') currentPage = 'detail';");
+    expect(app).toContain("if (hasAll) parts.push('全部文章: ' + translatePosition(p.all));");
+    expect(html).toContain('该页广告位置独立设置');
+    expect(html).toContain('首页、详情页和“全部文章”页分别生成对应位置');
     expect(builder).toContain('config.allArticlesEnabled = config.allArticlesEnabled !== false;');
   });
 
@@ -146,7 +148,7 @@ describe('batch ad upload formats', () => {
     expect(html).toContain('<option value="v1.0.2">统一切换到 v1.0.2</option>');
     expect(html).toContain('<option value="v1.0.2.1">统一切换到 v1.0.2.1</option>');
     expect(app).toContain("adPolicyAdJsVersion: 'original'");
-    expect(app).toContain("{ adJsVersionMode: appState.adPolicyAdJsVersion }");
+    expect(app).toContain("adJsVersionMode: appState.adPolicyAdJsVersion, codeOverrides: appState.adPolicyCodeOverrides");
     expect(app).toContain("metadata.adJsVersion + (outputVersion !== metadata.adJsVersion ? ' → 输出 ' + outputVersion : '')");
     expect(adRestoration).toContain("const BATCH_AD_JS_VERSIONS = ['v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];");
     expect(adRestoration).toContain('const adJsVersionMode = normalizeBatchAdJsVersionMode(options.adJsVersionMode);');

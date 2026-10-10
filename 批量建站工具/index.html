@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20261001-browser-export-1">
+    <link rel="stylesheet" href="css/tool.css?v=20261009-quick-ad-2">
     <link rel="stylesheet" href="css/liquid-glass.css?v=20260929-workflow-mode-card-5">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
@@ -155,7 +155,18 @@
                     <div><span class="section-kicker">不覆盖源文件</span><h3 id="ad-restoration-title">批量广告策略编辑器</h3></div>
                     <span class="restoration-local-badge">仅浏览器本地处理</span>
                 </div>
-                <p class="ad-restoration-intro">直接选择包含多个站点的总目录。工具从源站已有及注释代码识别 <code>banner1/2/3</code>、插屏和锚点；默认保留各站原 ad.js，也可统一切换到 v1.0.0、v1.0.1、v1.0.2 或 v1.0.2.1。广告路径和 GA ID 始终保留，无需上传额外 TXT。无法可靠识别原版本的站点会被阻止处理。</p>
+                <p class="ad-restoration-intro">上传站点压缩包或读取站点目录，选择快速更新广告或详细配置策略，再导出新副本。</p>
+                <fieldset class="ad-quick-mode-options">
+                    <legend>处理方式</legend>
+                    <label><input type="radio" name="ad-policy-task" value="advanced" checked><span><strong>详细广告策略</strong><small>调整位置、单元映射、开关及单站覆盖。</small></span></label>
+                    <label><input type="radio" name="ad-policy-task" value="quick"><span><strong>快速更新广告</strong><small>上传新 TXT，更新广告单元并升级至 v1.0.2.1。</small></span></label>
+                </fieldset>
+                <fieldset class="ad-quick-scope-options" id="ad-quick-scope-options" hidden>
+                    <legend>更新范围</legend>
+                    <label><input type="radio" name="ad-quick-scope" value="single" checked> 单个处理</label>
+                    <label><input type="radio" name="ad-quick-scope" value="batch"> 多个批量处理</label>
+                    <p class="group-hint">单个处理只更新配置页选中的站点；批量处理按域名匹配每站的新 TXT。</p>
+                </fieldset>
                 <div class="restoration-file-grid">
                     <article class="restoration-file-card">
                         <span class="restoration-step" aria-hidden="true">1</span>
@@ -176,11 +187,11 @@
 
                 <div class="ad-policy-workspace" id="ad-policy-workspace" hidden>
                     <div class="ad-policy-toolbar">
-                        <div><span class="section-kicker">全局方案</span><h4>所有站点默认使用这套配置</h4><p>“完全恢复”就是普通建站上传广告代码后导出的默认效果。</p></div>
+                        <div><span class="section-kicker">全局方案</span><h4>所有站点默认使用这套配置</h4><p>完全恢复会启用所有站点的广告并采用各站关闭前的位置；无法识别时采用统一默认位置。</p></div>
                         <div class="ad-policy-toolbar-controls">
                             <label>快速方案
                                 <select id="ad-policy-preset">
-                                    <option value="restore">完全恢复默认广告</option>
+                                    <option value="restore">完全恢复广告（保留各站原位置）</option>
                                     <option value="traffic-limit">强限流：首页广告位1改用 banner3</option>
                                     <option value="home-head-footer">首页头尾：banner1 + banner3</option>
                                     <option value="custom">自定义</option>
@@ -208,6 +219,7 @@
                 <div class="restoration-rule-note"><strong>输出方式</strong><span>默认让你选择一个目标目录，并在其中新建带时间的“广告策略处理”总目录；每个站点保持独立文件夹，源目录不会被覆盖。浏览器不支持目录写入时自动改为下载一个批量 ZIP。</span></div>
                 <div class="restoration-actions">
                     <button type="button" class="restoration-run-button" id="restoration-run" disabled>应用策略并生成新总目录</button>
+                    <button type="button" class="restoration-run-button" id="restoration-run-zip" disabled>下载批量站点 ZIP</button>
                     <button type="button" class="restoration-code-export-button" id="restoration-export-code" disabled>仅识别并导出广告代码</button>
                     <div class="restoration-progress" id="restoration-progress" hidden><div><span id="restoration-progress-fill"></span></div><p id="restoration-progress-text">准备中…</p></div>
                 </div>
@@ -334,6 +346,51 @@
         <!-- ========== Step 4: 配置网站 ========== -->
         <div class="step-panel" id="step-4">
             <div class="config-layout">
+                <aside class="config-panel ad-policy-config-panel" id="ad-policy-config-panel" hidden aria-labelledby="ad-policy-config-title">
+                    <h2 class="panel-title" id="ad-policy-config-title">配置广告策略</h2>
+                    <p class="panel-desc">预览原站，分别调整首页、详情页和全部文章页的广告。</p>
+                    <label class="injection-site-label" for="ad-policy-preview-site">当前站点</label>
+                    <select id="ad-policy-preview-site" aria-label="选择广告策略预览站点"></select>
+                    <section id="ad-quick-config" class="ad-quick-config" hidden aria-label="快速更新广告配置">
+                        <p class="group-hint">保留原广告位置，统一升级至 v1.0.2.1。默认按模板开启广告：插屏仅首页，锚点按模板开启。</p>
+                        <label class="injection-site-label" for="ad-quick-switches">广告开关</label>
+                        <select id="ad-quick-switches"><option value="template">按最新版模板开启（默认）</option><option value="preserve">保留原站各页面广告开关</option></select>
+                        <button type="button" class="btn-secondary" id="ad-quick-code-button">选择新广告 TXT</button>
+                        <input type="file" id="ad-quick-code-input" accept=".txt,text/plain" hidden>
+                        <button type="button" class="btn-secondary" id="ad-quick-code-clear" disabled>清除已选 TXT</button>
+                        <p class="group-hint">新 TXT 有 GA ID 就使用新的，没有则沿用原站。重新选择 TXT 会替换本次文件列表。</p>
+                        <div id="ad-quick-code-status" class="group-hint" role="status" aria-live="polite"></div>
+                        <div id="ad-quick-matches" class="ad-quick-matches"></div>
+                    </section>
+                    <div id="ad-policy-detailed-config">
+                    <label class="injection-override-toggle"><input type="checkbox" id="ad-policy-active-override"> 当前站点单独配置</label>
+                    <p id="ad-policy-scope-status" class="group-hint" aria-live="polite"></p>
+                    <div class="config-group">
+                        <h4>当前站点广告代码</h4>
+                        <p id="ad-policy-code-status" class="group-hint" aria-live="polite"></p>
+                        <button type="button" class="btn-secondary" id="ad-policy-code-upload">上传 TXT 替换此站代码</button>
+                        <input id="ad-policy-code-file" type="file" accept=".txt,.js" hidden>
+                        <button type="button" class="btn-secondary" id="ad-policy-code-restore" disabled>恢复原站广告代码</button>
+                    </div>
+                    <fieldset class="ad-policy-placement-mode">
+                        <legend>广告放置方式</legend>
+                        <label><input type="radio" name="ad-policy-placement-mode" value="fixed" checked> 固定放置</label>
+                        <label><input type="radio" name="ad-policy-placement-mode" value="manual"> 手动放置</label>
+                        <p class="group-hint">选择下方位置或在预览中放置。自定义内容位置保存为当前站点覆盖。</p>
+                    </fieldset>
+                    <div id="ad-policy-manual-controls" hidden>
+                        <p class="group-hint">在当前页面选择广告位后，点击预览中的放置按钮。</p>
+                        <div class="ad-policy-place-actions">
+                            <button type="button" class="btn-secondary" data-policy-place-slot="0">放置广告位 1</button>
+                            <button type="button" class="btn-secondary" data-policy-place-slot="1">放置广告位 2</button>
+                            <button type="button" class="btn-secondary" data-policy-place-slot="2">放置广告位 3</button>
+                            <button type="button" class="btn-secondary" id="ad-policy-place-cancel">取消放置</button>
+                        </div>
+                    </div>
+                    <!-- 既有策略编辑器在初始化时移入这里，保留原有控件与事件。 -->
+                    <div id="ad-policy-config-content"></div>
+                    </div>
+                </aside>
                 <!-- 左侧：配置面板 -->
                 <aside class="config-panel ad-injection-config-panel" id="ad-injection-config-panel" hidden aria-labelledby="ad-injection-config-title">
                     <h2 class="panel-title" id="ad-injection-config-title">配置广告</h2>
@@ -482,7 +539,7 @@
                                         <span class="toggle-slider" aria-hidden="true"></span>
                                     </div>
                                 </div>
-                                <p class="group-hint" id="all-articles-help">开启后生成展示全部导入文章的页面，并在导航中提供入口；该页沿用详情页广告位。关闭后不导出此页面。</p>
+                                <p class="group-hint" id="all-articles-help">开启后生成展示全部导入文章的页面，并在导航中提供入口；该页广告位置独立设置。关闭后不导出此页面。</p>
                             </div>
                             <div id="hero-config" style="display:none;">
                                 <div class="config-item">
@@ -1064,15 +1121,15 @@
                             </div>
                             <div class="normal-ad-mode-grid" id="direct-ad-placement-mode-group" role="radiogroup" aria-label="上传代码广告位放置方式" hidden>
                                 <label class="normal-ad-mode-card"><input type="radio" name="direct-ad-placement-mode" value="fixed" checked><span><strong>固定位置（默认）</strong><small>沿用上传代码后的自动位置；首页、详情页与“全部文章”页按现有规则添加。</small></span></label>
-                                <label class="normal-ad-mode-card"><input type="radio" name="direct-ad-placement-mode" value="manual"><span><strong>手动放置</strong><small>以当前自动位置为起点，分别调整每个广告在首页和详情页的位置。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="direct-ad-placement-mode" value="manual"><span><strong>手动放置</strong><small>以当前自动位置为起点，分别调整每个广告在首页、详情页和全部文章页的位置。</small></span></label>
                             </div>
                             <div class="normal-ad-mode-grid" id="reserve-placement-mode-group" role="radiogroup" aria-label="预留广告位定位方式">
-                                <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="fixed"><span><strong>固定位置</strong><small>自动放在首页导航下方、分类间和页面底部；分类不足时自动调整。详情页与“全部文章”页同步放置。</small></span></label>
-                                <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="manual" checked><span><strong>手动放置</strong><small>自行选择每个广告容器在首页和详情页的位置。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="fixed"><span><strong>固定位置</strong><small>自动为首页、详情页和“全部文章”页分别生成对应位置；分类不足时自动调整。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="reserve-placement-mode" value="manual" checked><span><strong>手动放置</strong><small>分别选择每个广告容器在首页、详情页和全部文章页的位置。</small></span></label>
                             </div>
                             <p id="ad-fixed-placement-note" class="group-hint" hidden>固定位置已生效，预览会显示三个广告容器；切回手动放置后，原有手动位置仍会保留。</p>
                             <div id="ad-manual-placement-controls">
-                            <p class="group-desc" id="ad-manual-placement-description" style="font-size:12px;color:#888;margin:12px 0;">选择广告容器后，切换首页或详情页，再点击预览中的常用广告位或自定义位置；“全部文章”页沿用详情页位置。</p>
+                            <p class="group-desc" id="ad-manual-placement-description" style="font-size:12px;color:#888;margin:12px 0;">选择广告容器后，切换首页、详情页或全部文章页，再点击预览中的广告位；三个页面的位置分别独立。</p>
 
                             <!-- 广告1 -->
                             <div class="ad-container-config">
@@ -1218,6 +1275,7 @@
                     <div class="preview-toolbar">
                         <h3>实时预览</h3>
                         <div class="preview-toolbar-actions">
+                            <label id="ad-policy-page-picker" hidden>原站页面 <select id="ad-policy-preview-page" aria-label="选择原站预览页面"></select></label>
                             <div class="preview-site-switcher" id="preview-site-switcher" hidden>
                                 <span class="preview-site-switcher-label" aria-hidden="true">站点</span>
                                 <div class="batch-preview-site-tabs" id="batch-preview-site-tabs" role="tablist" aria-label="切换批量站点预览"></div>
@@ -1264,6 +1322,11 @@
             <div class="export-summary" id="export-summary">
                 <!-- 由JS动态生成配置摘要 -->
             </div>
+            <section id="ad-policy-export-panel" hidden aria-label="导出广告策略站点">
+                <h3>应用策略并导出新副本</h3>
+                <p class="panel-desc">导出前重新校验所有站点的广告配置与本地资源。</p>
+                <!-- 原有目录、ZIP、广告代码导出功能在初始化时移入。 -->
+            </section>
 
             <section class="ad-injection-export-options" id="ad-injection-export-options" hidden aria-labelledby="ad-injection-export-title">
                 <div class="ad-injection-heading">
@@ -1372,20 +1435,20 @@
     <script src="js/data.js?v=20261008-ad-core-4"></script>
     <script src="js/domain.js?v=20260921-tag-array-recognition-1"></script>
     <script src="js/archive-naming.js?v=20260926-domain-folder-1"></script>
-    <script src="js/ad-migration.js?v=20261008-ad-core-4"></script>
+    <script src="js/ad-migration.js?v=20261009-page-ad-isolation-1"></script>
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
     <script src="js/ad-template-catalog.js?v=20260929-ad-template-default-1"></script>
     <script src="js/export-preflight.js?v=20261008-ad-core-4"></script>
     <script src="js/finished-site-ads.js?v=20261008-ad-core-4"></script>
     <script type="module" src="js/rar-import.js?v=20260928-rar-timeout-fallback-2"></script>
-    <script src="js/generator.js?v=20261008-ad-core-4"></script>
+    <script src="js/generator.js?v=20261009-page-ad-isolation-1"></script>
     <script src="js/zip-archive-worker-client.js?v=20260928-zip-worker-progress-1"></script>
-    <script src="js/ad-restoration.js?v=20261008-ad-core-4"></script>
-    <script src="js/batch-ad-builder.js?v=20261008-ad-core-4"></script>
+    <script src="js/ad-restoration.js?v=20261009-policy-origin-layout-2"></script>
+    <script src="js/batch-ad-builder.js?v=20261009-page-ad-isolation-1"></script>
 <script src="js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
 <script src="js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
 <script src="js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-<script type="module" src="js/app.js?v=20261001-ad-source-export-1"></script>
+<script type="module" src="js/app.js?v=20261009-quick-ad-2"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
   <script src="js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
 </body>

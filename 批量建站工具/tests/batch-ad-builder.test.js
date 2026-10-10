@@ -41,6 +41,38 @@ function site(id, codeId) {
 }
 
 describe('batch ad build guards', () => {
+  it('does not count listing-only reserved positions when that site disables the listing page', () => {
+    const settings = { placementMode: 'manual', adPlacements: { adv2: { all: 'content-middle' } } };
+    expect(context.__batch.countReservedPlacements(settings)).toBe(1);
+    expect(context.__batch.countReservedPlacements(settings, false)).toBe(0);
+    expect(context.__batch.countReservedPlacements({ placementMode: 'fixed' }, false)).toBe(6);
+    const sourceSite = { ...site('listing-only', ''), config: { allArticlesEnabled: false } };
+    const batch = { adMode: 'reserve', reserveDefaults: settings };
+    expect(context.__batch.validateAssignments([sourceSite], [], batch).valid).toBe(false);
+    sourceSite.config.allArticlesEnabled = true;
+    expect(context.__batch.validateAssignments([sourceSite], [], batch).valid).toBe(true);
+  });
+
+  it('validates per-page removals and detects duplicate containers on the independent listing page', async () => {
+    const adCode = code('page-isolation.example.com', 'isolated');
+    const sourceSite = site('isolated', 'isolated');
+    const placements = context.__migration.fixedPlacements();
+    placements.adv2.detail = 'detail-before-content';
+    placements.adv2.all = '';
+    placements.adv3.home = '';
+    const batch = { adMode: 'code', codePlacementDefaults: { placementMode: 'manual', adPlacements: placements } };
+    const state = context.__batch.createSiteState({ selectedTheme: 'tech', config: {} }, sourceSite, adCode, batch);
+    await context.__generator.exportWebsite(state, () => {});
+    const files = globalThis.__batchGeneratedFiles;
+    expect(files['website/all-articles.html']).not.toContain('id="adv2"');
+    expect(files['website/index.html']).not.toContain('id="adv3"');
+    const options = { placements: context.__generator.buildConfig(state).adPlacements };
+    expect(context.__batch.validateGeneratedSiteFiles(files, adCode, options).valid).toBe(true);
+    const duplicate = { ...files, 'website/all-articles.html': files['website/all-articles.html'] + '<div id="div-gpt-ad-banner1"></div>' };
+    expect(context.__batch.validateGeneratedSiteFiles(duplicate, adCode, options).valid).toBe(false);
+    expect(placements.adv2.all).toBe('');
+  });
+
   it('preserves each new domain template and the icon preference in batch exports', async () => {
     for (const [index, domainId] of ['tech', 'food', 'science', 'general'].entries()) {
       const template = context.__templates.find(item => item.domainId === domainId && item.variant === 13 + index);
@@ -142,11 +174,11 @@ describe('batch ad build guards', () => {
     const secondState = context.__batch.createSiteState(base, secondSite, secondCode, batch);
 
     expect(firstState.directAdPlacementMode).toBe('manual');
-    expect(firstState.config.adCodePlacements).toEqual(globalPlacements);
-    expect(secondState.config.adCodePlacements).toEqual(overridePlacements);
-    expect(context.__batch.resolveCodePlacementSettings(batch, firstSite).adPlacements).toEqual(globalPlacements);
-    expect(context.__batch.resolveCodePlacementSettings(batch, sharedSecondSite).adPlacements).toEqual(globalPlacements);
-    expect(context.__batch.resolveCodePlacementSettings(batch, secondSite).adPlacements).toEqual(overridePlacements);
+    expect(firstState.config.adCodePlacements).toEqual(context.__migration.normalizePagePlacements(globalPlacements));
+    expect(secondState.config.adCodePlacements).toEqual(context.__migration.normalizePagePlacements(overridePlacements));
+    expect(context.__batch.resolveCodePlacementSettings(batch, firstSite).adPlacements).toEqual(context.__migration.normalizePagePlacements(globalPlacements));
+    expect(context.__batch.resolveCodePlacementSettings(batch, sharedSecondSite).adPlacements).toEqual(context.__migration.normalizePagePlacements(globalPlacements));
+    expect(context.__batch.resolveCodePlacementSettings(batch, secondSite).adPlacements).toEqual(context.__migration.normalizePagePlacements(overridePlacements));
 
     const sharedPreview = context.__generator.generatePreviewHtml(firstState, 'home');
     const sharedDetailPreview = context.__generator.generatePreviewHtml(firstState, 'detail', 0);

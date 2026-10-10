@@ -345,10 +345,27 @@ const AdMigration = (function() {
 
     function fixedPlacements() {
         return {
-            adv1: { home: 'after-navbar', detail: 'after-navbar' },
-            adv2: { home: 'content-middle', detail: 'detail-middle' },
-            adv3: { home: 'footer-top', detail: 'footer-top' }
+            adv1: { home: 'after-navbar', detail: 'after-navbar', all: 'after-navbar' },
+            adv2: { home: 'content-middle', detail: 'detail-middle', all: 'content-middle' },
+            adv3: { home: 'footer-top', detail: 'footer-top', all: 'footer-top' }
         };
+    }
+
+    // 旧位置表只有 home/detail。为仍启用的详情页广告补上独立的列表页默认位置，
+    // 绝不复制详情页的自定义位置；缺失的广告和显式空位置代表移除，不能自动恢复。
+    // 返回新对象，避免预览、站点覆盖或导出修改调用方保存的全局配置。
+    function normalizePagePlacements(placements) {
+        const result = {};
+        const defaults = fixedPlacements();
+        Object.keys(placements || {}).forEach(function(adId) {
+            const pages = placements[adId];
+            if (!pages || typeof pages !== 'object' || Array.isArray(pages)) return;
+            result[adId] = Object.assign({}, pages);
+            if (!Object.prototype.hasOwnProperty.call(pages, 'all')) {
+                result[adId].all = pages.detail && defaults[adId] ? defaults[adId].all : '';
+            }
+        });
+        return result;
     }
 
 
@@ -422,7 +439,7 @@ const AdMigration = (function() {
         return matches ? matches.length : 0;
     }
 
-    function validateGeneratedPage(html, pageType) {
+    function validateGeneratedPage(html, pageType, placements) {
         const errors = [];
         const expectedAdPath = pageType === 'detail' ? '../js/ad.js' : 'js/ad.js';
         const pageLabel = pageType === 'home' ? '首页' : pageType === 'all' ? '全部文章页' : '详情页';
@@ -430,17 +447,20 @@ const AdMigration = (function() {
         const adCount = countMatch(html, new RegExp('<script\\b[^>]*\\bsrc=["\\\']' + expectedAdPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\?v=[a-z0-9-]+)?["\\\'][^>]*>', 'gi'));
         if (gptCount !== 1) errors.push(makeIssue(pageLabel + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'GPT_COUNT_INVALID'));
         if (adCount !== 1) errors.push(makeIssue(pageLabel + ' ad.js 数量为 ' + adCount + '，应为 1。', 'AD_JS_COUNT_INVALID'));
-        CONTAINER_IDS.forEach(function(id) {
+        CONTAINER_IDS.forEach(function(id, index) {
+            // 手动移除只影响当前页面。按该页配置检查数量，同时继续检查重复容器。
+            const pages = placements && placements['adv' + (index + 1)];
+            const expected = placements ? (pages && pages[pageType] ? 1 : 0) : 1;
             const count = countContainer(html, id);
-            if (count !== 1) errors.push(makeIssue(pageLabel + ' ' + id + ' 数量为 ' + count + '，应为 1。', 'CONTAINER_COUNT_INVALID'));
+            if (count !== expected) errors.push(makeIssue(pageLabel + ' ' + id + ' 数量为 ' + count + '，应为 ' + expected + '。', 'CONTAINER_COUNT_INVALID'));
         });
         return errors;
     }
 
-    function validateGeneratedPages(homeHtml, detailHtmlList) {
-        const errors = validateGeneratedPage(homeHtml, 'home');
+    function validateGeneratedPages(homeHtml, detailHtmlList, placements) {
+        const errors = validateGeneratedPage(homeHtml, 'home', placements);
         (detailHtmlList || []).forEach(function(html, index) {
-            validateGeneratedPage(html, 'detail').forEach(function(error) {
+            validateGeneratedPage(html, 'detail', placements).forEach(function(error) {
                 errors.push(makeIssue('详情页 #' + (index + 1) + '：' + error.message, error.code));
             });
         });
@@ -454,6 +474,7 @@ const AdMigration = (function() {
         inspectArchive: inspectArchive,
         inspectAdCodeText: inspectAdCodeText,
         fixedPlacements: fixedPlacements,
+        normalizePagePlacements: normalizePagePlacements,
         matchesPlacement: matchesPlacement,
         middleParagraphNumber: middleParagraphNumber,
         middleGridMarkup: middleGridMarkup,

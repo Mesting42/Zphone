@@ -648,8 +648,8 @@ if (gaMeasurementId) {
         return source;
     }
 
-    // v1.0.2.1 changes only the native lazy-load default. Building on v1.0.2
-    // preserves its disabled interstitial triggers and per-site identifiers.
+    // v1.0.2.1 启用原生懒加载，GA ID 为空时静默跳过初始化。
+    // 仅移除末尾的空值警告分支，保留旧版本模板和正常 GA 初始化逻辑。
     function generateV1021AdJs(baseSource) {
         const source = generateV102AdJs(baseSource)
             .replace('ad.js v1.0.2', 'ad.js v1.0.2.1')
@@ -657,7 +657,8 @@ if (gaMeasurementId) {
             .replace(
                 'const enableLazyLoad = false;              // 关闭广告延迟加载',
                 'const enableLazyLoad = true;               // 开启 GPT 原生懒加载'
-            );
+            )
+            .replace(/ else \{\s*console\.warn\("GA ID is empty\."\);\s*\}$/, '');
         if (!/const enableLazyLoad = true;/.test(source)) {
             throw new Error('v1.0.2.1 广告模板生成失败：无法启用 GPT 原生懒加载。');
         }

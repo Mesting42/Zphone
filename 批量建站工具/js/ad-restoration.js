@@ -15,8 +15,10 @@ const AdRestoration = (function() {
     const HOME_PLACEMENTS = ['off', 'after-navbar', 'after-hero', 'content-top', 'content-middle', 'after-section-0', 'after-section-1', 'after-section-2', 'content-bottom', 'footer-top'];
     const DETAIL_PLACEMENTS = ['off', 'after-navbar', 'detail-before-content', 'detail-middle', 'detail-between-p-1', 'detail-between-p-2', 'detail-between-p-3', 'detail-after-content', 'detail-before-related', 'detail-after-related', 'footer-top'];
     const BANNER_UNITS = ['off', 'banner1', 'banner2', 'banner3'];
+    const ALL_PLACEMENTS = ['off', 'after-navbar', 'content-top', 'content-middle', 'content-bottom', 'footer-top'];
     const BATCH_AD_JS_VERSIONS = ['v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];
     const CUSTOM_PLACEMENT_PATTERN = /^custom-after-(?:\d{1,3})(?:-\d{1,3}){0,7}$/;
+    const ORIGINAL_PLACEMENT_PATTERN = /^original-banner([123])$/;
     const DEFAULT_POLICY = {
         version: 1,
         writeDisabledComments: true,
@@ -57,7 +59,8 @@ const AdRestoration = (function() {
             banner2: { home: 'off', detail: 'off' },
             banner3: { home: 'off', detail: 'off' }
         };
-        ['home', 'detail'].forEach(function(page) {
+        policyPages(policy).forEach(function(page) {
+            Object.keys(policy.placements).forEach(function(unit) { policy.placements[unit][page] = 'off'; });
             (policy.slots[page] || []).forEach(function(slot) {
                 if (slot.unit !== 'off' && policy.placements[slot.unit]) policy.placements[slot.unit][page] = slot.position;
             });
@@ -65,8 +68,26 @@ const AdRestoration = (function() {
         return policy;
     }
 
-    function createPolicy(preset) {
+    // 旧调用保留两类页面；新工作台显式启用独立列表页，不改变成品站流程。
+    function policyPages(policy) { return policy && policy.slots && policy.slots.all ? ['home', 'detail', 'all'] : ['home', 'detail']; }
+
+    function createPolicy(preset, options) {
         const policy = clone(DEFAULT_POLICY);
+        if (options && options.pageIsolation) {
+            policy.version = 2;
+            policy.slots.all = [
+                { position: 'after-navbar', unit: 'banner1' },
+                { position: 'content-middle', unit: 'banner2' },
+                { position: 'footer-top', unit: 'banner3' }
+            ];
+            policy.outOfPage.interstitial.all = false;
+            policy.outOfPage.anchor.all = true;
+        }
+        if (preset === 'restore-original') {
+            policyPages(policy).forEach(function(page) {
+                policy.slots[page].forEach(function(slot, index) { slot.position = 'original-banner' + (index + 1); });
+            });
+        }
         if (preset === 'traffic-limit') {
             policy.slots.home = [
                 { position: 'after-navbar', unit: 'banner3' },
@@ -76,6 +97,11 @@ const AdRestoration = (function() {
             policy.slots.detail.forEach(function(slot) { slot.unit = 'off'; });
             policy.outOfPage.interstitial = { home: false, detail: false };
             policy.outOfPage.anchor = { home: false, detail: false };
+            if (policy.slots.all) {
+                policy.slots.all.forEach(function(slot) { slot.unit = 'off'; });
+                policy.outOfPage.interstitial.all = false;
+                policy.outOfPage.anchor.all = false;
+            }
         } else if (preset === 'home-head-footer') {
             policy.slots.home = [
                 { position: 'after-navbar', unit: 'banner1' },
@@ -83,22 +109,30 @@ const AdRestoration = (function() {
                 { position: 'footer-top', unit: 'banner3' }
             ];
         }
+        // 新工作台的预设关闭广告时不重设其位置；旧 API 的预设保持兼容。
+        if (policy.slots.all && preset !== 'restore-original') {
+            policyPages(policy).forEach(function(page) {
+                policy.slots[page].forEach(function(slot, index) {
+                    if (slot.unit === 'off') slot.position = 'original-banner' + (index + 1);
+                });
+            });
+        }
         return syncPlacementsFromSlots(policy);
     }
 
     function isAllowedPlacement(position, allowedPositions) {
-        return allowedPositions.indexOf(position) !== -1 || CUSTOM_PLACEMENT_PATTERN.test(String(position || ''));
+        return allowedPositions.indexOf(position) !== -1 || CUSTOM_PLACEMENT_PATTERN.test(String(position || '')) || ORIGINAL_PLACEMENT_PATTERN.test(String(position || ''));
     }
 
     function normalizePolicy(input) {
-        const policy = clone(DEFAULT_POLICY);
         const source = input || {};
+        const policy = createPolicy(undefined, { pageIsolation: !!(source.slots && source.slots.all) || source.version >= 2 });
         policy.writeDisabledComments = source.writeDisabledComments !== false;
         if (source.slots && Array.isArray(source.slots.home) && Array.isArray(source.slots.detail)) {
-            ['home', 'detail'].forEach(function(page) {
-                const allowedPositions = page === 'home' ? HOME_PLACEMENTS : DETAIL_PLACEMENTS;
+            policyPages(policy).forEach(function(page) {
+                const allowedPositions = page === 'home' ? HOME_PLACEMENTS : page === 'all' ? ALL_PLACEMENTS : DETAIL_PLACEMENTS;
                 policy.slots[page] = policy.slots[page].map(function(defaultSlot, index) {
-                    const item = source.slots[page][index] || {};
+                    const item = (source.slots[page] || [])[index] || defaultSlot;
                     return {
                         position: isAllowedPlacement(item.position, allowedPositions) && item.position !== 'off' ? item.position : defaultSlot.position,
                         unit: BANNER_UNITS.indexOf(item.unit) !== -1 ? item.unit : defaultSlot.unit
@@ -106,12 +140,12 @@ const AdRestoration = (function() {
                 });
             });
         } else {
-            ['home', 'detail'].forEach(function(page) {
+            policyPages(policy).forEach(function(page) {
                 const bannerKeys = ['banner1', 'banner2', 'banner3'];
                 policy.slots[page] = bannerKeys.map(function(key, index) {
                     const item = source.placements && source.placements[key] ? source.placements[key] : {};
                     const position = item[page];
-                    const allowed = page === 'home' ? HOME_PLACEMENTS : DETAIL_PLACEMENTS;
+                    const allowed = page === 'home' ? HOME_PLACEMENTS : page === 'all' ? ALL_PLACEMENTS : DETAIL_PLACEMENTS;
                     return {
                         position: isAllowedPlacement(position, allowed) && position !== 'off' ? position : policy.slots[page][index].position,
                         unit: position === 'off' ? 'off' : key
@@ -124,6 +158,7 @@ const AdRestoration = (function() {
             if (!item) return;
             policy.outOfPage[key].home = item.home !== false;
             policy.outOfPage[key].detail = item.detail !== false;
+            if (policy.slots.all) policy.outOfPage[key].all = item.all == null ? policy.outOfPage[key].detail : item.all !== false;
         });
         return syncPlacementsFromSlots(policy);
     }
@@ -131,12 +166,12 @@ const AdRestoration = (function() {
     function validatePolicy(policyInput) {
         const policy = normalizePolicy(policyInput);
         const errors = [];
-        ['home', 'detail'].forEach(function(page) {
+        policyPages(policy).forEach(function(page) {
             const used = {};
             policy.slots[page].forEach(function(slot, index) {
                 if (slot.unit === 'off') return;
                 if (used[slot.unit] != null) {
-                    errors.push(issue((page === 'home' ? '首页' : '详情页') + '广告位 ' + (used[slot.unit] + 1) + ' 和广告位 ' + (index + 1) + ' 重复使用 ' + slot.unit + '。同一页面的同一 banner 只能使用一次。', 'AD_POLICY_DUPLICATE_UNIT'));
+                    errors.push(issue((page === 'home' ? '首页' : page === 'all' ? '全部文章页' : '详情页') + '广告位 ' + (used[slot.unit] + 1) + ' 和广告位 ' + (index + 1) + ' 重复使用 ' + slot.unit + '。同一页面的同一 banner 只能使用一次。', 'AD_POLICY_DUPLICATE_UNIT'));
                 } else used[slot.unit] = index;
             });
         });
@@ -348,15 +383,24 @@ const AdRestoration = (function() {
         for (let i = 0; i < indexCandidates.length; i++) {
             const candidate = indexCandidates[i];
             const root = candidate.path.replace(/index\.html?$/i, '');
-            const detailDirectory = options && options.finishedSite
-                ? /^(?:details?|articles?|news|posts?|stories?|guides?|blog)\//i
-                : /^(?:details?|articles?)\//i;
+            // 同事建站工具生成的静态游戏站以 games.html + games/*.html 为边界。
+            // 识别该完整形状后，详细策略与快速更新都能复用同一页范围；
+            // 仅有零散 games 子目录的普通站点不会被误判。
+            const staticGameLayout = !!(options && (options.quickUpdate || options.staticGame))
+                || (htmlEntries.some(function(entry) { return entry.path.toLowerCase() === (root + 'games.html').toLowerCase(); })
+                    && htmlEntries.some(function(entry) { return entry.path.indexOf(root + 'games/') === 0; }));
+            const detailDirectory = staticGameLayout
+                ? /^(?:details?|articles?|games)\//i
+                : options && options.finishedSite
+                    ? /^(?:details?|articles?|news|posts?|stories?|guides?|blog)\//i
+                    : /^(?:details?|articles?)\//i;
             const candidateDetails = htmlEntries.filter(function(entry) {
                 if (entry.path === candidate.path || entry.path.indexOf(root) !== 0) return false;
                 const relative = entry.path.slice(root.length);
                 return detailDirectory.test(relative) || /class\s*=\s*["'][^"']*\bdetail-page\b/i.test(entry.text)
                     || !!(options && options.finishedSite && /\.html?$/i.test(relative)
-                        && !/(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-service)?|legal|faq|404)(?:[\/.]|$)/i.test(relative));
+                        && !/^games\.html?$/i.test(relative)
+                        && !/(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|cookie(?:-policy)?|terms(?:-of-service)?|legal|faq|404)(?:[\/.]|$)/i.test(relative));
             });
             if (candidateDetails.length) {
                 home = candidate;
@@ -398,7 +442,12 @@ const AdRestoration = (function() {
             // Listing pages follow the detail-page policy but have a card grid,
             // not a prose container. Keep them separate for placement planning.
             listingPaths: htmlEntries.filter(function(entry) {
-                return entry.path.indexOf(siteRoot) === 0 && /(?:^|\/)all-(?:articles|games)\.html?$/i.test(entry.path)
+                const relative = entry.path.slice(siteRoot.length);
+                const staticGameListing = (options && (options.quickUpdate || options.staticGame))
+                    || (htmlEntries.some(function(candidate) { return candidate.path.toLowerCase() === (siteRoot + 'games.html').toLowerCase(); })
+                        && htmlEntries.some(function(candidate) { return candidate.path.indexOf(siteRoot + 'games/') === 0; }));
+                const quickStaticGameListing = staticGameListing && /^games\.html?$/i.test(relative);
+                return entry.path.indexOf(siteRoot) === 0 && (quickStaticGameListing || /(?:^|\/)all-(?:articles|games)\.html?$/i.test(entry.path))
                     && !details.some(function(detail) { return detail.path === entry.path; });
             }).map(function(entry) { return entry.path; }),
             adPath: adPath,
@@ -447,7 +496,9 @@ const AdRestoration = (function() {
                 if (end === -1) break;
                 const whole = output.slice(match.index, end);
                 if (predicate(match[0], whole)) {
-                    output = output.slice(0, match.index) + output.slice(end);
+                    // 原位置标记与广告开关分离。移除容器时留下标记，关闭后可在同一间隙恢复。
+                    const origins = whole.match(/<!-- SITEFOUNDRY_AD_ORIGIN banner[123] -->/g) || [];
+                    output = output.slice(0, match.index) + origins.join('\n') + output.slice(end);
                     changed = true;
                     break;
                 }
@@ -457,7 +508,15 @@ const AdRestoration = (function() {
     }
 
     function removeExistingAds(html) {
-        let output = String(html || '').replace(/<!--\s*AD_POLICY_DISABLED_START[\s\S]*?AD_POLICY_DISABLED_END\s*-->/gi, '');
+        let output = String(html || '');
+        // 字符串中的示例容器不是页面 DOM，不能在清理广告时破坏站点脚本。
+        const protectedBlocks = [];
+        let prefix = 'SITEFOUNDRY_PROTECTED_BLOCK_';
+        while (output.indexOf(prefix) !== -1) prefix += '_';
+        output = output.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, function(block) {
+            protectedBlocks.push(block);
+            return '<!--' + prefix + (protectedBlocks.length - 1) + '-->';
+        }).replace(/<!--\s*AD_POLICY_DISABLED_START[\s\S]*?AD_POLICY_DISABLED_END\s*-->/gi, '');
         output = removeMatchingDivs(output, function(openTag, whole) {
             return hasClass(openTag, 'ad-region') && /\bid\s*=\s*["'](?:adv[123]|div-gpt-ad-banner[123])["']/i.test(whole);
         });
@@ -469,7 +528,7 @@ const AdRestoration = (function() {
             const inner = whole.replace(/^<div\b[^>]*>/i, '').replace(/<\/div>$/i, '').replace(/<!--[\s\S]*?-->/g, '').trim();
             return inner === '';
         });
-        return output;
+        return output.replace(new RegExp('<!--' + prefix + '(\\d+)-->', 'g'), function(match, index) { return protectedBlocks[Number(index)]; });
     }
 
     function removeAdScripts(html) {
@@ -692,6 +751,7 @@ const AdRestoration = (function() {
         return directHtmlElementChildren(html, parent).filter(function(child) {
             if (excludedTags[child.tag]) return false;
             if (/\bdata-sitefoundry-(?:preview|runtime)-ad\b/i.test(child.openTag)) return false;
+            if (/\bid\s*=\s*["']adv[123]["']/i.test(child.openTag) || /\bdata-sitefoundry-middle-ad\b/i.test(child.openTag)) return false;
             return !/\b(?:class|id)\s*=\s*["'][^"']*related/i.test(child.openTag);
         });
     }
@@ -702,13 +762,22 @@ const AdRestoration = (function() {
         let target = findFirstElement(html, 'main') || findFirstElement(html, 'body');
         for (let index = 0; target && index < path.length; index++) {
             const children = meaningfulHtmlElementChildren(html, target);
-            if (!children.length) break;
-            target = children[Math.min(path[index], children.length - 1)] || null;
+            // 自定义路径必须在每个目标页面真实存在；不能静默夹到另一内容块。
+            target = children[path[index]] || null;
         }
         return target && target.end !== -1 ? target.end : -1;
     }
 
     function insertPlacement(html, pageType, position, adIds, options) {
+        const original = String(position || '').match(ORIGINAL_PLACEMENT_PATTERN);
+        if (original) {
+            const marker = '<!-- SITEFOUNDRY_AD_ORIGIN banner' + original[1] + ' -->';
+            const markerIndex = html.indexOf(marker);
+            if (markerIndex >= 0) return { html: insertAt(html, markerIndex + marker.length, adGroupMarkup(html, position, adIds, false)) };
+            // 旧站既无位置清单，也无可靠容器/注释时，按用户确认采用统一默认位置。
+            const defaults = createPolicy(undefined, { pageIsolation: true });
+            return insertPlacement(html, pageType, defaults.slots[pageType][Number(original[1]) - 1].position, adIds, options);
+        }
         const offsetAfterNavigation = position === 'after-navbar' && adIds.indexOf('adv1') !== -1
             && hasAdjacentScrollProgressAfterNavigation(html);
         let markup = adGroupMarkup(html, position, adIds, offsetAfterNavigation);
@@ -723,10 +792,12 @@ const AdRestoration = (function() {
         } else if (options && options.listingPage) {
             const main = findFirstElement(html, 'main');
             const nav = findNavigationElement(html);
-            const grid = findElementByClass(html, 'div', 'items-grid') || findElementByClass(html, 'div', 'grid');
+            const grid = findElementByClass(html, 'div', 'items-grid')
+                || findElementByClass(html, 'div', 'games-grid')
+                || findElementByClass(html, 'div', 'grid');
             if (position === 'after-navbar') index = nav ? nav.end : main ? main.start : -1;
-            else if (position === 'detail-before-content') index = grid ? grid.start : main ? main.openEnd : -1;
-            else if (position === 'detail-before-related' || position === 'detail-after-related') {
+            else if (position === 'detail-before-content' || position === 'content-top') index = grid ? grid.start : main ? main.openEnd : -1;
+            else if (position === 'detail-before-related' || position === 'detail-after-related' || position === 'detail-after-content' || position === 'content-bottom') {
                 const footer = findFooter(html);
                 index = footer ? footer.start : closeStart(html, main, 'main');
             } else {
@@ -749,6 +820,7 @@ const AdRestoration = (function() {
                 if (sections.length > 1) index = sections[Math.floor((sections.length - 1) / 2)].end;
                 else {
                     const grid = findElementByClass(html, 'div', 'items-grid', main && main.openEnd)
+                        || findElementByClass(html, 'div', 'games-grid', main && main.openEnd)
                         || findElementByClass(html, 'div', 'grid');
                     const cards = grid ? directHtmlElementChildren(html, grid).filter(function(child) { return !/\bid=["']adv[123]/i.test(child.openTag || ''); }) : [];
                     if (cards.length) {
@@ -832,7 +904,8 @@ const AdRestoration = (function() {
     function validateRestoredHtml(html, pageType, scriptPath, requestedPolicy, options) {
         const errors = [];
         const policy = normalizePolicy(requestedPolicy);
-        const visibleHtml = String(html || '').replace(/<!--[\s\S]*?-->/g, '');
+        const visibleHtml = String(html || '').replace(/<!--[\s\S]*?-->/g, '')
+            .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script\s*>)/gi, '$1$2').replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '');
         const escapedPath = scriptPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         if (countMatches(visibleHtml, /<script\b[^>]*\bsrc=["']https:\/\/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js["'][^>]*>/gi) !== 1) {
             errors.push(issue('页面 GPT 脚本数量不是 1。', 'RESTORE_GPT_COUNT'));
@@ -902,6 +975,12 @@ const AdRestoration = (function() {
             html = html.replace(/<\/body\s*>/i, '<script data-sitefoundry-ad-layout>' + AdMigration.layoutRuntimeSource() + '</script></body>');
         }
         if (!/<\/head\s*>/i.test(source)) errors.push(issue('页面缺少 </head>，无法恢复广告脚本。', 'RESTORE_HEAD_MISSING'));
+        if (policy.slots.all) {
+            // 运行时使用明确页面类型，避免把列表页的插屏/锚点开关并入详情页。
+            html = html.replace(/<html\b([^>]*)>/i, function(match, attrs) {
+                return '<html' + attrs.replace(/\sdata-sitefoundry-ad-page=["'][^"']*["']/gi, '') + ' data-sitefoundry-ad-page="' + pageType + '">';
+            });
+        }
         if (!errors.length) errors.push.apply(errors, validateRestoredHtml(html, pageType, scriptPath, policy, options));
         // 移除旧容器后只会留下空白行；统一收敛，保证重复恢复不会不断增加空白。
         html = html.replace(/^[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n')
@@ -989,7 +1068,7 @@ const AdRestoration = (function() {
         let output = String(adSource || '');
         if (!policy.writeDisabledComments) return output;
         const enabledOnAnyPage = function(unit) {
-            return ['home', 'detail'].some(function(page) {
+            return policyPages(policy).some(function(page) {
                 return policy.slots[page].some(function(slot) { return slot.unit === unit; });
             });
         };
@@ -997,8 +1076,8 @@ const AdRestoration = (function() {
             ['bannerPath1', !enabledOnAnyPage('banner1')],
             ['bannerPath2', !enabledOnAnyPage('banner2')],
             ['bannerPath3', !enabledOnAnyPage('banner3')],
-            ['interstitialPath', !policy.outOfPage.interstitial.home && !policy.outOfPage.interstitial.detail],
-            ['anchorPath', !policy.outOfPage.anchor.home && !policy.outOfPage.anchor.detail]
+            ['interstitialPath', !policyPages(policy).some(function(page) { return policy.outOfPage.interstitial[page]; })],
+            ['anchorPath', !policyPages(policy).some(function(page) { return policy.outOfPage.anchor[page]; })]
         ];
         disabled.forEach(function(pair) {
             if (!pair[1]) return;
@@ -1020,13 +1099,25 @@ const AdRestoration = (function() {
         const interstitialGate = 'if (isIndex && adUnitInterstitial) {';
         const anchorGate = 'if (adUnitAnchor) {';
         if (!source.includes(interstitialGate) || !source.includes(anchorGate)) return null;
-        // Keep the new template (including its GPT lazy load and triggers),
-        // adding only page-specific gates required by the batch policy UI.
+        // v1.0.2.1 默认策略保留模板原有简写；自定义页面范围仍按策略添加条件，
+        // 避免简化写法时改变首页/详情页的插屏和锚点开关。其他版本保持原输出。
+        const keepDefaultGates = version === 'v1.0.2.1';
+        const interstitialCondition = keepDefaultGates && interstitial.home && !interstitial.detail
+            ? interstitialGate
+            : 'if (adUnitInterstitial && (isIndex ? ' + interstitial.home + ' : ' + interstitial.detail + ')) {';
+        const anchorCondition = keepDefaultGates && anchor.home && anchor.detail
+            ? anchorGate
+            : 'if (adUnitAnchor && (isIndex ? ' + anchor.home + ' : ' + anchor.detail + ')) {';
+        if (policy.slots.all && (interstitial.all !== interstitial.detail || anchor.all !== anchor.detail)) {
+            const scopedGate = function(name, values) {
+                return 'if (' + name + ' && (isIndex ? ' + values.home + ' : document.documentElement.getAttribute("data-sitefoundry-ad-page") === "all" ? ' + values.all + ' : ' + values.detail + ')) {';
+            };
+            return source.replace(interstitialGate, scopedGate('adUnitInterstitial', interstitial))
+                .replace(anchorGate, scopedGate('adUnitAnchor', anchor));
+        }
         return source
-            .replace(interstitialGate,
-                'if (adUnitInterstitial && (isIndex ? ' + interstitial.home + ' : ' + interstitial.detail + ')) {')
-            .replace(anchorGate,
-                'if (adUnitAnchor && (isIndex ? ' + anchor.home + ' : ' + anchor.detail + ')) {');
+            .replace(interstitialGate, interstitialCondition)
+            .replace(anchorGate, anchorCondition);
     }
 
     function generateInitialPolicySource(config, policy) {
@@ -1034,6 +1125,13 @@ const AdRestoration = (function() {
         const interstitialGate = 'if (isIndex && interstitialPath) {';
         const anchorGate = 'if (anchorPath) {';
         if (!source.includes(interstitialGate) || !source.includes(anchorGate)) return null;
+        if (policy.slots.all) {
+            const scopedGate = function(name, values) {
+                return 'if (' + name + ' && (isIndex ? ' + values.home + ' : document.documentElement.getAttribute("data-sitefoundry-ad-page") === "all" ? ' + values.all + ' : ' + values.detail + ')) {';
+            };
+            return source.replace(interstitialGate, scopedGate('interstitialPath', policy.outOfPage.interstitial))
+                .replace(anchorGate, scopedGate('anchorPath', policy.outOfPage.anchor));
+        }
         return source
             .replace(interstitialGate,
                 'if (interstitialPath && (isIndex ? ' + policy.outOfPage.interstitial.home + ' : ' + policy.outOfPage.interstitial.detail + ')) {')
@@ -1076,7 +1174,7 @@ const AdRestoration = (function() {
         [{ path: metadata.homePath, type: 'home' }].concat(metadata.detailPaths.map(function(path) {
             return { path: path, type: 'detail' };
         })).concat((metadata.listingPaths || []).map(function(path) {
-            return { path: path, type: 'detail', listingPage: true };
+            return { path: path, type: policy.slots.all ? 'all' : 'detail', listingPage: true };
         })).forEach(function(page) {
             const entry = byPath[page.path.toLowerCase()];
             const scriptPath = relativeAdScriptPath(page.path, metadata.siteRoot) + (policyMode ? '?v=ad-policy-1' : '');
@@ -1093,7 +1191,8 @@ const AdRestoration = (function() {
 
         if (pageErrors.length) return { valid: false, errors: pageErrors, warnings: metadata.warnings, entries: entries, metadata: metadata };
 
-        const dynamicHomeResult = restoreDynamicHomeAds(entries, metadata, policyMode ? policy : null);
+        const dynamicPolicy = options && options.dynamicHomePolicy || (policyMode ? policy : null);
+        const dynamicHomeResult = restoreDynamicHomeAds(entries, metadata, dynamicPolicy);
         if (dynamicHomeResult.errors.length) {
             return { valid: false, errors: dynamicHomeResult.errors, warnings: metadata.warnings, entries: entries, metadata: metadata };
         }
@@ -1151,6 +1250,7 @@ const AdRestoration = (function() {
                 adRuntimeFormat: outputAdRuntimeFormat,
                 adPaths: config || {},
                 policy: policy,
+                ...(options && options.originalPlacements ? { originalPlacements: options.originalPlacements } : {}),
                 ...(options && options.batchPolicy ? {
                     sourceAdJsVersion: metadata.adJsVersion,
                     adJsVersion: outputAdJsVersion
@@ -1592,7 +1692,7 @@ const AdRestoration = (function() {
         return String(parts[parts.length - 1] || fallback || 'site').replace(/[<>:"/\\|?*\x00-\x1f]+/g, '-');
     }
 
-    function splitSiteEntries(rawEntries) {
+    function splitSiteEntries(rawEntries, options) {
         const entries = (rawEntries || []).map(function(entry) {
             return {
                 path: normalizePath(entry.path || entry.name),
@@ -1614,7 +1714,7 @@ const AdRestoration = (function() {
                 return { path: root ? entry.path.slice(root.length) : entry.path, bytes: entry.bytes };
             }).filter(function(entry) { return entry.path; });
             const name = siteFolderName(root, 'site-' + (index + 1));
-            const metadata = inspectSiteEntries(relativeEntries, name);
+            const metadata = inspectSiteEntries(relativeEntries, name, options);
             if (!metadata.homePath || !metadata.detailPaths.length) return;
             sites.push({
                 id: root || name,
@@ -1632,7 +1732,7 @@ const AdRestoration = (function() {
         });
     }
 
-    async function readSiteDirectoryFiles(files, onProgress) {
+    async function readSiteDirectoryFiles(files, onProgress, options) {
         const list = Array.from(files || []);
         if (!list.length) throw new Error('请选择包含站点源码的总目录。');
         onProgress = typeof onProgress === 'function' ? onProgress : function() {};
@@ -1646,7 +1746,10 @@ const AdRestoration = (function() {
             const hasAdScript = descriptors.some(function(candidate) { return candidate.path.toLowerCase() === (root + 'js/ad.js').toLowerCase(); });
             const hasDetailCandidate = descriptors.some(function(candidate) {
                 return candidate.path.indexOf(root) === 0 && candidate.path !== item.path && /\.html?$/i.test(candidate.path) &&
-                    (/^(?:details?|articles?)\//i.test(candidate.path.slice(root.length)) || hasAdScript);
+                (/^(?:details?|articles?)\//i.test(candidate.path.slice(root.length))
+                    || (options && options.quickUpdate && /^(?:games)\//i.test(candidate.path.slice(root.length)))
+                    || (options && options.quickUpdate && /^games\.html?$/i.test(candidate.path.slice(root.length)))
+                    || hasAdScript);
             });
             if (hasDetailCandidate && roots.indexOf(root) === -1) roots.push(root);
         });
@@ -1668,12 +1771,12 @@ const AdRestoration = (function() {
                 onProgress(Math.round((index + 1) / relevant.length * 100), '正在读取站点文件 ' + (index + 1) + '/' + relevant.length + '…');
             }
         }
-        const sites = splitSiteEntries(entries);
+        const sites = splitSiteEntries(entries, options);
         if (!sites.length) throw new Error('所选目录中未识别到同时包含 index.html 和详情页的站点。');
         return { sites: sites, fileCount: entries.length };
     }
 
-    async function readSiteDirectoryHandle(directoryHandle, onProgress) {
+    async function readSiteDirectoryHandle(directoryHandle, onProgress, options) {
         if (!directoryHandle || directoryHandle.kind !== 'directory' || typeof directoryHandle.entries !== 'function') {
             throw new Error('请选择包含站点源码的总目录。');
         }
@@ -1707,10 +1810,10 @@ const AdRestoration = (function() {
 
         await collect(directoryHandle, '');
         if (!files.length) throw new Error('所选目录中没有可读取的文件。');
-        return readSiteDirectoryFiles(files, onProgress);
+        return readSiteDirectoryFiles(files, onProgress, options);
     }
 
-    async function readSiteArchiveFiles(files, onProgress) {
+    async function readSiteArchiveFiles(files, onProgress, options) {
         const list = Array.from(files || []);
         if (!list.length) throw new Error('请至少选择一个站点压缩包。');
         onProgress = typeof onProgress === 'function' ? onProgress : function() {};
@@ -1724,7 +1827,7 @@ const AdRestoration = (function() {
             });
             // Batch exports contain multiple independent roots. Split before
             // stripping a wrapper; otherwise selecting one root loses siblings.
-            const containedSites = splitSiteEntries(archiveEntries);
+            const containedSites = splitSiteEntries(archiveEntries, options);
             if (containedSites.length > 1) {
                 containedSites.forEach(function(site, siteIndex) {
                     site.id = 'archive:' + index + ':' + siteIndex + ':' + site.name;
@@ -1732,7 +1835,7 @@ const AdRestoration = (function() {
                 });
                 continue;
             }
-            const originalMetadata = inspectSiteEntries(archiveEntries, file.name);
+            const originalMetadata = inspectSiteEntries(archiveEntries, file.name, options);
             let entries = archiveEntries;
             if (originalMetadata.siteRoot) {
                 entries = archiveEntries.filter(function(entry) { return entry.path.indexOf(originalMetadata.siteRoot) === 0; }).map(function(entry) {
@@ -1745,7 +1848,7 @@ const AdRestoration = (function() {
                 name: name,
                 sourceRoot: originalMetadata.siteRoot || '',
                 entries: entries,
-                metadata: inspectSiteEntries(entries, file.name)
+                metadata: inspectSiteEntries(entries, file.name, options)
             });
         }
         onProgress(100, '站点压缩包读取完成');
@@ -1810,6 +1913,7 @@ const AdRestoration = (function() {
                     valid: true, kind: 'static-html', framework: 'React 已构建静态产物（按静态 HTML 注入）',
                     siteRoot: root, deploymentRoot: root + 'out/', entryPath: staticExport.path,
                     previewEntryPath: staticExport.path, runtimePath: root + 'out/js/ad.js', runtimeSrc: '/js/ad.js',
+                    hydratedPages: true,
                     buildCommand: '已提供 Next.js 静态导出', errors: [], warnings: []
                 };
                 return {
@@ -1901,6 +2005,23 @@ const AdRestoration = (function() {
                 buildCommand: buildCommand,
                 errors: hasReactSource ? [] : [issue('检测到 React 依赖，但没有找到可安全修改的 JSX/TSX 源码。请上传源码或构建后的 dist。', 'AD_INJECTION_REACT_ENTRY_MISSING')],
                 warnings: hasReactSource ? [issue('未找到标准 Vite/CRA HTML 入口；将仅在可安全定位的 React 根布局中修改源码，并在报告中标出构建说明。', 'AD_INJECTION_REACT_NONSTANDARD_ENTRY')] : []
+            };
+        }
+
+        // A standalone Next out/ archive has no package.json or #root marker.
+        // Its HTML is still hydrated by React, so statically inserting banners
+        // into that server-rendered body would be removed during hydration.
+        const nextBuildEntry = entries.filter(function(entry) {
+            return /(?:^|\/)index\.html?$/i.test(entry.path)
+                && /<script\b[^>]*(?:src\s*=\s*["'][^"']*\/_next\/static\/|id\s*=\s*["']__NEXT_DATA__["'])|self\.__next_f\s*\./i.test(entry.text);
+        }).sort(function(a, b) { return a.path.split('/').length - b.path.split('/').length; })[0];
+        if (nextBuildEntry) {
+            const root = nextBuildEntry.path.replace(/index\.html?$/i, '');
+            return {
+                valid: true, kind: 'static-html', framework: 'React 已构建静态产物（Next.js 多页面）',
+                siteRoot: root, deploymentRoot: root, entryPath: nextBuildEntry.path,
+                previewEntryPath: nextBuildEntry.path, runtimePath: root + 'js/ad.js', runtimeSrc: '/js/ad.js',
+                hydratedPages: true, buildCommand: '已提供 Next.js 静态导出', errors: [], warnings: []
             };
         }
 
@@ -2173,7 +2294,7 @@ const AdRestoration = (function() {
         return { mappings: mappings, validCount: mappings.filter(function(item) { return item.valid; }).length };
     }
 
-    function generateSpaAdRuntime(config, requestedPolicy, version) {
+    function generateSpaAdRuntime(config, requestedPolicy, version, options) {
         const paths = JSON.stringify({
             banner1: config && config.bannerPath1 || '', banner2: config && config.bannerPath2 || '', banner3: config && config.bannerPath3 || '',
             interstitial: config && config.interstitialPath || '', anchor: config && config.anchorPath || '', analytics: config && config.analyticsID || ''
@@ -2201,7 +2322,10 @@ const AdRestoration = (function() {
             "})();\n";
         // Manual SPA sites still exclude utility routes. Unknown manual
         // anchors are skipped rather than silently appended elsewhere.
-        source = source.replace("if(!document.body)return;var route=location.pathname+location.search,complete=", String.raw`if(!document.body)return;var route=location.pathname+location.search;if(/(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-service)?|legal|faq|404)(?:[\/.]|$)/i.test(location.pathname)){document.querySelectorAll('[data-sitefoundry-runtime-ad]').forEach(function(node){node.remove();});state.route=route;googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)googletag.destroySlots(state.slots);state.slots=[];state.outOfPage=false;});return;}var complete=`);
+        // Only the root index is home; /archive/index.html and detail indexes
+        // must retain detail policy and the template's home-only interstitial.
+        source = source.replace("home=location.pathname==='/'||/\\/index\\.html?$/i", "home=location.pathname==='/'||/^\\/index\\.html?$/i");
+        source = source.replace("if(!document.body)return;var route=location.pathname+location.search,complete=", String.raw`if(!document.body)return;var route=location.pathname+location.search;if(/(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|cookie(?:-policy)?|terms(?:-of-(?:service|use))?|legal|faq|404|accessibility|editorial(?:-policy|-standards)?|sources?-methodology|corrections|disclaimer|disclosures|copyright)(?:[\/.]|$)/i.test(location.pathname)){document.querySelectorAll('[data-sitefoundry-runtime-ad]').forEach(function(node){node.remove();});state.route=route;googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)googletag.destroySlots(state.slots);state.slots=[];state.outOfPage=false;});return;}var complete=`);
         source = source.replace(
             "header=document.querySelector('header')||document.querySelector('nav')",
             "header=document.querySelector('nav,header,[role=banner],[role=navigation]')||Array.prototype.filter.call(document.querySelectorAll('[class*=header],[id*=header],[class*=navbar],[id*=navbar],[class*=navigation],[id*=navigation],[class~=nav],[class*=nav-],[class*=-nav]'),function(node){var name=String(node.className||'')+' '+String(node.id||'');return !/pagination|breadcrumb|social|share|footer/i.test(name)&&!/^(?:MAIN|FOOTER|ASIDE)$/.test(node.tagName||'')&&node.querySelectorAll('a[href]').length>=2;})[0]||null"
@@ -2227,6 +2351,14 @@ const AdRestoration = (function() {
             if (version === 'v1.0.2') source = source.replace('googletag.setConfig({lazyLoad:{fetchMarginPercent:50,renderMarginPercent:0,mobileScaling:1},singleRequest:false});', 'googletag.setConfig({lazyLoad:null,singleRequest:false});');
             // v1.0.2.1 inherits v1.0.2's disabled extra interstitial triggers.
             if (version !== 'v1.0.0' && version !== 'v1.0.2' && version !== 'v1.0.2.1') source = source.replace("outOfPage.push(i);", "outOfPage.push(i);if(i.setConfig)i.setConfig({interstitial:{triggers:{unhideWindow:true,navBar:true,inactivity:true,endOfArticle:true,continueReading:true}}});");
+        }
+        if (options && options.waitForLoad) {
+            // Next hydration can still be running at DOMContentLoaded. Defer
+            // the first DOM mutation until local application scripts load;
+            // route changes continue to use the existing debounced rescan.
+            source = source.replace('function schedule(force){clearTimeout(state.timer);',
+                "function schedule(force){clearTimeout(state.timer);if(document.readyState!=='complete')return;");
+            source = source.replace("addEventListener('popstate',", "addEventListener('load',function(){schedule(true);},{once:true});addEventListener('popstate',");
         }
         return '/** 成品站 ad.js ' + (version || 'v1.0.1') + ' · manual SPA runtime */\n' + source;
     }
@@ -2399,16 +2531,26 @@ const AdRestoration = (function() {
         }).filter(function(entry) { return isSafePath(entry.path); });
         const entry = entries.find(function(item) { return item.path.toLowerCase() === project.entryPath.toLowerCase(); });
         if (!entry) return { valid: false, errors: [issue('没有找到 React 入口页 ' + project.entryPath + '。', 'AD_INJECTION_REACT_ENTRY_MISSING')], warnings: [], entries: entries, project: project };
-        let html = removeAdScripts(entryText(entry));
-        html = html.replace(/\s*<script\b[^>]*data-sitefoundry-ad-runtime[^>]*>[\s\S]*?<\/script\s*>/gi, '');
         const scripts = '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous" data-sitefoundry-ad-runtime="gpt"></script>\n    <script defer src="' + project.runtimeSrc + '?v=1" data-sitefoundry-ad-runtime="loader"></script>';
-        const headEnd = html.search(/<\/head\s*>/i);
-        if (headEnd === -1) return { valid: false, errors: [issue('React 入口页缺少 </head>，无法加入广告运行时。', 'AD_INJECTION_HEAD_MISSING')], warnings: [], entries: entries, project: project };
-        entry.bytes = textBytes(insertAt(html, headEnd, scripts).replace(/\n{3,}/g, '\n\n'));
+        // Next static exports have independent HTML entry points. Install only
+        // script loaders on every content route and preserve the SSR body, so
+        // direct detail/listing requests and later hydration keep working.
+        const pages = project.hydratedPages ? entries.filter(function(item) {
+            return item.path.indexOf(project.deploymentRoot || project.siteRoot || '') === 0
+                && /\.html?$/i.test(item.path) && FinishedSiteAds.isContentPath(item.path);
+        }) : [entry];
+        for (const page of pages) {
+            let html = removeAdScripts(entryText(page));
+            html = html.replace(/\s*<script\b[^>]*data-sitefoundry-ad-runtime[^>]*>[\s\S]*?<\/script\s*>/gi, '');
+            const headEnd = html.search(/<\/head\s*>/i);
+            if (headEnd === -1) return { valid: false, errors: [issue(page.path + ' 缺少 </head>，无法加入广告运行时。', 'AD_INJECTION_HEAD_MISSING')], warnings: [], entries: entries, project: project };
+            page.bytes = textBytes(insertAt(html, headEnd, scripts));
+        }
         const fixed = settings && settings.mode === 'fixed';
+        const runtimeOptions = { waitForLoad: !!project.hydratedPages };
         const runtimeBytes = textBytes(fixed && typeof FinishedSiteAds !== 'undefined'
-            ? FinishedSiteAds.dynamicRuntimeSource(config, settings.version)
-            : generateSpaAdRuntime(config, requestedPolicy, settings && settings.version));
+            ? FinishedSiteAds.dynamicRuntimeSource(config, settings.version, runtimeOptions)
+            : generateSpaAdRuntime(config, requestedPolicy, settings && settings.version, runtimeOptions));
         const existingRuntime = entries.find(function(item) { return item.path.toLowerCase() === project.runtimePath.toLowerCase(); });
         if (existingRuntime) existingRuntime.bytes = runtimeBytes;
         else entries.push({ path: project.runtimePath, bytes: runtimeBytes });
@@ -2418,7 +2560,7 @@ const AdRestoration = (function() {
         const existingManifest = entries.find(function(item) { return item.path.toLowerCase() === manifestPath.toLowerCase(); });
         if (existingManifest) existingManifest.bytes = textBytes(JSON.stringify(manifest, null, 2) + '\n');
         else entries.push({ path: manifestPath, bytes: textBytes(JSON.stringify(manifest, null, 2) + '\n') });
-        return { valid: true, errors: [], warnings: project.warnings || [], entries: entries, project: project, changedPages: [project.entryPath], changedScripts: [project.runtimePath], restoredConfig: config };
+        return { valid: true, errors: [], warnings: project.warnings || [], entries: entries, project: project, changedPages: pages.map(function(page) { return page.path; }), changedScripts: [project.runtimePath], restoredConfig: config };
     }
 
     /**
@@ -2773,9 +2915,10 @@ const AdRestoration = (function() {
             }
             const dynamicManual = settings.mode === 'manual' && mapping.project.kind === 'react-source'
                 && !mapping.project.entryPath;
+            const runtimeOptions = { waitForLoad: /Next\.js/.test(mapping.project.framework || '') };
             const fixedRuntime = settings.mode === 'fixed' && typeof FinishedSiteAds !== 'undefined'
-                ? FinishedSiteAds.dynamicRuntimeSource(mapping.code.config, settings.version) : '';
-            const manualRuntime = dynamicManual ? generateSpaAdRuntime(mapping.code.config, effectivePolicy, settings.version) : '';
+                ? FinishedSiteAds.dynamicRuntimeSource(mapping.code.config, settings.version, runtimeOptions) : '';
+            const manualRuntime = dynamicManual ? generateSpaAdRuntime(mapping.code.config, effectivePolicy, settings.version, runtimeOptions) : '';
             const injected = mapping.project.kind === 'react-source'
                 ? reactSourceInjector(mapping.site.entries, mapping.project, mapping.code.config, effectivePolicy, mapping.siteName,
                     fixedRuntime || manualRuntime || generateReactSourceAdRuntime(mapping.code.config, settings.version), settings)
@@ -2813,6 +2956,7 @@ const AdRestoration = (function() {
             }
             outputs.push({ name: outputName, entries: sourceOutput ? sourceOutput.entries : exportedEntries, policy: effectivePolicy,
                 sourcePublicRoot: mapping.project.kind === 'react-source' ? 'public/' : undefined,
+                sourceProject: mapping.project.kind === 'react-source',
                 preflightEntries: sourceOutput ? exportedEntries : undefined,
                 sourceOriginalEntries: sourceOutput ? mapping.site.sourceEntries || mapping.site.entries : undefined,
                 originalEntries: originalDeployment });
@@ -2881,8 +3025,8 @@ const AdRestoration = (function() {
 
     function policySummary(policy) {
         const normalized = normalizePolicy(policy);
-        const active = { home: [], detail: [] };
-        ['home', 'detail'].forEach(function(page) {
+        const active = { home: [], detail: [], all: [] };
+        policyPages(normalized).forEach(function(page) {
             normalized.slots[page].forEach(function(slot, index) {
                 if (slot.unit !== 'off') active[page].push('广告位' + (index + 1) + '=' + slot.position + '→' + slot.unit);
             });
@@ -2890,6 +3034,7 @@ const AdRestoration = (function() {
         return {
             home: active.home.length ? active.home.join('，') : '全部关闭',
             detail: active.detail.length ? active.detail.join('，') : '全部关闭',
+            all: active.all.length ? active.all.join('，') : '全部关闭',
             interstitial: '首页' + (normalized.outOfPage.interstitial.home ? '开' : '关') + '/详情' + (normalized.outOfPage.interstitial.detail ? '开' : '关'),
             anchor: '首页' + (normalized.outOfPage.anchor.home ? '开' : '关') + '/详情' + (normalized.outOfPage.anchor.detail ? '开' : '关')
         };
@@ -2907,6 +3052,7 @@ const AdRestoration = (function() {
             'ad.js 模板：' + versionRule,
             '全局首页：' + summary.home,
             '全局详情：' + summary.detail,
+            '全局全部文章页：' + (normalizePolicy(globalPolicy).slots.all ? summary.all : '沿用旧详情页配置'),
             '全局插屏：' + summary.interstitial,
             '全局锚点：' + summary.anchor,
             ''
@@ -2931,6 +3077,139 @@ const AdRestoration = (function() {
         const date = now || new Date();
         const pad = function(value) { return String(value).padStart(2, '0'); };
         return '广告策略处理-' + date.getFullYear() + pad(date.getMonth() + 1) + pad(date.getDate()) + '-' + pad(date.getHours()) + pad(date.getMinutes()) + pad(date.getSeconds()) + '-' + String(date.getMilliseconds()).padStart(3, '0');
+    }
+
+    // 预览与导出共用纯处理入口；替换代码仅覆盖广告配置，不写回原包。
+    function allowedPagePositions(page) {
+        return page === 'home' ? HOME_PLACEMENTS : page === 'all' ? ALL_PLACEMENTS : DETAIL_PLACEMENTS;
+    }
+
+    // 原位置以独立数据保存，不能从已经删除的广告容器或统一默认值反推。
+    // 工作台只在用户实际编辑位置时调用，可指定一个字段，避免带入其他临时预设位置。
+    function rememberPolicyPositions(site, requestedPolicy, field) {
+        const selected = field && String(field).match(/^slots\.(home|detail|all)\.([012])\.position$/);
+        if (field && !selected) return;
+        const policy = normalizePolicy(requestedPolicy);
+        const positions = site.restorePositions || (site.restorePositions = {});
+        policyPages(policy).forEach(function(page) {
+            positions[page] = positions[page] || [];
+            policy.slots[page].forEach(function(slot, index) {
+                if (selected && (selected[1] !== page || Number(selected[2]) !== index)) return;
+                if (selected && ORIGINAL_PLACEMENT_PATTERN.test(slot.position)) {
+                    delete positions[page][index];
+                    return;
+                }
+                if (!ORIGINAL_PLACEMENT_PATTERN.test(slot.position)) positions[page][index] = slot.position;
+            });
+        });
+    }
+
+    function originMarker(index) { return '<!-- SITEFOUNDRY_AD_ORIGIN banner' + (index + 1) + ' -->'; }
+
+    // 使用实际容器所在的间隙，保留每篇详情的原位置；不把脚本字符串当作 DOM。
+    // 旧版禁用块统一写在页脚，不能将其误当作关闭前的位置。
+    function markOriginalAdGaps(source) {
+        let html = String(source || '');
+        for (let index = 0; index < 3; index++) {
+            if (html.indexOf(originMarker(index)) >= 0) continue;
+            const masked = html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>|<!--[\s\S]*?-->/gi, function(block) { return ' '.repeat(block.length); });
+            const id = '(?:adv' + (index + 1) + '|div-gpt-ad-banner' + (index + 1) + ')';
+            const container = new RegExp('<div\\b[^>]*\\bid\\s*=\\s*["\']' + id + '["\'][^>]*>', 'i').exec(masked);
+            let at = container ? container.index : -1;
+            if (at < 0) {
+                const comments = /<!--[\s\S]*?-->/g;
+                const commentSource = html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, function(block) { return ' '.repeat(block.length); });
+                let comment;
+                while ((comment = comments.exec(commentSource))) {
+                    if (/AD_POLICY_DISABLED_START|SITEFOUNDRY_AD_ORIGIN/.test(comment[0])) continue;
+                    if (new RegExp('<div\\b[^>]*\\bid\\s*=\\s*["\']' + id + '["\']', 'i').test(comment[0])) { at = comment.index; break; }
+                }
+            }
+            if (at >= 0) html = html.slice(0, at) + originMarker(index) + html.slice(at);
+        }
+        return html;
+    }
+
+    function capturePolicyOrigins(site, metadata) {
+        const manifestEntry = site.entries.find(function(entry) { return normalizePath(entry.path).toLowerCase() === (metadata.siteRoot + 'ad-policy.json').toLowerCase(); });
+        let saved = {};
+        try { saved = manifestEntry ? JSON.parse(entryText(manifestEntry)) : {}; } catch (error) { /* 旧清单损坏时回退到 HTML，不阻止可靠识别的站点。 */ }
+        const positions = {};
+        ['home', 'detail', 'all'].forEach(function(page) {
+            positions[page] = [0, 1, 2].map(function(index) {
+                const savedSlots = saved.policy && saved.policy.slots && saved.policy.slots[page];
+                const candidates = [site.restorePositions && site.restorePositions[page] && site.restorePositions[page][index],
+                    saved.originalPlacements && saved.originalPlacements.positions && saved.originalPlacements.positions[page] && saved.originalPlacements.positions[page][index],
+                    savedSlots && savedSlots[index] && savedSlots[index].position];
+                return candidates.find(function(position) { return position !== 'off' && isAllowedPlacement(position, allowedPagePositions(page)); }) || 'original-banner' + (index + 1);
+            });
+        });
+        const pagePaths = [metadata.homePath].concat(metadata.detailPaths, metadata.listingPaths || []);
+        const entries = site.entries.map(function(entry) {
+            return pagePaths.indexOf(entry.path) < 0 ? entry : { path: entry.path, bytes: textBytes(markOriginalAdGaps(entryText(entry))) };
+        });
+        // 部分旧站会用 CONFIG.homeAds 重绘首页。同步它的原位置，避免重绘后又跳回统一位置。
+        const dynamicHomePositions = Object.assign({}, saved.originalPlacements && saved.originalPlacements.dynamicHomePositions);
+        entries.forEach(function(entry) {
+            if (!/\.js$/i.test(entry.path) || !/CONFIG\.homeAds/.test(entryText(entry))) return;
+            const match = entryText(entry).match(/\bhomeAds\s*:\s*(\{[\s\S]*?\})(?=\s*[,}])/);
+            if (!match) return;
+            try {
+                const homeAds = JSON.parse(match[1]);
+                Object.keys(homeAds).forEach(function(position) {
+                    if (!isAllowedPlacement(position, HOME_PLACEMENTS)) return;
+                    [0, 1, 2].forEach(function(index) {
+                        if (new RegExp('(?:adv' + (index + 1) + '|div-gpt-ad-banner' + (index + 1) + ')').test(homeAds[position]) && !dynamicHomePositions[index]) dynamicHomePositions[index] = position;
+                    });
+                });
+            } catch (error) { /* 非 JSON 的第三方配置不执行，使用静态原位置或默认位置。 */ }
+        });
+        return { entries: entries, positions: positions, dynamicHomePositions: dynamicHomePositions };
+    }
+
+    function preparePolicySite(site, requestedPolicy, options) {
+        options = options || {};
+        const metadata = site.metadata && site.metadata.valid ? site.metadata : inspectSiteEntries(site.entries, site.name);
+        if (!metadata.valid) return { valid: false, metadata: metadata, errors: metadata.errors, warnings: metadata.warnings };
+        if (!metadata.adJsVersion) return { valid: false, metadata: metadata, errors: [issue('无法可靠识别原站 ad.js 版本。', 'RESTORE_AD_VERSION_UNKNOWN')], warnings: metadata.warnings };
+        const code = options.codeOverride;
+        if (code) {
+            if (!code.valid) return { valid: false, metadata: metadata, errors: code.errors || [issue('替换广告代码无效。', 'POLICY_CODE_INVALID')], warnings: [] };
+            if (!code.detectedHost || code.detectedHost.toLowerCase() !== String(metadata.detectedHost || '').toLowerCase()) {
+                return { valid: false, metadata: metadata, errors: [issue('广告代码域名 ' + (code.detectedHost || '未识别') + ' 与当前站点 ' + metadata.detectedHost + ' 不匹配。', 'POLICY_CODE_HOST_MISMATCH')], warnings: [] };
+            }
+        }
+        const mode = normalizeBatchAdJsVersionMode(options.adJsVersionMode);
+        const config = code ? code.config : metadata.embeddedConfig;
+        const origins = capturePolicyOrigins(site, metadata);
+        const policy = normalizePolicy(requestedPolicy);
+        const savedPositions = {};
+        policyPages(policy).forEach(function(page) {
+            policy.slots[page].forEach(function(slot) {
+                const original = slot.position.match(ORIGINAL_PLACEMENT_PATTERN);
+                if (original) slot.position = origins.positions[page][Number(original[1]) - 1];
+            });
+            // 关闭时也记录当前选择的间隙，导出后重新导入仍能恢复。
+            // 限流预设只生成临时布局，其原位置清单必须继续使用进入预设前的记录。
+            savedPositions[page] = policy.slots[page].map(function(slot, index) {
+                return options.preserveOriginalPlacements ? origins.positions[page][index] : slot.position;
+            });
+        });
+        const originalDynamicPositions = Object.assign({}, origins.dynamicHomePositions);
+        const dynamicPolicy = normalizePolicy(policy);
+        dynamicPolicy.slots.home.forEach(function(slot, index) {
+            const original = slot.position.match(ORIGINAL_PLACEMENT_PATTERN);
+            if (original) slot.position = origins.dynamicHomePositions[Number(original[1]) - 1] || DEFAULT_POLICY.slots.home[index].position;
+            origins.dynamicHomePositions[index] = slot.position;
+        });
+        const result = restoreEntries(origins.entries, config, site.name, policy, {
+            batchPolicy: true, batchAdJsVersion: mode === 'original' ? metadata.adJsVersion : mode,
+            dynamicHomePolicy: dynamicPolicy,
+            originalPlacements: { version: 1, positions: savedPositions, dynamicHomePositions: options.preserveOriginalPlacements ? originalDynamicPositions : origins.dynamicHomePositions }
+        });
+        result.metadata = metadata;
+        result.config = config;
+        return result;
     }
 
     async function applyPolicyBatch(siteGroups, globalPolicy, overrides, onProgress, options) {
@@ -2969,9 +3248,10 @@ const AdRestoration = (function() {
                 continue;
             }
             const outputAdJsVersion = adJsVersionMode === 'original' ? metadata.adJsVersion : adJsVersionMode;
-            const restored = restoreEntries(site.entries, metadata.embeddedConfig, site.name, policy, {
-                batchPolicy: true,
-                batchAdJsVersion: outputAdJsVersion
+            const restored = preparePolicySite(site, policy, {
+                adJsVersionMode: adJsVersionMode,
+                preserveOriginalPlacements: !!options.preserveOriginalPlacements,
+                codeOverride: options.codeOverrides && options.codeOverrides[site.id]
             });
             if (!restored.valid) {
                 results.push({ valid: false, siteName: site.name, host: metadata.detectedHost, overridden: !!override, sourceAdJsVersion: metadata.adJsVersion, adJsVersion: outputAdJsVersion, errors: restored.errors, warnings: restored.warnings });
@@ -3214,6 +3494,8 @@ const AdRestoration = (function() {
         inspectSiteEntries: inspectSiteEntries,
         restoreHtml: restoreHtml,
         restoreEntries: restoreEntries,
+        preparePolicySite: preparePolicySite,
+        rememberPolicyPositions: rememberPolicyPositions,
         extractTarEntries: extractTarEntries,
         restoreBatch: restoreBatch,
         exportRecognizedAdCodes: exportRecognizedAdCodes,
@@ -3246,6 +3528,7 @@ const AdRestoration = (function() {
         policySummary: policySummary,
         homePlacements: HOME_PLACEMENTS.slice(),
         detailPlacements: DETAIL_PLACEMENTS.slice(),
+        allPlacements: ALL_PLACEMENTS.slice(),
         bannerUnits: BANNER_UNITS.slice(),
         batchAdJsVersions: BATCH_AD_JS_VERSIONS.slice(),
         normalizeBatchAdJsVersionMode: normalizeBatchAdJsVersionMode,

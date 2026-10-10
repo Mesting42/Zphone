@@ -121,7 +121,7 @@ describe('legacy ad migration', () => {
     expect(files['website/index.html']).toBeUndefined();
   });
 
-  it('exports an optional all-articles page with every article and the detail ad placements in normal mode', async () => {
+  it('exports an optional all-articles page with every article and independent default ad placements in normal mode', async () => {
     const state = createState();
     state.config.allArticlesEnabled = true;
     state.config.categories = state.config.categories.slice(0, 3);
@@ -404,7 +404,7 @@ describe('legacy ad migration', () => {
     const config = context.__generator.buildConfig(state);
     expect(config.siteBuildMode).toBe('ad-placeholder');
     expect(config.adRuntimeEnabled).toBe(true);
-    expect(config.adPlacements).toEqual(state.config.adPlacements);
+    expect(config.adPlacements).toEqual(context.__migration.normalizePagePlacements(state.config.adPlacements));
     expect(config.adPaths).toEqual({});
 
     await context.__generator.exportWebsite(state, () => {});
@@ -449,7 +449,7 @@ describe('legacy ad migration', () => {
     expect(files['website/js/ad.js']).toContain('const adUnitBanner1 = "";');
     expect(JSON.stringify(state.config.adPlacements)).toBe(savedManualPositions);
     state.reservePlacementMode = 'manual';
-    expect(context.__generator.buildConfig(state).adPlacements).toEqual(state.config.adPlacements);
+    expect(context.__generator.buildConfig(state).adPlacements).toEqual(context.__migration.normalizePagePlacements(state.config.adPlacements));
   });
 
   it('uses the in-app notice dialog instead of browser alert prompts', () => {

@@ -99,8 +99,8 @@ const Generator = (function() {
     ${inlineFallback}`;
     }
 
-    function validateMigratedPage(html, pageType) {
-        return typeof AdMigration !== 'undefined' ? AdMigration.validateGeneratedPage(html, pageType) : [];
+    function validateMigratedPage(html, pageType, config) {
+        return typeof AdMigration !== 'undefined' ? AdMigration.validateGeneratedPage(html, pageType, config.adPlacements) : [];
     }
 
     // ========== 简易Markdown转HTML ==========
@@ -165,12 +165,12 @@ const Generator = (function() {
         adv3: '<div id="adv3" style="text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;"><div style="text-align:center;color:inherit!important;-webkit-text-fill-color:currentColor!important;font-size:13px;">advertisement3</div><div id="div-gpt-ad-banner3" style="min-width:300px;min-height:250px;"></div></div>'
     };
 
-    // 全部文章页沿用详情页广告配置；正文相关广告位在文章列表中段展示。
-    function getAllArticlesDetailAds(config, positions) {
+    // 列表页只读取 all，预览和导出共用此渲染入口，避免详情页调整串到列表页。
+    function getAllArticlesAds(config, positions) {
         let code = '';
         for (const [adId, pages] of Object.entries(config.adPlacements || {})) {
-            const position = pages && pages.detail;
-            if (position && (positions.includes(position) || (positions.includes('detail-between-p-*') && /^detail-between-p-\d+$/.test(position)))) {
+            const position = pages && pages.all;
+            if (position && positions.includes(position)) {
                 code += AD_TEMPLATES[adId] || '';
             }
         }
@@ -179,8 +179,8 @@ const Generator = (function() {
             : code;
     }
 
-    function buildAllArticlesCardGrid(config, cards) {
-        const middleAds = getAllArticlesDetailAds(config, ['detail-middle', 'detail-between-p-*', 'detail-after-content', 'detail-before-related']);
+    function buildAllArticlesCardGrid(config, cards, middleMarker) {
+        const middleAds = getAllArticlesAds(config, ['content-middle']) + (middleMarker || '');
         if (!middleAds) return '<div class="items-grid">' + cards.join('') + '</div>';
         // Keep one grid so the shared runtime can choose complete rows at every breakpoint.
         const columns = Math.max(1, parseInt(config.structure.cardColumns, 10) || 2);
@@ -581,8 +581,8 @@ if (gaMeasurementId) {
         return source;
     }
 
-    // v1.0.2.1 changes only the native lazy-load default. Building on v1.0.2
-    // preserves its disabled interstitial triggers and per-site identifiers.
+    // v1.0.2.1 启用原生懒加载，GA ID 为空时静默跳过初始化。
+    // 仅移除末尾的空值警告分支，保留旧版本模板和正常 GA 初始化逻辑。
     function generateV1021AdJs(baseSource) {
         const source = generateV102AdJs(baseSource)
             .replace('ad.js v1.0.2', 'ad.js v1.0.2.1')
@@ -590,7 +590,8 @@ if (gaMeasurementId) {
             .replace(
                 'const enableLazyLoad = false;              // 关闭广告延迟加载',
                 'const enableLazyLoad = true;               // 开启 GPT 原生懒加载'
-            );
+            )
+            .replace(/ else \{\s*console\.warn\("GA ID is empty\."\);\s*\}$/, '');
         if (!/const enableLazyLoad = true;/.test(source)) {
             throw new Error('v1.0.2.1 广告模板生成失败：无法启用 GPT 原生懒加载。');
         }
@@ -2682,17 +2683,18 @@ ${adLayoutTools.layoutRuntimeSource()}
 </head>
 <body${TemplateLayouts.bodyAttributes(config)}>
     ${generateNavbar(config, 'all')}
-    ${getAllArticlesDetailAds(config, ['after-navbar'])}
+    ${getAllArticlesAds(config, ['after-navbar'])}
     <main class="main-content layout-standard">
         <div class="container">
-            ${getAllArticlesDetailAds(config, ['detail-before-content'])}
+            ${getAllArticlesAds(config, ['content-top'])}
             <section id="all-articles" class="category-section">
                 <h1 class="category-title">All Articles</h1>
                 ${buildAllArticlesCardGrid(config, cards)}
             </section>
+            ${getAllArticlesAds(config, ['content-bottom'])}
         </div>
     </main>
-    ${getAllArticlesDetailAds(config, ['detail-after-related', 'footer-top'])}
+    ${getAllArticlesAds(config, ['footer-top'])}
     ${generateFooter(config)}
     <script>${generateNavbarInteractionScript()}</script>
 </body>
@@ -3338,7 +3340,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         // index.html
         const homeHtml = generateIndexHtml(config, data);
         if (hasValidatedAdConfig(config)) {
-            const errors = validateMigratedPage(homeHtml, 'home');
+            const errors = validateMigratedPage(homeHtml, 'home', config);
             if (errors.length) throw new Error('广告移植首页校验失败：' + errors.map(function(item) { return item.message; }).join(' '));
         }
         siteFolder.file('index.html', homeHtml);
@@ -3346,7 +3348,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         if (config.structure.hasAllArticlesPage) {
             const allArticlesHtml = generateAllArticlesHtml(config, data);
             if (hasValidatedAdConfig(config)) {
-                const errors = validateMigratedPage(allArticlesHtml, 'all');
+                const errors = validateMigratedPage(allArticlesHtml, 'all', config);
                 if (errors.length) throw new Error('全部文章页广告校验失败：' + errors.map(function(item) { return item.message; }).join(' '));
             }
             siteFolder.file('all-articles.html', allArticlesHtml);
@@ -3406,7 +3408,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         for (let i = 0; i < total; i++) {
             const detailHtml = generateDetailHtml(data[i], i, data, config);
             if (hasValidatedAdConfig(config)) {
-                const errors = validateMigratedPage(detailHtml, 'detail');
+                const errors = validateMigratedPage(detailHtml, 'detail', config);
                 if (errors.length) throw new Error('广告移植详情页校验失败（第 ' + (i + 1) + ' 页）：' + errors.map(function(item) { return item.message; }).join(' '));
             }
             const itemId = getItemId(data[i], i);
@@ -3491,9 +3493,13 @@ ${adLayoutTools.layoutRuntimeSource()}
         const manualAdPlacements = clonePlain(directCodeManualAds
             ? appState.config.adCodePlacements || {}
             : appState.config.adPlacements || {}, {});
-        const exportedAdPlacements = useAutomaticAdPlacements
+        const selectedAdPlacements = useAutomaticAdPlacements
             ? automaticAdPlacements
             : (reserveAds || directCodeManualAds ? manualAdPlacements : {});
+        // 同一份兼容后的三页配置用于预览、签名和导出；显式移除的位置保留为空值。
+        const exportedAdPlacements = typeof adLayoutTools.normalizePagePlacements === 'function'
+            ? adLayoutTools.normalizePagePlacements(selectedAdPlacements)
+            : selectedAdPlacements;
 
         const result = {
             theme: theme,
@@ -3583,6 +3589,11 @@ ${adLayoutTools.layoutRuntimeSource()}
         const isLocalImages = appState.isLocalImages;
         const adPlacements = config.adPlacements;
         const isPlacingAds = !!config.adPlacementMode;
+        // config 来自 buildConfig 的独立副本；只在本次预览中隐藏所选广告，
+        // 不改写 appState 或批量全局位置，取消选择后仍使用原来的保存值。
+        if (isPlacingAds && adPlacements[config.adPlacementMode]) {
+            adPlacements[config.adPlacementMode][pageType] = '';
+        }
 
         // 本地图片路径 → blob URL 映射（供预览使用）
         const localImageUrls = {};
@@ -3767,16 +3778,21 @@ ${adLayoutTools.layoutRuntimeSource()}
 
         } else if (pageType === 'all' && config.structure.hasAllArticlesPage) {
             bodyContent = generateNavbar(config, 'all');
-            bodyContent += getAllArticlesDetailAds(config, ['after-navbar']);
+            if (isPlacingAds) bodyContent += genMarker('after-navbar', pageType);
+            bodyContent += getAllArticlesAds(config, ['after-navbar']);
             bodyContent += '<main class="main-content layout-standard"><div class="container">';
-            bodyContent += getAllArticlesDetailAds(config, ['detail-before-content']);
+            if (isPlacingAds) bodyContent += genMarker('content-top', pageType);
+            bodyContent += getAllArticlesAds(config, ['content-top']);
             bodyContent += '<section id="all-articles" class="category-section"><h1 class="category-title">All Articles</h1>';
             bodyContent += buildAllArticlesCardGrid(config, data.map(function(item, index) {
                 return generateAllArticlesCard(item, index, config, getPreviewImageSrc(item), true);
-            }));
+            }), isPlacingAds ? genMarker('content-middle', pageType) : '');
             bodyContent += '</section>';
+            if (isPlacingAds) bodyContent += genMarker('content-bottom', pageType);
+            bodyContent += getAllArticlesAds(config, ['content-bottom']);
             bodyContent += '</div></main>';
-            bodyContent += getAllArticlesDetailAds(config, ['detail-after-related', 'footer-top']);
+            if (isPlacingAds) bodyContent += genMarker('footer-top', pageType);
+            bodyContent += getAllArticlesAds(config, ['footer-top']);
             bodyContent += generateFooter(config);
 
         } else if (pageType === 'detail') {

@@ -179,7 +179,7 @@ const BatchAdBuilder = (function() {
         return {
             placementMode: source.placementMode === 'fixed' ? 'fixed' : 'manual',
             adJsVersion: String(source.adJsVersion || 'v1.0.2.1'),
-            adPlacements: clone(source.adPlacements || {})
+            adPlacements: typeof AdMigration !== 'undefined' ? AdMigration.normalizePagePlacements(source.adPlacements || {}) : clone(source.adPlacements || {})
         };
     }
 
@@ -199,7 +199,7 @@ const BatchAdBuilder = (function() {
             placementMode: placementMode,
             // 兼容旧会话：手动模式尚无位置表时从自动位置开始；显式空对象仍代表用户移除全部广告位。
             adPlacements: hasPlacementMap
-                ? clone(suppliedPlacements)
+                ? (typeof AdMigration !== 'undefined' ? AdMigration.normalizePagePlacements(suppliedPlacements) : clone(suppliedPlacements))
                 : (placementMode === 'manual' && typeof AdMigration !== 'undefined' ? AdMigration.fixedPlacements() : null)
         };
     }
@@ -211,12 +211,14 @@ const BatchAdBuilder = (function() {
         return normalizeCodePlacementSettings(source);
     }
 
-    function countReservedPlacements(settings) {
-        if (settings && settings.placementMode === 'fixed') return 6;
+    function countReservedPlacements(settings, includeAllArticles) {
+        // 关闭列表页时，其保存的位置不计入实际导出数量，也不能单独满足预留要求。
+        const includeAll = includeAllArticles !== false;
+        if (settings && settings.placementMode === 'fixed') return includeAll ? 9 : 6;
         const placements = settings && settings.adPlacements || {};
         return Object.keys(placements).reduce(function(total, adId) {
             const pages = placements[adId] || {};
-            return total + (pages.home ? 1 : 0) + (pages.detail ? 1 : 0);
+            return total + (pages.home ? 1 : 0) + (pages.detail ? 1 : 0) + (includeAll && pages.all ? 1 : 0);
         }, 0);
     }
 
@@ -297,7 +299,7 @@ const BatchAdBuilder = (function() {
         const assignments = sourceSites.map(function(site) {
             const domain = normalizeDomainInput(site && site.adDomain);
             const settings = resolveReserveSettings(batch, site);
-            if (!countReservedPlacements(settings)) {
+            if (!countReservedPlacements(settings, !(site && site.config && site.config.allArticlesEnabled === false))) {
                 errors.push(issue('站点“' + String(site && site.fileName || '未命名数据源') + '”尚未放置广告位。', 'BATCH_RESERVE_PLACEMENT_REQUIRED'));
             }
             if (domain.valid) {
@@ -334,15 +336,15 @@ const BatchAdBuilder = (function() {
 
     function validateReservedPage(html, pageType, settings) {
         const errors = [];
-        const label = pageType === 'home' ? '首页' : '详情页';
-        const expectedScript = pageType === 'home' ? 'js/ad.js' : '../js/ad.js';
+        const label = pageType === 'home' ? '首页' : pageType === 'all' ? '全部文章页' : '详情页';
+        const expectedScript = pageType === 'detail' ? '../js/ad.js' : 'js/ad.js';
         const gptCount = (String(html || '').match(/securepubads\.g\.doubleclick\.net\/tag\/js\/gpt\.js/gi) || []).length;
         const adScriptCount = (String(html || '').match(new RegExp(expectedScript.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')) || []).length;
         if (gptCount !== 1) errors.push(issue(label + ' GPT 脚本数量为 ' + gptCount + '，应为 1。', 'BATCH_RESERVE_GPT_INVALID'));
         if (adScriptCount !== 1) errors.push(issue(label + ' ad.js 引用数量为 ' + adScriptCount + '，应为 1。', 'BATCH_RESERVE_RUNTIME_REF_INVALID'));
         const placements = settings && settings.placementMode === 'fixed' && typeof AdMigration !== 'undefined'
             ? AdMigration.fixedPlacements()
-            : (settings && settings.adPlacements || {});
+            : (typeof AdMigration !== 'undefined' ? AdMigration.normalizePagePlacements(settings && settings.adPlacements || {}) : settings && settings.adPlacements || {});
         ['adv1', 'adv2', 'adv3'].forEach(function(adId, index) {
             const expected = placements[adId] && placements[adId][pageType] ? 1 : 0;
             const actual = countContainer(html, 'div-gpt-ad-banner' + (index + 1));
@@ -358,6 +360,7 @@ const BatchAdBuilder = (function() {
         const fileMap = files || {};
         const home = fileMap['website/index.html'];
         const details = Object.keys(fileMap).filter(function(path) { return /^website\/details\/.*\.html?$/i.test(path); }).sort().map(function(path) { return fileMap[path]; });
+        const listing = fileMap['website/all-articles.html'];
         const adJs = fileMap['website/js/ad.js'];
         if (!home) errors.push(issue('导出包缺少首页 index.html。', 'BATCH_AD_HOME_MISSING'));
         if (!details.length) errors.push(issue('导出包缺少详情页，无法确认详情页广告运行时。', 'BATCH_AD_DETAIL_MISSING'));
@@ -371,9 +374,12 @@ const BatchAdBuilder = (function() {
                         errors.push(issue('详情页 #' + (index + 1) + '：' + error.message, error.code));
                     });
                 });
+                if (listing) validateReservedPage(listing, 'all', options.settings).forEach(function(error) { errors.push(error); });
             } else if (typeof AdMigration !== 'undefined') {
-                const report = AdMigration.validateGeneratedPages(home, details);
+                const placements = options && options.placements || AdMigration.fixedPlacements();
+                const report = AdMigration.validateGeneratedPages(home, details, placements);
                 report.errors.forEach(function(error) { errors.push(issue(error.message, error.code)); });
+                if (listing) AdMigration.validateGeneratedPage(listing, 'all', placements).forEach(function(error) { errors.push(issue(error.message, error.code)); });
             }
         }
         if (adJs && !reserve) {
@@ -485,7 +491,8 @@ const BatchAdBuilder = (function() {
             preflightReports.push(preflight);
             const runtime = validateGeneratedSiteFiles(inspected.textFiles, assignment.code, {
                 mode: validation.mode,
-                settings: assignment.reserveSettings || null
+                settings: assignment.reserveSettings || null,
+                placements: Generator.buildConfig(siteState).adPlacements
             });
             if (!runtime.valid) {
                 runtimeFailures.push('站点“' + label + '”运行时广告检查未通过：' + runtime.errors.map(function(error) { return error.message; }).join(' '));
@@ -542,7 +549,7 @@ const BatchAdBuilder = (function() {
                 mode: validation.mode,
                 rule: validation.mode === 'reserve'
                     ? 'Each site exports reserved advertisement containers and an empty ad.js. Valid domains must be unique; missing or invalid domains use your-domain.com.'
-                    : 'Each site has one validated, non-reused advertisement code. Home and detail pages were validated after generation.',
+                    : 'Each site has one validated, non-reused advertisement code. Home, detail and all-articles pages were validated after generation.',
                 preflight: reports[index].preflight,
                 sites: [reports[index]]
             }, null, 2) + '\n');

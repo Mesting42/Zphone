@@ -168,6 +168,19 @@ describe('export preflight', () => {
     expect(preflight.inspectEntries(files, { sourcePublicRoot: 'public/' }).valid).toBe(false);
   });
 
+  it('resolves React source imports from the project root beside a built output directory', () => {
+    const entries = [
+      { path: 'package.json', bytes: new TextEncoder().encode('{"dependencies":{"next":"15"}}') },
+      { path: 'app/layout.tsx', bytes: new TextEncoder().encode("import './globals.css'; export default function Layout({ children }) { return children; }") },
+      { path: 'app/globals.css', bytes: new TextEncoder().encode('body { color: #111; }') },
+      { path: 'out/index.html', bytes: new TextEncoder().encode('<script defer src="/js/ad.js"></script>') },
+      { path: 'out/js/ad.js', bytes: new TextEncoder().encode('window.googletag = { cmd: [] };') }
+    ];
+    const report = preflight.inspectSites([{ name: 'react-source', entries, sourceProject: true }]);
+    expect(report.valid).toBe(true);
+    expect(report.errors).toEqual([]);
+  });
+
   it('still blocks new missing references and dropped original files even with inherited source issues', () => {
     const original = {
       'index.html': '<main>Approved site</main>',

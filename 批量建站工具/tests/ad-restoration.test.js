@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import JSZip from 'jszip';
 import { injectReactSource } from '../js/react-source-ad-injector.js';
 
-const context = { TextEncoder, TextDecoder, Blob, Response, DecompressionStream, JSZip, window: {} };
+const { DOMParser } = createRequire(import.meta.url)('../js/source-export-dom.cjs');
+const context = { TextEncoder, TextDecoder, Blob, Response, DecompressionStream, DOMParser, JSZip, window: {} };
 const source = (name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8');
 vm.runInNewContext(source('template-catalog.js') + source('template-layouts.js') + source('navbar-layout.js') + source('data.js') + '\nthis.__themes = THEMES;', context);
 vm.runInNewContext(source('domain.js'), context);
@@ -1554,6 +1556,29 @@ describe('batch ad restoration', () => {
     expect(Object.keys(files).some((path) => path.startsWith('wrapped/'))).toBe(false);
   });
 
+  it.each(['fixed', 'manual'])('keeps Next SSR bodies intact and loads the %s runtime on every content route', async (mode) => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const html = title => '<!doctype html><html><head><title>' + title + '</title><script src="/_next/static/app.js" async></script></head><body><nav>Navigation</nav><main><h1>' + title + '</h1><p>Original content</p></main><footer>Footer</footer><script>self.__next_f.push([1,"server tree"])</script></body></html>';
+    const contentPaths = ['index.html', 'archive/index.html', 'news/article/index.html'];
+    const entries = contentPaths.map(path => ({ path: 'out/' + path, text: html(path) }));
+    entries.push({ path: 'out/privacy-policy/index.html', text: html('Privacy') }, { path: 'out/_next/static/app.js', text: '/* original application */' });
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    expect(project).toMatchObject({ kind: 'static-html', hydratedPages: true, deploymentRoot: 'out/' });
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    const batch = await context.__restoration.applyAdCodeBatch([{ id: 'next-static', name: 'zp0903a.example.pro', entries, project }], [code], undefined,
+      { mode, version: 'v1.0.2.1', policy: context.__restoration.createPolicy() });
+    const files = Object.fromEntries(batch.sites[0].entries.map(entry => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    for (const path of contentPaths) {
+      expect(files[path]).toContain('data-sitefoundry-ad-runtime="loader"');
+      expect(files[path].slice(files[path].indexOf('<body>'))).toBe(html(path).slice(html(path).indexOf('<body>')));
+    }
+    expect(files['privacy-policy/index.html']).toBe(html('Privacy'));
+    expect(files['_next/static/app.js']).toBe('/* original application */');
+    expect(files['js/ad.js']).toContain(mode === 'fixed' ? '"waitForLoad":true' : "document.readyState!=='complete'");
+    expect(files['js/ad.js']).toContain('/^\\/index\\.html?$/i.test(location.pathname)');
+    expect(() => new Function(files['js/ad.js'])).not.toThrow();
+  });
+
   it('adds the fixed runtime to a Next.js App Router root layout', async () => {
     const config = context.__restoration.readExistingConfig(oldAdJs);
     const entries = [
@@ -1595,6 +1620,24 @@ describe('batch ad restoration', () => {
     expect(files['public/js/ad.js']).toContain('privacy');
     expect(files['ad-injection.json']).toContain('"placementMode": "manual"');
     expect(() => new Function(files['public/js/ad.js'])).not.toThrow();
+  });
+
+  it('preserves legal and editorial transparency pages during finished-site injection', async () => {
+    const legalPaths = ['about/index.html', 'contact/index.html', 'privacy/index.html', 'terms/index.html', 'terms-of-use/index.html', 'corrections/index.html', 'editorial-standards/index.html', 'sources-methodology/index.html'];
+    legalPaths.forEach((path) => expect(context.__fixed.isContentPath(path)).toBe(false));
+    const legalHtml = '<!doctype html><html><head><title>Legal</title></head><body><main class="legal"><p>Original legal content.</p></main></body></html>';
+    const entries = [
+      { path: 'index.html', text: homeHtml },
+      { path: 'details/article1.html', text: detailHtml },
+      { path: 'js/ad.js', text: versionedAdJs('zp0903a.example.pro', 'initial') },
+      ...legalPaths.map((path) => ({ path, text: legalHtml }))
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'zp0903a.example.pro');
+    const config = context.__restoration.readExistingConfig(entries[2].text);
+    const code = context.__migration.inspectAdCodeText(context.__restoration.generateRecognizedAdCode(config, 'zp0903a.example.pro'), 'zp0903a.example.pro.txt');
+    const batch = await context.__restoration.applyAdCodeBatch([{ id: 'legal-preserve', name: 'zp0903a.example.pro', entries, project }], [code], undefined, { mode: 'fixed', version: 'v1.0.2.1', policy: context.__restoration.createPolicy() });
+    const output = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    legalPaths.forEach((path) => expect(output[path]).toBe(legalHtml));
   });
 
   it('supports a React Router framework root without a static index.html', async () => {

@@ -290,6 +290,14 @@
         return matches.length ? matches[0] : (indexRoots.length ? indexRoots[0] : '');
     }
 
+    // React/Next 源码导出同时包含源码和 out/dist 等构建产物。源码模块的
+    // `./`、`../` 引用必须从工程根目录解析，不能套用构建产物的 index.html
+    // 根目录，否则 app/layout.tsx 等合法引用会被误判为越过站点根目录。
+    function preflightSiteRoot(path, indexRoots, options) {
+        if (options && options.sourceProject && !/^(?:dist|build|out|output|export|www|_site|\.output\/public|\.vercel\/output\/static)(?:\/|$)/i.test(path)) return '';
+        return findSiteRoot(path, indexRoots);
+    }
+
     function hasPath(pathSet, target) {
         if (pathSet.has(target)) return true;
         if (target.endsWith('/index.html') && pathSet.has(target.slice(0, -10))) return true;
@@ -373,7 +381,7 @@
         paths.forEach(function(path) {
             const source = textFiles[path];
             if (typeof source !== 'string' || !shouldReadText(path)) return;
-            const siteRoot = findSiteRoot(path, indexRoots);
+            const siteRoot = preflightSiteRoot(path, indexRoots, options);
             if (HTML_FILE.test(path)) {
                 const parsed = collectHtmlReferences(path, source);
                 let base = siteRoot;
@@ -410,7 +418,7 @@
         if (options.originalEntries) {
             // Finished-site injection preserves the input deployment. Report
             // pre-existing missing references without hiding any new failures.
-            const original = inspectEntries(options.originalEntries, { sourcePublicRoot: options.sourcePublicRoot });
+            const original = inspectEntries(options.originalEntries, { sourcePublicRoot: options.sourcePublicRoot, sourceProject: options.sourceProject });
             const referenceKey = function(error) {
                 return JSON.stringify([error.code, error.sourcePath, error.path, error.reference, error.resolvedPath]);
             };
@@ -465,7 +473,7 @@
                 return { path: entry.path, bytes: entry.bytes };
             });
             const report = inspectEntries(entries, { siteName: site && site.name || '未命名站点', originalEntries: site && site.originalEntries,
-                sourcePublicRoot: site && site.sourcePublicRoot });
+                sourcePublicRoot: site && site.sourcePublicRoot, sourceProject: !!(site && site.sourceProject) });
             if (site && site.sourceOriginalEntries) {
                 const sourcePaths = new Set((site.entries || []).map(function(entry) { return entry.path; }));
                 (site.sourceOriginalEntries || []).forEach(function(entry) {

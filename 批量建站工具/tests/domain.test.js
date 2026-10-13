@@ -327,7 +327,8 @@ describe('local domain detection', () => {
     const preview = generator.generatePreviewHtml(appState, 'home');
 
     expect(preview).toContain('--navbar-height: 72px;');
-    expect(preview).toMatch(/<nav class="navbar(?: [^"]+)? has-boxed-logo">/);
+    // Page-state attributes can follow class without changing boxed-logo layout.
+    expect(preview).toMatch(/<nav class="navbar(?: [^"]+)? has-boxed-logo"[^>]*>/);
     expect(preview).toContain('class="logo logo-boxed">LabBrief</a>');
     expect(preview).toContain('.navbar.has-boxed-logo .container');
     expect(preview).toContain('min-height: 42px;');
@@ -536,7 +537,9 @@ describe('local domain detection', () => {
       expect(() => new Function(inlineScript[1])).not.toThrow();
       expect(preview).toContain('aria-expanded="false"');
       expect(preview).toContain("event.key === 'Escape'");
-      expect(preview).toContain('function closeNavigation()');
+      // Shared controller serializes the close/open behavior into every export.
+      expect(preview).toContain('function initializeInteraction()');
+      expect(preview).toContain("menu.dataset.navMotion = 'closed'");
       if (navbarStyle === 'side-drawer') {
         const nav = preview.slice(preview.indexOf('<nav'), preview.indexOf('</nav>') + 6);
         expect(nav).not.toContain('class="nav-links"');

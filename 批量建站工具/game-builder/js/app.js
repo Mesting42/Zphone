@@ -9,6 +9,10 @@
     // Resolve the shared local catalog first so the game workflow uses its latest default.
     if (window.AdTemplateCatalog) await window.AdTemplateCatalog.ready;
 
+    // 保留经典脚本入口；只动态加载共用展示模块，避免维护两套摘要标记。
+    var exportSummaryView = await import('../../js/export-summary-view.js?v=sha256-3f2b9900e822a4dc');
+    var exportProgressView = await import('../../js/export-progress-view.js?v=sha256-cd8cc888fe9e8d8a');
+
     var REQUIRED_DIFFERENTIATED_BUILDER_VERSION = '20260914-template-library-13';
 
     function escapeHtml(value) {
@@ -260,7 +264,9 @@
     }
 
     function selectBuildMode(mode) {
-        appState.siteBuildMode = mode === 'ad-migration' || mode === 'differentiated' ? mode : 'normal';
+        var nextMode = mode === 'ad-migration' || mode === 'differentiated' ? mode : 'normal';
+        if (nextMode !== appState.siteBuildMode && typeof PreviewImageCache !== 'undefined') PreviewImageCache.acquire({});
+        appState.siteBuildMode = nextMode;
         appState.adPlacementMode = null;
         if (appState.config) {
             appState.config.adPlacements = {};
@@ -2029,6 +2035,9 @@
     }
 
     function bindConfigEvents() {
+        ConfigurationControls.bind(function() { return appState.config; });
+        // Shared preferences survive layout changes and batch snapshots.
+        if (typeof SiteMotion !== 'undefined') SiteMotion.bindControls(function() { return appState.config; }, updatePreview);
         var configMap = {
             'site-title': 'siteTitle',
             'site-subtitle': 'siteSubtitle',
@@ -2039,6 +2048,7 @@
             'card-columns': 'cardColumns',
             'meta-layout': 'metaLayout',
             'content-render': 'contentRender',
+            'action-btn-link-field': 'actionButtonLinkField',
             'navbar-style': 'navbarStyle',
             'navbar-height': 'navbarHeight',
             'logo-style': 'logoStyle',
@@ -2366,6 +2376,7 @@
                 // 新布局有自己的领域样式；显隐和广告偏好不属于模板默认值。
                 var preset = LAYOUT_PRESETS.find(function(item) { return item.id === appState.config.layoutTemplate; });
                 if (preset && preset.style) Object.assign(appState.config, preset.style);
+                appState.config.controlOverrides = {};
                 applyConfigToUI();
                 appState.config.detailLayout = 'single';
                 document.getElementById('detail-layout').value = 'single';
@@ -2908,6 +2919,7 @@
 
     var previewTimeout = null;
     function updatePreview(pageType) {
+        ConfigurationControls.sync(appState.config, appState);
         if (appState.currentStep !== 1) return;
         if (appState.siteBuildMode === 'differentiated' && (typeof DifferentiatedBuilder === 'undefined' || DifferentiatedBuilder.BUILD_VERSION !== REQUIRED_DIFFERENTIATED_BUILDER_VERSION)) {
             if (previewTimeout) clearTimeout(previewTimeout);
@@ -2929,7 +2941,8 @@
             if (!pageType) pageType = activeTab ? activeTab.dataset.page : 'home';
 
             try {
-                if (appState._previewBlobUrls.length > 0) {
+                if ((appState.siteBuildMode === 'differentiated' || typeof PreviewImageCache === 'undefined') && appState._previewBlobUrls.length > 0) {
+                    if (typeof PreviewImageCache !== 'undefined') PreviewImageCache.clear();
                     appState._previewBlobUrls.forEach(function(u) { URL.revokeObjectURL(u); });
                     appState._previewBlobUrls = [];
                 }
@@ -2956,14 +2969,7 @@
             document.querySelectorAll('[data-diff-export]').forEach(function(button) { button.disabled = true; });
             DifferentiatedBuilder.audit(appState, { variant: 'review', siteType: 'games' }).then(function(outcome) {
                 var config = outcome.config;
-                target.innerHTML = '<h4>配置摘要</h4><div class="summary-grid">' +
-                    makeSummaryItem('建站方式', '差异化精品建站') +
-                    makeSummaryItem('独立领域', config.vertical) +
-                    makeSummaryItem('游戏数量', config.items.length + '款') +
-                    makeSummaryItem('设计家族', config.design.name) +
-                    makeSummaryItem('设计指纹', config.designFingerprint) +
-                    makeSummaryItem('正式域名', config.baseUrl || '尚未填写') +
-                    makeSummaryItem('联系邮箱', config.contactEmail || '尚未填写') + '</div>' +
+                target.innerHTML = exportSummaryView.renderDifferentiatedExportConfiguration(config, outcome.report.counts) +
                     DifferentiatedBuilder.renderAuditSummary(outcome.report);
                 document.querySelectorAll('[data-diff-export]').forEach(function(button) {
                     button.disabled = button.dataset.diffExport !== 'draft' && outcome.report.counts.blockers > 0;
@@ -2987,23 +2993,35 @@
             if (layout.id === config.layoutTemplate) selectedLayoutName = layout.name;
         });
 
-        var summaryHtml = '<h4>配置摘要</h4><div class="summary-grid">';
-        summaryHtml += makeSummaryItem('游戏来源', activeSourceLabel);
-        summaryHtml += makeSummaryItem('数据条数', appState.data.length + '款游戏');
-        summaryHtml += makeSummaryItem('网站标题', config.siteTitle || 'GameHub');
-        summaryHtml += makeSummaryItem('布局模板', selectedLayoutName || '经典门户');
-        summaryHtml += makeSummaryItem('视觉风格', selectedStyleName);
         var ambientNames = {
             none: '静态', aurora: '极光流动', stardust: '星尘漂移', 'grid-scan': '网格扫描', prism: '棱镜光晕',
             'arcade-pulse': '街机脉冲', 'pixel-drift': '像素漂移', 'comet-trails': '彗星掠影', 'radar-sweep': '雷达扫描'
         };
-        summaryHtml += makeSummaryItem('动态氛围', ambientNames[config.ambientEffect] || '静态');
-        summaryHtml += makeSummaryItem('Hero区域', config.heroEnabled ? '开启' : '关闭');
-        summaryHtml += makeSummaryItem('分类数量', config.categories.length + '个');
-        summaryHtml += makeSummaryItem('操作按钮', config.actionButtonEnabled ? config.actionButtonText : '关闭');
-        summaryHtml += makeSummaryItem('相关推荐', config.relatedCount + '条');
-        summaryHtml += makeSummaryItem('建站方式', appState.siteBuildMode === 'ad-migration' ? '广告移植建站' : '游戏建站');
-        summaryHtml += '</div>';
+        // 游戏端使用真实的游戏/分类/推荐统计，展示层不引入资讯字段映射。
+        var summaryHtml = exportSummaryView.renderExportConfiguration({
+            title: config.siteTitle || 'GameHub',
+            themeName: '游戏建站',
+            metrics: [
+                ['游戏数量', appState.data.length],
+                ['分类数量', config.categories.length],
+                ['相关推荐', config.relatedCount]
+            ],
+            groups: [
+                { title: '网站与内容', items: [
+                    ['游戏来源', activeSourceLabel],
+                    ['操作按钮', config.actionButtonEnabled ? config.actionButtonText : '关闭']
+                ] },
+                { title: '外观与功能', items: [
+                    ['布局模板', selectedLayoutName || '经典门户'],
+                    ['视觉风格', selectedStyleName],
+                    ['动态氛围', ambientNames[config.ambientEffect] || '静态'],
+                    ['Hero区域', config.heroEnabled ? '开启' : '关闭']
+                ] },
+                { title: '广告配置', wide: true, items: [
+                    ['建站方式', appState.siteBuildMode === 'ad-migration' ? '广告移植建站' : '游戏建站']
+                ] }
+            ]
+        });
 
         var migration = appState.legacyAdMigration;
         var isMigration = appState.siteBuildMode === 'ad-migration';
@@ -3030,8 +3048,9 @@
         if (typeof afterRender === 'function') afterRender();
     }
 
-    function makeSummaryItem(label, value) {
-        return '<div class="summary-item"><span class="label">' + escapeHtml(label) + '</span><span class="value">' + escapeHtml(value) + '</span></div>';
+    /** 仅同步进度展示，不介入生成、质量门禁或下载流程。 */
+    function updateGameExportProgress(percent, message, state) {
+        exportProgressView.updateWorkflowExportProgress('export-progress', percent, message, state);
     }
 
     async function inspectExportBlob(blob, siteName) {
@@ -3073,53 +3092,48 @@
         }
         var btn = this;
         btn.disabled = true;
-        var progressDiv = document.getElementById('export-progress');
-        var progressFill = document.getElementById('progress-fill');
-        var progressText = document.getElementById('progress-text');
-        progressDiv.style.display = 'block';
+        btn.setAttribute('aria-busy', 'true');
+        updateGameExportProgress(0, '正在准备导出文件…', 'loading');
         var archiveDescriptor = getGameSiteArchiveDescriptor();
 
         Generator.exportWebsite(appState, function(percent, text) {
-            progressFill.style.width = percent + '%';
-            progressText.textContent = text;
+            updateGameExportProgress(percent, text, 'loading');
         }, { siteFolderName: archiveDescriptor.siteFolderName }).then(async function(blob) {
-            progressText.textContent = '正在进行导出前全站体检…';
+            updateGameExportProgress(null, '正在进行导出前全站体检…', 'loading');
             var preflightReport = await inspectExportBlob(blob, appState.config.siteTitle || '游戏建站');
             renderExportPreflight(preflightReport);
             saveAs(blob, archiveDescriptor.fileName);
-            progressText.textContent = '✅ 导出成功！文件已开始下载';
+            updateGameExportProgress(100, '导出成功！文件已开始下载。', 'success');
             btn.disabled = false;
+            btn.removeAttribute('aria-busy');
         }).catch(function(err) {
             renderExportPreflight(err.preflightReport);
-            progressText.textContent = '❌ 导出失败: ' + err.message;
+            updateGameExportProgress(null, '导出失败：' + err.message, 'error');
             btn.disabled = false;
+            btn.removeAttribute('aria-busy');
             console.error('Export error:', err);
         });
     });
 
     function exportDifferentiatedSite(variant, button) {
         appState.differentiated.exportVariant = variant;
-        var progressDiv = document.getElementById('export-progress');
-        var progressFill = document.getElementById('progress-fill');
-        var progressText = document.getElementById('progress-text');
         document.querySelectorAll('[data-diff-export]').forEach(function(item) { item.disabled = true; });
         if (button) button.setAttribute('aria-busy', 'true');
-        progressDiv.style.display = 'block';
+        updateGameExportProgress(0, '正在准备导出文件…', 'loading');
         DifferentiatedBuilder.exportWebsite(appState, function(percent, text) {
-            progressFill.style.width = percent + '%';
-            progressText.textContent = text;
+            updateGameExportProgress(percent, text, 'loading');
         }, { variant: variant, siteType: 'games', JSZip: window.JSZip }).then(async function(blob) {
             var config = DifferentiatedBuilder.buildConfig(appState, { variant: variant, siteType: 'games' });
-            progressText.textContent = '正在进行导出前全站体检…';
+            updateGameExportProgress(null, '正在进行导出前全站体检…', 'loading');
             var preflightReport = await inspectExportBlob(blob, config.siteTitle || '差异化游戏站');
             saveAs(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'game-site') + '-' + variant + '.zip');
-            progressText.textContent = '✅ 差异化游戏静态站导出成功；ZIP 已开始下载';
+            updateGameExportProgress(100, '差异化游戏静态站导出成功；ZIP 已开始下载。', 'success');
             generateExportSummary(function() { renderExportPreflight(preflightReport); });
         }).catch(function(error) {
             if (error.preflightReport) {
                 generateExportSummary(function() { renderExportPreflight(error.preflightReport); });
             }
-            progressText.textContent = '❌ 导出失败：' + error.message;
+            updateGameExportProgress(null, '导出失败：' + error.message, 'error');
             showNotice(error.message, '差异化导出未完成');
             if (!error.preflightReport) generateExportSummary();
         }).finally(function() {
@@ -3137,6 +3151,7 @@
     }
 
     function generateRandomConfig() {
+        appState.config.controlOverrides = {};
         var c = appState.config;
 
         // 高影响项
@@ -3187,6 +3202,7 @@
     }
 
     function applyConfigToUI() {
+        if (typeof SiteMotion !== 'undefined') SiteMotion.syncControls(appState.config);
         var c = appState.config;
         document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
 

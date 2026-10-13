@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "id": "pixelwire-editorial",
+  "name": "像素·青蓝媒体",
+  "version": "1.0.0",
+  "domainId": "*",
+  "description": "05 PixelWire · 独立导航、首页、列表与阅读版式",
+  "icon": "▤",
+  "reference": "05 PixelWire",
+  "baseLayout": "portal-topic-matrix",
+  "palette": {
+    "bg": "#0b0d12",
+    "secondary": "#10131a",
+    "surface": "#181d27",
+    "primary": "#62d9ff",
+    "text": "#edf4fa",
+    "muted": "#abb9c7",
+    "border": "#293442",
+    "card": "#10131a",
+    "hover": "#172630"
+  },
+  "structure": {
+    "cardColumns": "3",
+    "footerStyle": "detailed",
+    "detailLayout": "single",
+    "backLinkStyle": "text"
+  },
+  "style": {
+    "selectedStyle": "reference-pixelwire-editorial",
+    "fontStyle": "sans-serif",
+    "navbarStyle": "normal",
+    "logoStyle": "text-icon",
+    "cardBorder": "thin",
+    "cardRadius": "12px",
+    "cardHover": "accent-line",
+    "cardImageHeight": "210px",
+    "contentMaxWidth": "1240px",
+    "gridGap": "20px",
+    "cardSpacing": "20px",
+    "cardViewMode": "card",
+    "detailImgStyle": "banner",
+    "animationEnter": "none"
+  }
+}

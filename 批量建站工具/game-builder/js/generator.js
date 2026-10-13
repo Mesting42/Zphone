@@ -5,6 +5,22 @@
 
 const Generator = (function() {
 
+    // Same post-render integration as the editorial builder. Card links and the
+    // actual game runtime are preserved; motion only decorates eligible content.
+    function motionPage(html, config, preview) {
+        return typeof SiteMotion !== 'undefined' ? SiteMotion.documentHTML(html, config, preview) : html;
+    }
+    function generateIndexHtml(config, data) { return motionPage(generateIndexHtmlBase(config, data), config); }
+    function generateAllGamesHtml(config, data) { return motionPage(generateAllGamesHtmlBase(config, data), config); }
+    function generateDetailHtml(item, index, allItems, config) { return motionPage(generateDetailHtmlBase(item, index, allItems, config), config); }
+    function generateContactHtml(config) { return motionPage(generateContactHtmlBase(config), config); }
+    function generateAboutHtml(config) { return motionPage(generateAboutHtmlBase(config), config); }
+    function generatePrivacyHtml(config) { return motionPage(generatePrivacyHtmlBase(config), config); }
+    function generateTermsHtml(config) { return motionPage(generateTermsHtmlBase(config), config); }
+    function generatePreviewHtml(appState, pageType) {
+        return motionPage(generatePreviewHtmlBase(appState, pageType), buildConfig(appState), true);
+    }
+
     // The renderer can also be used without ad integration (for example in
     // domain-only previews); keep that path independent of the migration module.
     const adLayoutTools = typeof AdMigration !== 'undefined' ? AdMigration : {
@@ -2290,6 +2306,7 @@ ${style.detailLayout === 'sidebar' ? `
 }
 ${TemplateLayouts.css(config)}
 ${NavbarLayout.css()}
+${typeof ConfigurationControls !== 'undefined' ? ConfigurationControls.css(config) : ''}
 /* 保留 300px 固定广告槽位；窄屏时避免详情页广告包装层裁切它。 */
 @media (min-width: 300px) and (max-width: 400px) {
     .detail-page #adv1,
@@ -2584,7 +2601,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成首页 index.html ==========
-    function generateIndexHtml(config, data) {
+    function generateIndexHtmlBase(config, data) {
         const theme = config.theme;
         const layoutClass = 'layout-' + (config.style.layoutTemplate || 'classic');
         const siteName = escapeHtml(theme.siteTitle);
@@ -2684,7 +2701,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成完整游戏列表页 ==========
-    function generateAllGamesHtml(config, data) {
+    function generateAllGamesHtmlBase(config, data) {
         const theme = config.theme;
         const layoutClass = 'layout-' + (config.style.layoutTemplate || 'classic');
         const siteName = escapeHtml(theme.siteTitle);
@@ -2989,7 +3006,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         return `<a href="${href}" class="back-link${value === 'button' ? ' button' : ''}"${target}>← Back to Home</a>`;
     }
 
-    function generateDetailHtml(item, index, allItems, config) {
+    function generateDetailHtmlBase(item, index, allItems, config) {
         const theme = config.theme;
         const style = config.style;
         const layoutClass = 'layout-' + (style.layoutTemplate || 'classic');
@@ -3055,7 +3072,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         // 操作按钮
         let actionBtnHtml = '';
         if (config.structure.actionButtonEnabled && config.structure.actionButtonLinkField) {
-            const url = item[mapping[config.structure.actionButtonLinkField]];
+            const url = item[mapping[config.structure.actionButtonLinkField] || config.structure.actionButtonLinkField];
             const safeActionUrl = detailPageUrl(url);
             if (safeActionUrl) {
                 actionBtnHtml = `<a class="action-btn" href="${escapeHtml(safeActionUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(config.structure.actionButtonText)}</a>`;
@@ -3259,7 +3276,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成Contact页面 ==========
-    function generateContactHtml(config) {
+    function generateContactHtmlBase(config) {
         const theme = config.theme;
         const navbar = generateNavbar(config);
         const footer = generateFooter(config);
@@ -3284,7 +3301,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成About页面 ==========
-    function generateAboutHtml(config) {
+    function generateAboutHtmlBase(config) {
         const theme = config.theme;
         const navbar = generateNavbar(config);
         const footer = generateFooter(config);
@@ -3309,7 +3326,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成Privacy页面 ==========
-    function generatePrivacyHtml(config) {
+    function generatePrivacyHtmlBase(config) {
         const theme = config.theme;
         const navbar = generateNavbar(config);
         const footer = generateFooter(config);
@@ -3334,7 +3351,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成Terms页面 ==========
-    function generateTermsHtml(config) {
+    function generateTermsHtmlBase(config) {
         const theme = config.theme;
         const navbar = generateNavbar(config);
         const footer = generateFooter(config);
@@ -3379,6 +3396,10 @@ ${adLayoutTools.layoutRuntimeSource()}
             ? requestedFolderName
             : 'website';
         const siteFolder = zip.folder(safeFolderName);
+
+        if (config.style.siteMotion && typeof SiteMotion !== 'undefined') {
+            SiteMotion.exportAssets(siteFolder, config.style.siteMotion);
+        }
 
         // CSS
         siteFolder.folder('css').file('style.css', generateCSS(config));
@@ -3502,7 +3523,8 @@ ${adLayoutTools.layoutRuntimeSource()}
         onProgress(92, '正在校验网站文件...');
         onProgress(95, '正在打包ZIP...');
 
-        const blob = await zip.generateAsync({
+        const pack = typeof ArchiveExport !== 'undefined' ? ArchiveExport.generate : function(archive, options, progress) { return archive.generateAsync(options, progress); };
+        const blob = await pack(zip, {
             type: 'blob',
             compression: 'DEFLATE',
             compressionOptions: { level: 6 }
@@ -3600,11 +3622,12 @@ ${adLayoutTools.layoutRuntimeSource()}
                 termsLength: appState.config.termsLength || 'full'
             },
             style: {
+                controlOverrides: Object.assign({}, appState.config.controlOverrides || {}),
                 selectedStyle: appState.config.selectedStyle || 'dark',
                 navbarStyle: appState.config.navbarStyle === 'bottom-fixed' ? 'glass-sticky' : (appState.config.navbarStyle || 'glass-sticky'),
                 navbarHeight: appState.config.navbarHeight || '60px',
                 logoStyle: appState.config.logoStyle || 'text',
-                cardHover: appState.config.cardHover || 'float',
+                cardHover: typeof SiteMotion !== 'undefined' && SiteMotion.normalize(appState) ? 'none' : appState.config.cardHover || 'float',
                 cardBorder: appState.config.cardBorder || 'rounded',
                 cardRadius: appState.config.cardRadius || '8px',
                 cardSpacing: appState.config.cardSpacing || '20px',
@@ -3613,7 +3636,8 @@ ${adLayoutTools.layoutRuntimeSource()}
                 gridGap: appState.config.gridGap || '20px',
                 fontStyle: appState.config.fontStyle || 'sans-serif',
                 ambientEffect: appState.config.ambientEffect || 'none',
-                animationEnter: appState.config.animationEnter || 'fadeIn',
+                animationEnter: typeof SiteMotion !== 'undefined' && SiteMotion.normalize(appState) ? 'none' : appState.config.animationEnter || 'fadeIn',
+                siteMotion: typeof SiteMotion !== 'undefined' ? SiteMotion.normalize(appState) : null,
                 transitionSpeed: appState.config.transitionSpeed || '0.3s',
                 metaLayout: appState.config.metaLayout || 'grid',
                 metaBg: appState.config.metaBg || 'dark',
@@ -3642,7 +3666,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成预览HTML ==========
-    function generatePreviewHtml(appState, pageType) {
+    function generatePreviewHtmlBase(appState, pageType) {
         const config = buildConfig(appState, { previewManualAds: true });
         const theme = config.theme;
         const data = appState.data;
@@ -3654,7 +3678,11 @@ ${adLayoutTools.layoutRuntimeSource()}
         // 本地图片路径 → 可预览URL映射。内置开源封面优先使用 data URL，
         // 因为 sandboxed srcdoc iframe 无法读取父页面创建的 blob URL。
         const localImageUrls = {};
-        if (isLocalImages && appState.localImages) {
+        if (typeof PreviewImageCache !== 'undefined') {
+            const cached = PreviewImageCache.acquire(isLocalImages ? appState.localImages : {});
+            Object.assign(localImageUrls, cached.byFilename);
+            appState._previewBlobUrls = cached.urls;
+        } else if (isLocalImages && appState.localImages) {
             for (const [path, blob] of Object.entries(appState.localImages)) {
                 const filename = path.split('/').pop().split('\\').pop();
                 const embeddedDataUrl = appState.localImageDataUrls && appState.localImageDataUrls[filename];
@@ -3923,7 +3951,7 @@ ${adLayoutTools.layoutRuntimeSource()}
 
             // 操作按钮
             if (config.structure.actionButtonEnabled && config.structure.actionButtonLinkField) {
-                const actionUrl = item[mapping[config.structure.actionButtonLinkField]];
+                const actionUrl = item[mapping[config.structure.actionButtonLinkField] || config.structure.actionButtonLinkField];
                 const safeActionUrl = safeUrl(actionUrl, true);
                 if (safeActionUrl) {
                     bodyContent += `<a class="action-btn" href="${escapeHtml(safeActionUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(config.structure.actionButtonText)}</a>`;
@@ -4063,6 +4091,8 @@ ${generateNavbarInteractionScript()}
         }
         var target = e.target.closest('a');
         if (target && target.href) {
+            // Keep the shared artwork attribution usable inside the preview.
+            if (target.closest('[data-domain-icon-credits]')) return;
             e.preventDefault();
             var href = target.getAttribute('href') || '';
             var categoryMatch = href.match(/^#(category-[a-z0-9-]+)$/i);

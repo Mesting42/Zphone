@@ -352,7 +352,12 @@ function createFinishedSiteAds() {
                 candidates.add(node.parentElement.parentElement);
             }
         });
-        return Array.from(candidates).map(function(node) {
+        return Array.from(candidates).filter(function(node) {
+            // 卡片内部的 card-title/card-excerpt/card-footer 也可能组成四个
+            // 子节点，但它们属于一个可点击卡片，不是可以插广告的卡片集合。
+            // 排除链接和按钮内的候选，保留外层列表及真实正文段落回退。
+            return !node.closest('a[href], button, [role="button"], [role="link"]');
+        }).map(function(node) {
             const children = contentChildren(node);
             const cards = children.filter(function(child) {
                 const name = String(child.className || '');

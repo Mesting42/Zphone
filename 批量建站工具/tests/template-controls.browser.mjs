@@ -5,6 +5,7 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import JSZip from 'jszip';
 import { loadBuilder, createState } from './template-fixtures.mjs';
+import {expandPicker} from './workbench-browser-helpers.mjs';
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 const base = process.env.TEMPLATE_PREVIEW_URL || 'http://127.0.0.1:5173';
 const output = resolve('coverage/template-layout-review');
@@ -25,7 +26,7 @@ try {
       return route.fulfill({ status: 200, body: '', contentType: 'text/javascript' });
     });
     await page.goto(base + (game ? '/game-builder/index.html' : '/index.html'));
-    const builder = loadBuilder(game);
+    const builder = loadBuilder(game, !game);
     const preset = game ? builder.presets[4] : builder.presets.find(item => item.domainId === 'tech' && item.variant === 13);
     const state = createState(builder, preset);
     if (!game) {
@@ -36,8 +37,10 @@ try {
       await page.locator('#btn-next').click();
     }
     await page.locator('.config-tab[data-tab="style"]').click();
+    await expandPicker(page,game?'layout-template-grid':'template-grid');
     const cards = page.locator(game ? '.layout-template-card' : '#template-grid .template-card');
-    assert.equal(await cards.count(), 30, 'UI must show all 30 templates');
+    const expectedTemplates = game ? builder.presets.length : builder.presets.filter(item => item.domainId === 'tech' || item.domainId === '*').length;
+    assert.equal(await cards.count(), expectedTemplates, 'UI must show legacy and registered templates');
     await page.locator(game ? '[data-layout-id="' + preset.id + '"]' : '[data-template-id="' + preset.id + '"]').click();
     const frame = page.frameLocator('#preview-frame');
     await frame.locator('body[data-template-layout="' + (game ? preset.id : preset.structure.homeLayout) + '"]').waitFor();
@@ -78,7 +81,7 @@ try {
     assert.ok(home.includes('data-template-layout="portal-'));
     assert.equal((home.match(/id="div-gpt-ad-banner[123]"/g) || []).length, 3);
     assert.deepEqual(errors, []);
-    checks.push({ workflow: game ? 'game-builder' : 'normal', templates: 30, iconToggle: 'passed', randomPreservesIcons: 'passed', uploadedAds: 'passed', zipNameAndFolder: 'passed', errors });
+    checks.push({ workflow: game ? 'game-builder' : 'normal', templates: expectedTemplates, iconToggle: 'passed', randomPreservesIcons: 'passed', uploadedAds: 'passed', zipNameAndFolder: 'passed', errors });
     await page.close();
   }
 } finally { await browser.close(); }

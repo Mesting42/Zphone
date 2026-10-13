@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import JSZip from 'jszip';
@@ -273,6 +273,7 @@ describe('batch ad build guards', () => {
     vm.runInNewContext(source('archive-naming.js'), realContext);
     vm.runInNewContext(source('ad-migration.js') + '\nthis.__migration = AdMigration;', realContext);
     vm.runInNewContext(source('export-preflight.js'), realContext);
+    vm.runInNewContext(source('archive-export.js'), realContext);
     vm.runInNewContext(source('generator.js') + '\nthis.__generator = Generator;', realContext);
     vm.runInNewContext(source('batch-ad-builder.js') + '\nthis.__batch = BatchAdBuilder;', realContext);
     const firstHost = 'site-one.example.com';
@@ -285,12 +286,19 @@ describe('batch ad build guards', () => {
     ].join('\n'), secondHost + '.txt'));
     const firstSite = site('first', 'one');
     const secondSite = site('second', 'two');
+    const encodeSpy = vi.spyOn(JSZip.prototype, 'generateAsync');
+    const decodeSpy = vi.spyOn(JSZip, 'loadAsync');
     const result = await realContext.__batch.exportBatch({
       selectedTheme: 'game', siteBuildMode: 'batch-ad-build', data: firstSite.data,
       fieldMapping: firstSite.fieldMapping,
       config: { siteTitle: 'Batch Site', logoText: 'Batch Site', categories: realContext.__themes.game.categories, cardFields: ['image', 'title'], relatedCardFields: ['image', 'title'], relatedCount: 1 },
       batchAdBuild: { sites: [firstSite, secondSite], codes: [first, second] }
     }, () => {}, JSZip);
+    // One final compression per site; all page/ad checks run before this point.
+    expect(encodeSpy).toHaveBeenCalledTimes(2);
+    expect(decodeSpy).not.toHaveBeenCalled();
+    encodeSpy.mockRestore();
+    decodeSpy.mockRestore();
     expect(result.downloads).toHaveLength(2);
     expect(result.downloads.map((file) => file.fileName)).toEqual([firstHost + '.zip', secondHost + '.zip']);
     const firstExport = await JSZip.loadAsync(await result.downloads[0].blob.arrayBuffer());

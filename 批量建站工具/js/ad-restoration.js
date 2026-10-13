@@ -3019,7 +3019,7 @@ const AdRestoration = (function() {
         }
         const zip = new JSZip();
         exports.forEach(function(item) { zip.folder('recognized-ad-codes').file(item.name, item.text); });
-        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        const blob = await packArchive(zip, { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
         return { blob: blob, fileName: 'recognized-ad-codes-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.zip', results: results };
     }
 
@@ -3336,18 +3336,29 @@ const AdRestoration = (function() {
         const zip = new JSZip();
         batch.sites.forEach(function(site) {
             const folder = zip.folder(site.name);
-            site.entries.forEach(function(entry) { folder.file(entry.path, Array.from(entry.bytes || [])); });
+            site.entries.forEach(function(entry) { folder.file(entry.path, archiveBytes(entry.bytes)); });
         });
         zip.file(batch.reportName || '广告策略处理报告.txt', batch.report);
-        return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        return packArchive(zip, { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    }
+
+    // Packaging stays separate from the ad planner. Legacy embedders retain the
+    // old JSZip path when they have not loaded the shared performance helpers.
+    function packArchive(zip, options) {
+        return typeof ArchiveExport !== 'undefined' ? ArchiveExport.generate(zip, options) : zip.generateAsync(options);
+    }
+
+    function archiveBytes(value) {
+        return typeof ArchiveExport !== 'undefined' ? ArchiveExport.bytes(value) : Array.from(value || []);
     }
 
     async function zipEntries(entries, outputType) {
         if (typeof JSZip === 'undefined') throw new Error('ZIP 打包组件未加载。');
         const zip = new JSZip();
-        // 普通数组同时兼容浏览器、WebView 和测试环境的跨 realm TypedArray。
-        entries.forEach(function(entry) { zip.file(entry.path, Array.from(entry.bytes || [])); });
-        return zip.generateAsync({ type: outputType || 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        // Shared helpers normalize cross-realm byte views without expanding
+        // every byte into a boxed number; legacy callers retain array fallback.
+        entries.forEach(function(entry) { zip.file(entry.path, archiveBytes(entry.bytes)); });
+        return packArchive(zip, { type: outputType || 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     }
 
     function reportText(results) {
@@ -3425,7 +3436,7 @@ const AdRestoration = (function() {
         restoredArchives.forEach(function(archive) { outer.file(archive.name, archive.bytes); });
         outer.file('广告恢复报告.txt', report);
         onProgress(94, '正在打包批量结果…');
-        const blob = await outer.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        const blob = await packArchive(outer, { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
         onProgress(100, '恢复完成');
         return { blob: blob, fileName: 'ads-restored-batch-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.zip', results: results, report: report };
     }
@@ -3484,7 +3495,7 @@ const AdRestoration = (function() {
             reportLines.push('');
         });
         zip.file('广告代码识别报告.txt', reportLines.join('\r\n'));
-        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        const blob = await packArchive(zip, { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
         onProgress(100, '广告代码识别完成');
         return { blob: blob, fileName: 'recognized-ad-codes-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.zip', results: results };
     }

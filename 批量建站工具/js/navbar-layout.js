@@ -73,6 +73,30 @@
     pointer-events: none !important; transform: none !important;
 }
 .navbar.nav-sizing .logo { max-width: none; }
+
+/* Menu motion owns only visibility and feedback. Template colors, spacing,
+ * borders and placement continue to come from their existing navigation skin. */
+.navbar { --menu-enter-ms:240; --menu-exit-ms:180; --menu-offset:-8px; --menu-scale:1; --menu-scale-y:1; --menu-stagger-ms:0; --menu-enter-ease:cubic-bezier(.16,1,.3,1); --menu-exit-ease:cubic-bezier(.4,0,1,1); }
+body[data-template-package="field-notes"] .navbar { --menu-enter-ms:280; --menu-exit-ms:280; --menu-offset:-12px; --menu-scale-y:.98; --menu-enter-ease:cubic-bezier(.22,.8,.2,1); --menu-exit-ease:cubic-bezier(.22,.8,.2,1); }
+body[data-template-package="daily-skillet"] .navbar { --menu-enter-ms:220; --menu-exit-ms:180; --menu-enter-ease:cubic-bezier(.23,1,.32,1); --menu-exit-ease:cubic-bezier(.77,0,.175,1); }
+body[data-template-package="stone-crumb"] .navbar { --menu-enter-ms:200; --menu-exit-ms:200; --menu-offset:-5.6px; --menu-enter-ease:cubic-bezier(.23,1,.32,1); }
+body[data-template-package="pixelwire-editorial"] .navbar { --menu-enter-ms:180; --menu-exit-ms:150; --menu-offset:-5px; --menu-enter-ease:ease-out; }
+body[data-template-package="print-field"] .navbar { --menu-enter-ms:220; --menu-exit-ms:160; --menu-scale:.99; --menu-exit-ease:ease-in; }
+body[data-template-package="vitalpulse-journal"] .navbar { --menu-enter-ms:180; --menu-exit-ms:180; --menu-stagger-ms:30; --menu-enter-ease:cubic-bezier(.23,1,.32,1); }
+body[data-template-package="deep-life-atlas"] .navbar { --menu-enter-ms:220; --menu-exit-ms:180; --menu-stagger-ms:30; --menu-enter-ease:cubic-bezier(.22,.8,.2,1); }
+.navbar .nav-links[hidden], .side-drawer-panel[hidden], .drawer-overlay[hidden] { display:none!important; }
+.navbar.nav-collapsed .nav-links.nav-menu-present { display:flex!important; transform-origin:top center; }
+.navbar.nav-collapsed .nav-links.nav-menu-present:not(.active) { pointer-events:none; }
+.navbar[data-nav-interaction-ready] .hamburger span { transition:transform 200ms cubic-bezier(.2,.7,.2,1),opacity 140ms ease; }
+.navbar[data-nav-interaction-ready] .hamburger[aria-expanded="true"] span:nth-child(1) { transform:translateY(7px) rotate(45deg); }
+.navbar[data-nav-interaction-ready] .hamburger[aria-expanded="true"] span:nth-child(2) { opacity:0; }
+.navbar[data-nav-interaction-ready] .hamburger[aria-expanded="true"] span:nth-child(3) { transform:translateY(-7px) rotate(-45deg); }
+.side-drawer-panel[data-nav-motion] { left:0!important; transform:none; transition:none; max-width:calc(100vw - 24px); }
+.drawer-overlay.nav-menu-present { display:block; }
+.drawer-overlay.nav-menu-present:not(.active) { pointer-events:none; }
+@media(prefers-reduced-motion:reduce) {
+  .navbar[data-nav-interaction-ready] .hamburger span { transition:opacity 100ms ease; }
+}
 `;
     }
 
@@ -101,6 +125,9 @@
                 // 折叠导致焦点所在链接被隐藏时，将焦点移到菜单按钮。
                 if (collapsed && links.contains(active)) toggle.focus();
                 if (!collapsed && active === toggle) logo.focus();
+                // The interaction controller cancels pending animations and
+                // restores hidden/inert state whenever width fitting changes.
+                navbar.dispatchEvent(new CustomEvent('navbar:modechange', { detail: { collapsed: collapsed } }));
             }
         }
         function fit() {
@@ -126,6 +153,9 @@
             probe.style.width = navbar.getBoundingClientRect().width + 'px';
             var probeLinks = probe.querySelector('.nav-links');
             probeLinks.classList.remove('active');
+            probeLinks.classList.remove('nav-menu-present');
+            probeLinks.removeAttribute('hidden');
+            probeLinks.removeAttribute('inert');
             document.body.appendChild(probe);
             try {
                 var probeContainer = probe.querySelector('.container');
@@ -186,6 +216,372 @@
         }
     }
 
+    /** Serialized into preview and exported pages. No tool state, third-party
+     * library or network request is needed by the interaction controller. */
+    function initializeInteraction() {
+        var navbar = document.querySelector('.navbar');
+        if (!navbar || navbar.dataset.navInteractionReady) return;
+        navbar.dataset.navInteractionReady = 'true';
+        var toggle = navbar.querySelector('.hamburger');
+        var drawer = document.querySelector('.side-drawer-panel');
+        var menu = drawer || navbar.querySelector('.nav-links');
+        var overlay = document.querySelector('.drawer-overlay');
+        if (!toggle || !menu) return;
+        var reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+        var expanded = false;
+        var revision = 0;
+        var animations = [];
+        var overflowBeforeDrawer = null;
+        menu.dataset.navMotion = 'closed';
+
+        function cancelAnimations() {
+            animations.forEach(function(animation) { animation.cancel(); });
+            animations = [];
+        }
+        function mobile() { return !!drawer || navbar.classList.contains('nav-collapsed'); }
+        function setAccessible(open) {
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            toggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+            menu.inert = !open && mobile();
+            if (mobile()) menu.setAttribute('aria-hidden', open ? 'false' : 'true');
+            else menu.removeAttribute('aria-hidden');
+        }
+        function releaseScroll() {
+            if (overflowBeforeDrawer !== null) {
+                document.body.style.overflow = overflowBeforeDrawer;
+                overflowBeforeDrawer = null;
+            }
+        }
+        function reset() {
+            ++revision;
+            cancelAnimations();
+            expanded = false;
+            menu.classList.remove('active', 'open', 'nav-menu-present');
+            menu.hidden = mobile();
+            menu.dataset.navMotion = 'closed';
+            if (overlay) { overlay.hidden = true; overlay.classList.remove('active', 'nav-menu-present'); }
+            setAccessible(false);
+            releaseScroll();
+        }
+        function animate(element, from, to, duration, easing, delay) {
+            if (!element.animate) return Promise.resolve();
+            var animation = element.animate([from, to], { duration: duration, delay: delay || 0, easing: easing, fill: 'both' });
+            animations.push(animation);
+            return animation.finished.catch(function() {});
+        }
+        function change(open, restoreFocus) {
+            if (!mobile() || open === expanded) return;
+            var wasPresent = menu.classList.contains('nav-menu-present');
+            // Snapshot BEFORE cancelling: an interrupted close/open continues
+            // from its current frame, so rapid clicks never jump or hide late.
+            var current = getComputedStyle(menu);
+            var start = { opacity: wasPresent ? current.opacity : '0', transform: current.transform };
+            var overlayOpacity = overlay && wasPresent ? getComputedStyle(overlay).opacity : '0';
+            var items = Array.from(menu.querySelectorAll(':scope > li'));
+            var itemStarts = items.map(function(item) {
+                var itemStyle = getComputedStyle(item);
+                return { opacity: wasPresent ? itemStyle.opacity : '0', transform: wasPresent ? itemStyle.transform : 'translateY(-6px)' };
+            });
+            cancelAnimations();
+            var currentRevision = ++revision;
+            expanded = open;
+            if (!open && (restoreFocus || menu.contains(document.activeElement))) toggle.focus();
+            menu.hidden = false;
+            menu.classList.add('nav-menu-present');
+            menu.classList.toggle(drawer ? 'open' : 'active', open);
+            menu.dataset.navMotion = open ? 'opening' : 'closing';
+            setAccessible(open);
+            var style = getComputedStyle(navbar);
+            var closedTransform = drawer ? 'translateX(-100%)' :
+                'translateY(' + (style.getPropertyValue('--menu-offset').trim() || '-8px') + ') scale(' +
+                (style.getPropertyValue('--menu-scale').trim() || '1') + ') scaleY(' +
+                (style.getPropertyValue('--menu-scale-y').trim() || '1') + ')';
+            if (!wasPresent) start.transform = closedTransform;
+            var finish = { opacity: open ? '1' : '0', transform: open ? 'none' : closedTransform };
+            var duration = parseFloat(style.getPropertyValue(open ? '--menu-enter-ms' : '--menu-exit-ms')) || (open ? 240 : 180);
+            var easing = style.getPropertyValue(open ? '--menu-enter-ease' : '--menu-exit-ease').trim() || 'ease';
+            if (reduced.matches) { duration = 100; start.transform = 'none'; finish.transform = 'none'; }
+            var jobs = [animate(menu, start, finish, duration, easing)];
+            var stagger = parseFloat(style.getPropertyValue('--menu-stagger-ms')) || 0;
+            // Explicit keyframes also stagger the first reveal from display:none;
+            // CSS transitions alone have no previous painted frame in that case.
+            // Bound total delay even for imported categories with long lists.
+            if (stagger && !reduced.matches) items.forEach(function(item, index) {
+                var step = open ? index : items.length - 1 - index;
+                jobs.push(animate(item, itemStarts[index], { opacity: open ? '1' : '0', transform: open ? 'none' : 'translateY(-6px)' },
+                    open ? 140 : 100, easing, Math.min(step, 5) * stagger));
+            });
+            if (drawer && overlay) {
+                overlay.hidden = false;
+                overlay.classList.add('nav-menu-present');
+                overlay.classList.toggle('active', open);
+                jobs.push(animate(overlay, { opacity: overlayOpacity }, { opacity: open ? '1' : '0' }, duration, 'ease'));
+                if (open && overflowBeforeDrawer === null) {
+                    overflowBeforeDrawer = document.body.style.overflow;
+                    document.body.style.overflow = 'hidden';
+                }
+                if (open) (menu.querySelector('.drawer-close') || menu.querySelector('a'))?.focus();
+            }
+            Promise.all(jobs).then(function() {
+                if (currentRevision !== revision) return;
+                cancelAnimations();
+                menu.dataset.navMotion = open ? 'open' : 'closed';
+                // Keep the closing panel painted until its last animation frame;
+                // only then remove it from layout. It became inert immediately.
+                if (!open) {
+                    menu.hidden = true;
+                    menu.classList.remove('nav-menu-present');
+                    if (overlay) { overlay.hidden = true; overlay.classList.remove('nav-menu-present'); }
+                    releaseScroll();
+                }
+            });
+        }
+        toggle.addEventListener('click', function() { change(!expanded, false); });
+        menu.querySelectorAll('a, .drawer-close').forEach(function(link) {
+            link.addEventListener('click', function() { change(false, true); });
+        });
+        if (overlay) overlay.addEventListener('click', function() { change(false, true); });
+        document.addEventListener('click', function(event) {
+            if (!drawer && expanded && !navbar.contains(event.target)) change(false, false);
+        });
+        document.addEventListener('keydown', function(event) {
+            if (!expanded) return;
+            if (event.key === 'Escape') { event.preventDefault(); change(false, true); }
+            // Only the modal side drawer traps focus; the dropdown remains a
+            // normal navigation list and never prevents page keyboard traversal.
+            if (drawer && event.key === 'Tab') {
+                var targets = Array.from(menu.querySelectorAll('a[href],button:not([disabled])'));
+                var first = targets[0], last = targets[targets.length - 1];
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+            }
+        });
+        navbar.addEventListener('navbar:modechange', reset);
+        reset();
+    }
+
+    /** Opt-in material from 12/assets/site.css. Keep the literal reference
+     * colors instead of mixing them with the selected template palette: the
+     * frosted white surface, aquatic glow and inset highlight define this skin.
+     * Generator appends it AFTER template skins so every template can use it.
+     * Navigation text/content and its animation controller are still separate. */
+    function softGlassCSS() {
+        return `
+body .navbar.soft-glass {
+    --nav-category-idle-color:#39565d;
+    --nav-category-selected-color:#147767;
+    position:sticky;top:20px;left:auto;right:auto;
+    width:min(calc(100% - 48px),1280px);height:auto;min-height:68px;
+    margin:20px auto 0;padding:9px 13px 9px 19px;
+    border:1px solid rgba(255,255,255,.82);border-radius:999px;
+    background:rgba(248,252,250,.78);color:#15323b;
+    box-shadow:0 10px 30px rgba(22,54,57,.09),0 0 30px rgba(90,190,181,.13),inset 0 1px 0 rgba(255,255,255,.92);
+    -webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%);
+}
+body .navbar.soft-glass .container {
+    width:100%;max-width:none;margin:0;padding:0;min-height:48px;height:auto;column-gap:28px;
+}
+body .navbar.soft-glass.has-boxed-logo .container {min-height:48px}
+body .navbar.soft-glass .logo {color:#15323b}
+body .navbar.soft-glass .ref-brand small {color:#5b7378}
+body .navbar.soft-glass .nav-links {
+    gap:clamp(12px,1.65vw,23px);padding:0;border:0;border-radius:0;
+    background:transparent;box-shadow:none;
+}
+body .navbar.soft-glass .nav-links a {
+    min-height:0;height:auto;padding:8px 10px;border:0;border-radius:999px;
+    background:transparent;color:#39565d;box-shadow:none;
+}
+body .navbar.soft-glass .nav-links li:last-child a {border:0;border-radius:999px}
+body .navbar.soft-glass .nav-links a:hover {background:rgba(230,243,238,.66);color:#147767}
+body .navbar.soft-glass .nav-links a[aria-current="page"] {
+    background:#e6f3ee;color:#0f5c51;border:0;
+    box-shadow:inset 0 0 0 1px rgba(20,119,103,.1);
+}
+body .navbar.soft-glass.nav-compact .nav-links {column-gap:var(--nav-compact-gap,10px)}
+body .navbar.soft-glass.nav-compact .nav-links a {
+    padding-left:var(--nav-compact-left,8px);padding-right:var(--nav-compact-right,8px);
+}
+body .navbar.soft-glass .hamburger {color:#15323b;border-radius:999px}
+body .navbar.soft-glass .hamburger span {background:#15323b}
+body .navbar.soft-glass .hamburger:focus-visible,
+body .navbar.soft-glass .nav-links a:focus-visible,
+body .navbar.soft-glass .logo:focus-visible {outline:3px solid #2a9d88;outline-offset:4px}
+/* Use the floating capsule as the menu's positioning ancestor, including when
+ * content-width fitting collapses a long desktop title before a media query. */
+body .navbar.soft-glass.nav-collapsed .container {position:static;padding-right:0;column-gap:28px}
+body .navbar.soft-glass.nav-collapsed .nav-links {
+    top:calc(100% + 8px);left:0;right:0;gap:10px;padding:14px;
+    border:1px solid rgba(255,255,255,.78);border-radius:18px;
+    background:rgba(248,252,250,.84);color:#15323b;
+    box-shadow:0 12px 28px rgba(22,54,57,.1),0 0 28px rgba(90,190,181,.12),inset 0 1px 0 rgba(255,255,255,.9);
+    -webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%);
+}
+body .navbar.soft-glass.nav-collapsed .nav-links a {
+    min-height:44px;padding:10px 7px;border-radius:10px;
+    border-bottom:1px solid #edf1ef;color:#39565d;
+}
+body .navbar.soft-glass.nav-collapsed .nav-links a[aria-current="page"] {border-bottom-color:transparent;color:#0f5c51}
+@media(max-width:900px) {
+    body .navbar.soft-glass {width:min(calc(100% - 38px),1200px);min-height:63px;padding-left:14px}
+    body .navbar.soft-glass .container {min-height:43px}
+}
+@media(max-width:680px) {
+    body .navbar.soft-glass {top:10px;width:min(calc(100vw - 30px),1200px);min-height:59px;margin-top:10px;padding:7px 8px 7px 13px}
+    body .navbar.soft-glass .container {min-height:43px;column-gap:10px}
+    body .navbar.soft-glass.nav-collapsed .container {column-gap:10px}
+}
+/* An opaque fallback keeps navigation readable when backdrop filtering is not
+ * supported. The default remains the exact translucent reference material. */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
+    body .navbar.soft-glass,body .navbar.soft-glass.nav-collapsed .nav-links {background:#f8fcfa}
+}
+`;
+    }
+
+    /** Page destinations use a filled state; in-page destinations use only
+     * text color. Low-specificity page defaults preserve package/material skins,
+     * while explicit transparent section rules prevent their hover fills from
+     * leaking into the category state. No dimensions or link order change. */
+    function selectionCSS() {
+        return `
+.navbar .nav-links a[data-nav-page][aria-current="page"],
+.side-drawer-panel .drawer-nav a[data-nav-page][aria-current="page"] {
+    background:var(--color-bg-secondary);color:var(--color-primary);border-radius:999px;
+}
+body .navbar .nav-links a[data-nav-page]:not([aria-current="page"]),
+body .side-drawer-panel .drawer-nav a[data-nav-page]:not([aria-current="page"]),
+body .navbar .nav-links a[data-nav-category],
+body .side-drawer-panel .drawer-nav a[data-nav-category] {
+    background:transparent!important;box-shadow:none!important;
+}
+/* Monochrome palettes may use the same ink for body text and their primary
+ * color. A muted idle state still makes the selected category visibly change. */
+body .navbar .nav-links a[data-nav-category]:not([aria-current="location"]),
+body .side-drawer-panel .drawer-nav a[data-nav-category]:not([aria-current="location"]) {
+    color:var(--nav-category-idle-color,var(--color-text-secondary,var(--color-text)));
+}
+body .navbar .nav-links a[data-nav-category][aria-current="location"],
+body .navbar .nav-links a[data-nav-category]:hover,
+body .side-drawer-panel .drawer-nav a[data-nav-category][aria-current="location"],
+body .side-drawer-panel .drawer-nav a[data-nav-category]:hover {
+    color:var(--nav-category-selected-color,var(--color-primary))!important;
+}
+.category-section[id] {scroll-margin-top:var(--navigation-scroll-offset,calc(var(--navbar-height,68px) + 32px))}
+`;
+    }
+
+    /** Serialized independently from menu open/close and width fitting. Page
+     * state stays declarative (aria-current=page); this controller owns only
+     * aria-current=location on home sections and never rewrites page links. */
+    function initializeSelection() {
+        var navbar = document.querySelector('.navbar[data-navigation-page]');
+        if (!navbar || navbar.dataset.navSelectionReady) return;
+        navbar.dataset.navSelectionReady = 'true';
+        var links = Array.from(document.querySelectorAll('.navbar .nav-links a[data-nav-category], .side-drawer-panel .drawer-nav a[data-nav-category]'));
+        var isHome = navbar.dataset.navigationPage === 'home';
+        var entries = isHome ? links.map(function(link) {
+            return { link: link, id: link.dataset.navCategory, section: document.getElementById(link.dataset.navCategory) };
+        }).filter(function(entry) { return entry.section; }) : [];
+        var sections = isHome ? Array.from(document.querySelectorAll('.category-section[id]')) : [];
+        var frame = 0;
+        var pending = null;
+        var pendingTimer = 0;
+
+        function setSection(id) {
+            links.forEach(function(link) {
+                if (link.dataset.navCategory === id) link.setAttribute('aria-current', 'location');
+                else link.removeAttribute('aria-current');
+            });
+            navbar.dataset.activeCategory = id || '';
+        }
+        function offset() {
+            var edge = Math.max(0, navbar.getBoundingClientRect().bottom) + 16;
+            document.documentElement.style.setProperty('--navigation-scroll-offset', edge + 'px');
+            return edge;
+        }
+        function clearPending() {
+            pending = null;
+            if (pendingTimer) clearTimeout(pendingTimer);
+            pendingTimer = 0;
+        }
+        function refresh() {
+            frame = 0;
+            if (!isHome) { setSection(''); return; }
+            var edge = offset();
+            var scrolling = document.scrollingElement || document.documentElement;
+            var atBottom = scrolling.scrollTop > 0 && scrolling.scrollTop + window.innerHeight >= scrolling.scrollHeight - 2;
+            if (pending) {
+                if (Math.abs(pending.section.getBoundingClientRect().top - edge) <= 3 || atBottom) clearPending();
+                else { setSection(pending.id); return; }
+            }
+            // Include unlinked sections when finding the reading position. An
+            // extra category or footer must not leave a previous link selected.
+            var current = null;
+            sections.forEach(function(section) {
+                var rect = section.getBoundingClientRect();
+                if (rect.top <= edge + 1) current = rect.bottom > edge ? section : null;
+            });
+            if (!current && atBottom) {
+                sections.forEach(function(section) {
+                    var rect = section.getBoundingClientRect();
+                    if (rect.top > edge && rect.top < window.innerHeight && rect.bottom > edge) current = section;
+                });
+            }
+            var entry = current && entries.find(function(item) { return item.section === current; });
+            setSection(entry ? entry.id : '');
+        }
+        function queue() { if (!frame) frame = window.requestAnimationFrame(refresh); }
+        function goToSection(entry, smooth) {
+            clearPending();
+            pending = entry;
+            setSection(entry.id);
+            var scrolling = document.scrollingElement || document.documentElement;
+            var top = Math.max(0, scrolling.scrollTop + entry.section.getBoundingClientRect().top - offset());
+            var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            window.scrollTo({ top: top, behavior: smooth && !reduce ? 'smooth' : 'instant' });
+            // Native smooth scrolling may be interrupted before a scrollend
+            // event, or a short last section cannot align with the header.
+            pendingTimer = window.setTimeout(function() { clearPending(); queue(); }, 1800);
+            queue();
+        }
+        entries.forEach(function(entry) {
+            entry.link.addEventListener('click', function(event) {
+                if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                // srcdoc has no writable HTTP URL. Standalone sites retain a
+                // navigable hash; failures never prevent the local scroll.
+                if (/^(https?:|file:)$/.test(window.location.protocol)) {
+                    try { window.history.pushState(null, '', '#' + entry.id); } catch (_) {}
+                }
+                goToSection(entry, true);
+            });
+        });
+        window.addEventListener('scroll', queue, { passive: true });
+        window.addEventListener('resize', queue, { passive: true });
+        window.addEventListener('scrollend', function() { clearPending(); queue(); });
+        // A user's own scroll takes precedence over a pending category click.
+        window.addEventListener('wheel', function() { clearPending(); queue(); }, { passive: true });
+        window.addEventListener('touchstart', function() { clearPending(); queue(); }, { passive: true });
+        window.addEventListener('keydown', function(event) {
+            if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)) { clearPending(); queue(); }
+        });
+        if (window.ResizeObserver && isHome) {
+            var observer = new ResizeObserver(queue);
+            observer.observe(navbar);
+            sections.forEach(function(section) { observer.observe(section); });
+        }
+        if (document.fonts) document.fonts.ready.then(queue);
+        window.addEventListener('load', queue);
+        var initialId = navbar.dataset.initialCategory || window.location.hash.slice(1);
+        var initial = entries.find(function(entry) { return entry.id === initialId; });
+        if (initial) window.requestAnimationFrame(function() { goToSection(initial, false); });
+        else queue();
+    }
+
     function script() { return '(' + initialize.toString() + ')();'; }
-    root.NavbarLayout = Object.freeze({ css: css, script: script });
+    function interactionScript() { return '(' + initializeInteraction.toString() + ')();'; }
+    function selectionScript() { return '(' + initializeSelection.toString() + ')();'; }
+    root.NavbarLayout = Object.freeze({ css: css, script: script, interactionScript: interactionScript,
+        softGlassCSS: softGlassCSS, selectionCSS: selectionCSS, selectionScript: selectionScript });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

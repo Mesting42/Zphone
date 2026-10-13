@@ -116,6 +116,7 @@ try {
   await previewBody.waitFor({ state: 'visible', timeout: 30000 });
   assert.ok((await previewBody.textContent()).length > 50, 'the generated game preview should contain rendered content');
 
+  await page.locator('[aria-controls="diff-domain-blueprint-grid-panel"]').click();
   const blueprintCards = page.locator('#diff-domain-blueprint-grid [data-diff-blueprint]');
   const blueprintIds = await blueprintCards.evaluateAll((cards) => cards.map((card) => card.dataset.diffBlueprint));
   assert.equal(blueprintIds.length, 12, 'game domain must expose all 12 differentiated blueprints');
@@ -127,6 +128,7 @@ try {
 
   await page.locator('#differentiated-customizer').waitFor({ state: 'visible' });
   await page.locator('.diff-config-tab[data-diff-tab="style"]').click();
+  await page.locator('[aria-controls="diff-style-preset-grid-panel"]').click();
 
   const styleCards = page.locator('#diff-style-preset-grid [data-diff-style]');
   const styleIds = await styleCards.evaluateAll((cards) => cards.map((card) => card.dataset.diffStyle));

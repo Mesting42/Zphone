@@ -603,6 +603,12 @@ body::-webkit-scrollbar-corner {
     line-height: 1;
 }
 
+/* SVG images retain their reviewed colors, independent of emoji fonts or the
+   outline-icon rules used by other workbench controls. */
+.theme-icon.domain-glyph img { width:32px; height:32px; display:block; object-fit:contain; }
+.domain-icon-credits { margin:16px 0 0; color:var(--text-secondary,#586b82); font-size:11px; line-height:1.8; overflow-wrap:anywhere; }
+.domain-icon-credits a { color:inherit; text-decoration:underline; text-underline-offset:2px; }
+
 .theme-card[data-theme="game"] {
     --theme-accent: #6953c6;
     --theme-soft: #f2efff;
@@ -2120,6 +2126,28 @@ body.preview-fullscreen-open {
     transform: translateX(20px);
 }
 
+/* 编号开关沿用已有外观，扩大命中区域并显式显示键盘焦点。 */
+.category-number-toggle {
+    height: 44px;
+}
+
+.category-number-toggle .toggle-slider {
+    top: 10px;
+    bottom: 10px;
+}
+
+#category-numbers-enabled:focus-visible + .toggle-slider {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .category-number-toggle .toggle-slider,
+    .category-number-toggle .toggle-slider::before {
+        transition: none;
+    }
+}
+
 /* 分类配置 */
 .category-config-item {
     position: relative;
@@ -2284,6 +2312,44 @@ body.preview-fullscreen-open {
     font-size: 13px;
     text-align: center;
 }
+
+/* 每个分类独立排版。第一行保留图标/名称/篇数，第二行容纳设置，
+   仅对已启用此能力的资讯模板生效，不影响其他分类配置行。 */
+.category-config-item.category-config-custom-layout {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 50px;
+    align-items: center;
+}
+
+.category-config-custom-layout .cat-name-input {
+    width: 100%;
+    min-width: 0;
+}
+
+.category-layout-settings {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #edf1f6;
+}
+
+.category-layout-settings label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    color: #536981;
+    font-size: 12px;
+}
+
+.category-layout-settings .category-layout-mode { flex: 1 1 160px; }
+.category-layout-settings .category-layout-columns { flex: 1 1 84px; }
+.category-layout-settings [hidden] { display: none !important; }
+.category-layout-settings .select-shell { width: 100%; min-width: 0; }
+.category-layout-settings .select-trigger { min-height: 36px; font-size: 12px; }
 
 .icon-set-actions {
     flex: 1;
@@ -3467,6 +3533,8 @@ html:has(.domain-selection-panel.active) {
 .restoration-code-export-button:focus-visible { outline:3px solid rgba(115,81,174,.24);outline-offset:2px; }
 .restoration-action-help { margin:8px 0 0;color:#778398;font-size:11px;line-height:1.55; }
 .restoration-progress { flex:1 1 auto;min-width:220px; }
+/* 导入扫描进度与上方文件选择卡片保持间距，单独限定扫描区。 */
+#restoration-scan-progress { margin-top:16px; }
 .restoration-progress>div { height:7px;overflow:hidden;border-radius:999px;background:#ece7f2; }
 .restoration-progress span { display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#7351ae,#a473d1);transition:width .2s ease; }
 .restoration-progress p { margin:6px 0 0;color:#6e7a8f;font-size:11px; }

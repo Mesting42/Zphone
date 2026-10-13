@@ -358,10 +358,11 @@ const BatchAdBuilder = (function() {
     function validateGeneratedSiteFiles(files, code, options) {
         const errors = [];
         const fileMap = files || {};
-        const home = fileMap['website/index.html'];
-        const details = Object.keys(fileMap).filter(function(path) { return /^website\/details\/.*\.html?$/i.test(path); }).sort().map(function(path) { return fileMap[path]; });
-        const listing = fileMap['website/all-articles.html'];
-        const adJs = fileMap['website/js/ad.js'];
+        const root = String(options && options.siteRoot || 'website').replace(/\/+$/, '') + '/';
+        const home = fileMap[root + 'index.html'];
+        const details = Object.keys(fileMap).filter(function(path) { return path.indexOf(root + 'details/') === 0 && /\.html?$/i.test(path); }).sort().map(function(path) { return fileMap[path]; });
+        const listing = fileMap[root + 'all-articles.html'];
+        const adJs = fileMap[root + 'js/ad.js'];
         if (!home) errors.push(issue('导出包缺少首页 index.html。', 'BATCH_AD_HOME_MISSING'));
         if (!details.length) errors.push(issue('导出包缺少详情页，无法确认详情页广告运行时。', 'BATCH_AD_DETAIL_MISSING'));
         if (!adJs) errors.push(issue('导出包缺少 js/ad.js。', 'BATCH_AD_RUNTIME_MISSING'));
@@ -450,7 +451,10 @@ const BatchAdBuilder = (function() {
         // 将 Blob 先转为 ArrayBuffer，既避开跨 Realm 的 Blob 类型判断差异，
         // 也保证批量导出在浏览器内嵌环境中能稳定重新读取刚生成的 ZIP。
         const archive = blob && typeof blob.arrayBuffer === 'function' ? await blob.arrayBuffer() : blob;
-        const zip = await JSZipImpl.loadAsync(archive);
+        // Fresh generator archives are already readable by JSZip. Inspect those
+        // entries directly instead of compressing and immediately decompressing.
+        const zip = archive && archive.files && typeof archive.file === 'function'
+            ? archive : await JSZipImpl.loadAsync(archive);
         const result = {};
         const paths = Object.keys(zip.files).filter(function(path) { return !zip.files[path].dir; });
         await Promise.all(paths.map(async function(path) {
@@ -481,15 +485,22 @@ const BatchAdBuilder = (function() {
             const label = assignment.site.fileName || ('site-' + (index + 1));
             onProgress(Math.round(index / count * 85), '正在生成并验证 ' + label + '（' + (index + 1) + '/' + count + '）…');
             const siteState = createSiteState(appState, assignment.site, assignment.code, batch);
-            const siteBlob = await Generator.exportWebsite(siteState, function(percent) {
+            const fallbackName = label.replace(/\.[^.]+$/, '') || ('site-' + (index + 1));
+            const exportHost = validation.mode === 'reserve' ? assignment.domain.effective : assignment.code.detectedHost;
+            const fileName = ArchiveNaming.uniqueZipFileName(exportHost, fallbackName, usedFileNames);
+            const siteFolderName = ArchiveNaming.siteZipDescriptor(exportHost, fallbackName).siteFolderName;
+            const directArchive = typeof Generator.createWebsiteArchive === 'function';
+            const generateSite = directArchive ? Generator.createWebsiteArchive : Generator.exportWebsite;
+            const siteBlob = await generateSite(siteState, function(percent) {
                 onProgress(Math.min(90, Math.round((index + percent / 100) / count * 85)), '正在生成 ' + label + '（' + (index + 1) + '/' + count + '）…');
-            });
+            }, directArchive ? { siteFolderName: siteFolderName } : undefined);
             const inspected = await readZipTextFiles(siteBlob, JSZipImpl);
             const preflight = typeof SiteExportPreflight !== 'undefined'
                 ? SiteExportPreflight.inspectEntries(inspected.textFiles, { paths: inspected.paths, siteName: label })
                 : { valid: false, siteName: label, pageCount: 0, localReferenceCount: 0, fileCount: inspected.paths.length, errors: [{ message: '导出前全站体检组件未加载。' }], warnings: [] };
             preflightReports.push(preflight);
             const runtime = validateGeneratedSiteFiles(inspected.textFiles, assignment.code, {
+                siteRoot: directArchive ? siteFolderName : 'website',
                 mode: validation.mode,
                 settings: assignment.reserveSettings || null,
                 placements: Generator.buildConfig(siteState).adPlacements
@@ -497,16 +508,14 @@ const BatchAdBuilder = (function() {
             if (!runtime.valid) {
                 runtimeFailures.push('站点“' + label + '”运行时广告检查未通过：' + runtime.errors.map(function(error) { return error.message; }).join(' '));
             }
-            const fallbackName = label.replace(/\.[^.]+$/, '') || ('site-' + (index + 1));
-            const exportHost = validation.mode === 'reserve' ? assignment.domain.effective : assignment.code.detectedHost;
-            const fileName = ArchiveNaming.uniqueZipFileName(exportHost, fallbackName, usedFileNames);
-            const siteZip = new JSZipImpl();
-            const siteFolderName = ArchiveNaming.siteZipDescriptor(exportHost, fallbackName).siteFolderName;
-            const siteFolder = siteZip.folder(siteFolderName);
-            for (const path of inspected.paths) {
-                const relative = path.replace(/^website\//, '');
-                if (!relative || relative === path && path.indexOf('/') === -1) continue;
-                siteFolder.file(relative, await inspected.zip.files[path].async('uint8array'));
+            const siteZip = directArchive ? inspected.zip : new JSZipImpl();
+            if (!directArchive) {
+                const siteFolder = siteZip.folder(siteFolderName);
+                for (const path of inspected.paths) {
+                    const relative = path.replace(/^website\//, '');
+                    if (!relative || relative === path && path.indexOf('/') === -1) continue;
+                    siteFolder.file(relative, await inspected.zip.files[path].async('uint8array'));
+                }
             }
             siteArchives.push({ zip: siteZip, siteFolderName: siteFolderName, fileName: fileName, dataSource: label, adHost: exportHost || '' });
             reports.push({
@@ -553,7 +562,8 @@ const BatchAdBuilder = (function() {
                 preflight: reports[index].preflight,
                 sites: [reports[index]]
             }, null, 2) + '\n');
-            const blob = await siteArchive.zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, function(metadata) {
+            const pack = typeof ArchiveExport !== 'undefined' ? ArchiveExport.generate : function(archive, options, progress) { return archive.generateAsync(options, progress); };
+            const blob = await pack(siteArchive.zip, { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, function(metadata) {
                 const fraction = (index + metadata.percent / 100) / siteArchives.length;
                 onProgress(85 + Math.round(fraction * 15), '正在压缩 ' + siteArchive.fileName + '（' + (index + 1) + '/' + siteArchives.length + '）…');
             });

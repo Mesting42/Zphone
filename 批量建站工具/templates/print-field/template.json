@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "id": "print-field",
+  "name": "纸墨·印刷杂志",
+  "version": "1.0.0",
+  "domainId": "*",
+  "description": "13 The Print Field · 独立导航、首页、列表与阅读版式",
+  "icon": "▤",
+  "reference": "13 The Print Field",
+  "baseLayout": "portal-topic-matrix",
+  "palette": {
+    "bg": "#f4f4ee",
+    "secondary": "#e9eee3",
+    "surface": "#cbf47b",
+    "primary": "#31583a",
+    "text": "#19231b",
+    "muted": "#5f6a60",
+    "border": "#d7ddd3",
+    "card": "#ffffff",
+    "hover": "#e9f0e3"
+  },
+  "structure": {
+    "cardColumns": "3",
+    "footerStyle": "detailed",
+    "detailLayout": "single",
+    "backLinkStyle": "text"
+  },
+  "style": {
+    "selectedStyle": "reference-print-field",
+    "fontStyle": "sans-serif",
+    "navbarStyle": "normal",
+    "logoStyle": "text-icon",
+    "cardBorder": "thin",
+    "cardRadius": "16px",
+    "cardHover": "accent-line",
+    "cardImageHeight": "230px",
+    "contentMaxWidth": "1240px",
+    "gridGap": "20px",
+    "cardSpacing": "20px",
+    "cardViewMode": "card",
+    "detailImgStyle": "banner",
+    "animationEnter": "none"
+  }
+}

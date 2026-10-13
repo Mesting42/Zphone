@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "id": "daily-skillet",
+  "name": "浅森·生活编辑",
+  "version": "1.0.0",
+  "domainId": "*",
+  "description": "08 The Daily Skillet · 独立导航、首页、列表与阅读版式",
+  "icon": "▤",
+  "reference": "08 The Daily Skillet",
+  "baseLayout": "portal-topic-matrix",
+  "palette": {
+    "bg": "#f8f9f5",
+    "secondary": "#eef1e8",
+    "surface": "#fffefa",
+    "primary": "#536d3b",
+    "text": "#273027",
+    "muted": "#5c665a",
+    "border": "#d8dfd3",
+    "card": "#eef1e8",
+    "hover": "#e6ecdc"
+  },
+  "structure": {
+    "cardColumns": "3",
+    "footerStyle": "detailed",
+    "detailLayout": "single",
+    "backLinkStyle": "text"
+  },
+  "style": {
+    "selectedStyle": "reference-daily-skillet",
+    "fontStyle": "serif",
+    "navbarStyle": "normal",
+    "logoStyle": "text-icon",
+    "cardBorder": "thin",
+    "cardRadius": "16px",
+    "cardHover": "accent-line",
+    "cardImageHeight": "250px",
+    "contentMaxWidth": "1240px",
+    "gridGap": "20px",
+    "cardSpacing": "20px",
+    "cardViewMode": "card",
+    "detailImgStyle": "banner",
+    "animationEnter": "none"
+  }
+}

@@ -1,0 +1,5 @@
+Adventurer by Lisa Wischofsky
+License: CC BY 4.0
+https://creativecommons.org/licenses/by/4.0/
+Source: https://www.figma.com/community/file/1184595184137881796
+SVG generated with DiceBear Adventurer 9.2.4. Selected features and colors are recorded in manifest.json.

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "id": "deep-life-atlas",
+  "name": "青绿·图像图鉴",
+  "version": "1.0.0",
+  "domainId": "*",
+  "description": "12 The Deep Life Atlas · 独立导航、首页、列表与阅读版式",
+  "icon": "▤",
+  "reference": "12 The Deep Life Atlas",
+  "baseLayout": "portal-topic-matrix",
+  "palette": {
+    "bg": "#f5f8f6",
+    "secondary": "#eaf3ef",
+    "surface": "#ffffff",
+    "primary": "#147767",
+    "text": "#15323b",
+    "muted": "#3c5960",
+    "border": "#d9e4df",
+    "card": "#ffffff",
+    "hover": "#e8f4ee"
+  },
+  "structure": {
+    "cardColumns": "3",
+    "footerStyle": "detailed",
+    "detailLayout": "single",
+    "backLinkStyle": "text"
+  },
+  "style": {
+    "selectedStyle": "reference-deep-life-atlas",
+    "fontStyle": "sans-serif",
+    "navbarStyle": "normal",
+    "logoStyle": "text-icon",
+    "cardBorder": "thin",
+    "cardRadius": "24px",
+    "cardHover": "accent-line",
+    "cardImageHeight": "250px",
+    "contentMaxWidth": "1240px",
+    "gridGap": "20px",
+    "cardSpacing": "20px",
+    "cardViewMode": "card",
+    "detailImgStyle": "banner",
+    "animationEnter": "none"
+  }
+}

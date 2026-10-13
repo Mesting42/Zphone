@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "id": "vitalpulse-journal",
+  "name": "绿光·深色阅读",
+  "version": "1.0.0",
+  "domainId": "*",
+  "description": "09 VitalPulse · 独立导航、首页、列表与阅读版式",
+  "icon": "▤",
+  "reference": "09 VitalPulse",
+  "baseLayout": "portal-topic-matrix",
+  "palette": {
+    "bg": "#050706",
+    "secondary": "#101713",
+    "surface": "#1c2720",
+    "primary": "#8ad9ab",
+    "text": "#f2f4f1",
+    "muted": "#c0c8c2",
+    "border": "#344b3d",
+    "card": "#101713",
+    "hover": "#1c2d22"
+  },
+  "structure": {
+    "cardColumns": "2",
+    "footerStyle": "detailed",
+    "detailLayout": "single",
+    "backLinkStyle": "text"
+  },
+  "style": {
+    "selectedStyle": "reference-vitalpulse-journal",
+    "fontStyle": "serif",
+    "navbarStyle": "normal",
+    "logoStyle": "text-icon",
+    "cardBorder": "thin",
+    "cardRadius": "16px",
+    "cardHover": "accent-line",
+    "cardImageHeight": "270px",
+    "contentMaxWidth": "1240px",
+    "gridGap": "20px",
+    "cardSpacing": "20px",
+    "cardViewMode": "card",
+    "detailImgStyle": "banner",
+    "animationEnter": "none"
+  }
+}

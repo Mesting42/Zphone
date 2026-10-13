@@ -1,10 +1,17 @@
 import './differentiated-builder.js?v=20260915-industrial-catalog-1';
+import { findTemplateOwner } from '../template-system/availability.js';
+import { renderCategoryLayoutControls, bindCategoryLayoutControls } from './category-layout-controls.js';
+import { previewErrorDocument } from './preview-error-document.js';
 import { injectReactSource } from './react-source-ad-injector.js?v=20260923-export-parity-2';
 import { isPreviewDetailEntry, previewPageTypeForEntry, resolvePreviewHtmlEntry } from './ad-injection-preview-router.js?v=20260928-preview-navigation-2';
 import { buildPreviewSite, previewBuildPlan } from './ad-injection-preview-builder.js?v=20260923-artifact-first-1';
 import { batchRarStageProgress, readBatchRarEntries } from './batch-archive-data.js?v=20260928-rar-timeout-fallback-2';
 import { createPolicyPreview } from './ad-policy-preview.js?v=20261009-policy-workbench-1';
 import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAdUpdate } from './ad-quick-update.js?v=20261009-quick-ad-2';
+import { mapWithConcurrency, yieldToBrowser } from './async-work.js?v=20261013-performance-1';
+import { renderExportConfiguration, renderDifferentiatedExportConfiguration } from './export-summary-view.js?v=sha256-3f2b9900e822a4dc';
+import { updateWorkflowExportProgress, setWorkflowExportButtonLabel } from './export-progress-view.js?v=sha256-cd8cc888fe9e8d8a';
+import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066db4b8e1535';
 
 /**
  * 主应用逻辑
@@ -13,6 +20,9 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
 
 (async function() {
     'use strict';
+
+    // 在初始化流程前保留视图引用，恢复页面状态时也能同步更新匹配摘要。
+    var fieldMappingView = null;
 
     // Load the local template catalog before defaults and radio listeners initialize.
     if (window.AdTemplateCatalog) await window.AdTemplateCatalog.ready;
@@ -562,7 +572,10 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             return;
         }
         var nextMode = mode === 'ad-migration' || mode === 'differentiated' || mode === 'ad-restoration' || mode === 'ad-injection' || mode === 'batch-ad-build' ? mode : 'normal';
-        if (nextMode !== appState.siteBuildMode) markWorkflowModeTransition();
+        if (nextMode !== appState.siteBuildMode) {
+            markWorkflowModeTransition();
+            if (typeof PreviewImageCache !== 'undefined') PreviewImageCache.acquire({});
+        }
         appState.siteBuildMode = nextMode;
         appState.adPlacementMode = null;
         appState.directAdPlacementMode = 'fixed';
@@ -831,8 +844,8 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         document.getElementById('restoration-export-code').hidden = quick;
         document.getElementById('ad-policy-config-title').textContent = quick ? '快速更新广告' : '配置广告策略';
         document.querySelector('#ad-policy-config-panel > .panel-desc').textContent = quick ? '匹配新 TXT，核对广告单元、模板和 GA。' : '预览原站，分别调整首页、详情页和全部文章页的广告。';
-        document.getElementById('restoration-run').textContent = quick ? '更新广告并写入新目录' : '应用策略并生成新总目录';
-        document.getElementById('restoration-run-zip').textContent = quick ? (batch ? '下载更新后的批量 ZIP' : '下载更新后的站点 ZIP') : '下载批量站点 ZIP';
+        setWorkflowExportButtonLabel('restoration-run', quick ? '更新广告并写入新目录' : '应用策略并生成新总目录');
+        setWorkflowExportButtonLabel('restoration-run-zip', quick ? (batch ? '下载更新后的批量 ZIP' : '下载更新后的站点 ZIP') : '下载批量站点 ZIP');
         document.getElementById('ad-policy-export-panel').querySelector('h3').textContent = quick ? '更新广告并导出新副本' : '应用策略并导出新副本';
         document.getElementById('restoration-sites-input').multiple = !quick || batch;
         document.getElementById('ad-quick-code-input').multiple = batch;
@@ -1323,18 +1336,14 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             }
             adRestorationRunning = true;
             updateAdRestorationControls();
-            var progress = document.getElementById('restoration-progress');
-            var fill = document.getElementById('restoration-progress-fill');
-            var textTarget = document.getElementById('restoration-progress-text');
             var resultTarget = document.getElementById('restoration-result');
-            if (progress) progress.hidden = false;
             if (resultTarget) resultTarget.hidden = true;
-            if (fill) fill.style.width = '0%';
+            updateWorkflowExportProgress('restoration-progress', 0, '正在准备广告策略导出…');
             try {
                 appState.adPolicyGlobal = readPolicyEditor(globalEditor);
+                // 业务任务仍报告原有进度，最后 12% 留给目录写入或 ZIP 打包。
                 var reportProgress = function(percent, message) {
-                    if (fill) fill.style.width = Math.min(percent, 88) + '%';
-                    if (textTarget) textTarget.textContent = message;
+                    updateWorkflowExportProgress('restoration-progress', Math.min(percent, 88), message);
                 };
                 var output = isQuickAdUpdate()
                     ? await applyQuickAdUpdate(appState.adPolicySites, appState.adQuickCodes, quickUpdateOptions(), AdRestoration, reportProgress)
@@ -1342,31 +1351,29 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
                     appState.adPolicySites,
                     appState.adPolicyGlobal,
                     appState.adPolicyOverrides,
-                    function(percent, message) {
-                        if (fill) fill.style.width = Math.min(percent, 88) + '%';
-                        if (textTarget) textTarget.textContent = message;
-                    },
+                    reportProgress,
                     { adJsVersionMode: appState.adPolicyAdJsVersion, codeOverrides: appState.adPolicyCodeOverrides, preserveOriginalPlacements: true }
                 );
-                if (textTarget) textTarget.textContent = '正在进行导出前全站体检…';
+                updateWorkflowExportProgress('restoration-progress', null, '正在进行导出前全站体检…');
                 var preflightReport = inspectOutputSites(output);
                 if (destinationHandle) {
                     await AdRestoration.writePolicyBatchToDirectory(output, destinationHandle, function(percent, message) {
-                        if (fill) fill.style.width = (88 + Math.round(percent * .12)) + '%';
-                        if (textTarget) textTarget.textContent = message;
+                        updateWorkflowExportProgress('restoration-progress', 88 + Math.round(percent * .12), message);
                     });
                     renderAdRestorationResult(output.results, output.folderName, '', true);
                 } else {
-                    if (textTarget) textTarget.textContent = '当前浏览器不支持目录写入，正在生成批量 ZIP…';
+                    updateWorkflowExportProgress('restoration-progress', 88, '正在生成批量 ZIP…');
                     var blob = await AdRestoration.zipPolicyBatch(output);
                     var fileName = output.folderName + '.zip';
                     saveRestorationBlob(blob, fileName);
-                    if (fill) fill.style.width = '100%';
                     renderAdRestorationResult(output.results, fileName, '', false);
                 }
+                // 部分站点失败时显示结果提示，避免将整个批次标成全部成功。
+                var policyHasFailures = output.results.some(function(result) { return !result.valid; });
+                updateWorkflowExportProgress('restoration-progress', 100, policyHasFailures ? '处理结束，部分站点未导出，请查看处理结果。' : '广告策略导出完成。', policyHasFailures ? 'error' : 'success');
                 renderExportPreflight(preflightReport, 'restoration-result');
             } catch (error) {
-                if (textTarget) textTarget.textContent = '策略处理未完成';
+                updateWorkflowExportProgress('restoration-progress', null, '策略处理未完成：' + error.message, 'error');
                 renderAdRestorationResult(error.results || [], '', error.message, false);
                 renderExportPreflight(error.preflightReport, 'restoration-result');
             } finally {
@@ -1380,24 +1387,20 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             if (adRestorationRunning || typeof AdRestoration === 'undefined') return;
             adRestorationRunning = true;
             updateAdRestorationControls();
-            var progress = document.getElementById('restoration-progress');
-            var fill = document.getElementById('restoration-progress-fill');
-            var textTarget = document.getElementById('restoration-progress-text');
             var resultTarget = document.getElementById('restoration-result');
-            if (progress) progress.hidden = false;
             if (resultTarget) resultTarget.hidden = true;
-            if (fill) fill.style.width = '0%';
+            updateWorkflowExportProgress('restoration-progress', 0, '正在导出识别到的广告代码…');
             try {
-                if (textTarget) textTarget.textContent = '正在导出识别到的广告代码…';
                 var output = await AdRestoration.exportRecognizedCodesForGroups(appState.adPolicySites.map(function(site) {
                     var code = appState.adPolicyCodeOverrides[site.id];
                     return code ? Object.assign({}, site, { metadata: Object.assign({}, site.metadata, { embeddedConfig: code.config, detectedHost: code.detectedHost }) }) : site;
                 }));
-                if (fill) fill.style.width = '100%';
                 saveRestorationBlob(output.blob, output.fileName);
+                var codeHasFailures = output.results.some(function(result) { return !result.valid; });
+                updateWorkflowExportProgress('restoration-progress', 100, codeHasFailures ? '处理结束，部分站点未通过识别，请查看结果。' : '广告代码导出完成，请查看识别结果。', codeHasFailures ? 'error' : 'success');
                 renderRecognizedCodeResult(output.results, output.fileName, '');
             } catch (error) {
-                if (textTarget) textTarget.textContent = '广告代码识别未完成';
+                updateWorkflowExportProgress('restoration-progress', null, '广告代码识别未完成：' + error.message, 'error');
                 renderRecognizedCodeResult(error.results || [], '', error.message);
             } finally {
                 adRestorationRunning = false;
@@ -1528,8 +1531,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             ? '这批站点包含没有静态构建产物的 React 源码，当前可导出完整源码。要导出静态副本，请先生产构建并上传输出目录。'
             : sourceMode ? '源码副本保留上传的工程文件，并接入广告配置；有构建流程的静态工程会在 npm run build 完成后自动注入广告。'
                 : '当前导出可直接部署的静态文件。React 站点使用上传包中已有的构建产物；需要修改工程时请选择完整源码。';
-        var button = document.getElementById('injection-run');
-        if (button) button.textContent = sourceMode ? '下载广告源码 ZIP' : '下载静态站点 ZIP';
+        setWorkflowExportButtonLabel('injection-run', sourceMode ? '下载广告源码 ZIP' : '下载静态站点 ZIP');
     }
 
     function getAdInjectionPolicy() {
@@ -1574,6 +1576,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
     }
 
     function clearAdInjectionPreviewUrls() {
+        if (typeof PreviewImageCache !== 'undefined') PreviewImageCache.clear();
         (appState._previewBlobUrls || []).forEach(function(url) { URL.revokeObjectURL(url); });
         appState._previewBlobUrls = [];
         appState._previewAssetUrls = {};
@@ -2869,22 +2872,16 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             }
             adInjectionRunning = true;
             updateAdInjectionControls();
-            var progress = document.getElementById('injection-progress');
-            var fill = document.getElementById('injection-progress-fill');
-            var textTarget = document.getElementById('injection-progress-text');
             var resultTarget = document.getElementById('injection-result');
-            if (progress) progress.hidden = false;
-            if (fill) fill.style.width = '0%';
             if (resultTarget) resultTarget.hidden = true;
+            updateWorkflowExportProgress('injection-progress', 0, appState.adInjectionExportMode === 'source' ? '正在准备完整源码副本…' : '正在准备可部署的静态站产物…');
             try {
-                if (textTarget) textTarget.textContent = '正在准备可部署的静态站产物…';
                 var exportMode = appState.adInjectionExportMode;
                 var exportSites = await prepareAdInjectionExportSites(appState.adInjectionSites, exportMode);
                 var sourceExporter = exportMode === 'source'
                     ? (await import('./finished-source-export.js')).createFinishedSourceExport : null;
                 var output = await AdRestoration.applyAdCodeBatch(exportSites, appState.adInjectionCodes, function(percent, message) {
-                    if (fill) fill.style.width = Math.min(percent, 88) + '%';
-                    if (textTarget) textTarget.textContent = message;
+                    updateWorkflowExportProgress('injection-progress', Math.min(percent, 88), message);
                 }, {
                     mode: appState.adInjectionPlacementModeDefault,
                     version: appState.adInjectionAdJsVersion,
@@ -2892,25 +2889,25 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
                     overrides: appState.adInjectionSiteOverrides,
                     exportMode: exportMode
                 }, injectReactSource, sourceExporter);
-                if (textTarget) textTarget.textContent = '正在进行导出前全站体检…';
+                updateWorkflowExportProgress('injection-progress', null, '正在进行导出前全站体检…');
                 var preflightReport = inspectOutputSites(output);
                 if (destinationHandle) {
                     await AdRestoration.writePolicyBatchToDirectory(output, destinationHandle, function(percent, message) {
-                        if (fill) fill.style.width = (88 + Math.round(percent * .12)) + '%';
-                        if (textTarget) textTarget.textContent = message;
+                        updateWorkflowExportProgress('injection-progress', 88 + Math.round(percent * .12), message);
                     });
                     renderAdInjectionResult(output.results, output.folderName, '', true);
                 } else {
-                    if (textTarget) textTarget.textContent = '正在生成成品站广告注入 ZIP…';
+                    updateWorkflowExportProgress('injection-progress', 88, '正在生成成品站广告注入 ZIP…');
                     var blob = await AdRestoration.zipPolicyBatch(output);
                     var fileName = output.folderName + '.zip';
                     saveRestorationBlob(blob, fileName);
-                    if (fill) fill.style.width = '100%';
                     renderAdInjectionResult(output.results, fileName, '', false);
                 }
+                var injectionHasFailures = output.results.some(function(result) { return !result.valid; });
+                updateWorkflowExportProgress('injection-progress', 100, injectionHasFailures ? '处理结束，部分站点未导出，请查看处理结果。' : '成品站广告注入导出完成。', injectionHasFailures ? 'error' : 'success');
                 renderExportPreflight(preflightReport, 'injection-result');
             } catch (error) {
-                if (textTarget) textTarget.textContent = '成品站广告注入未完成';
+                updateWorkflowExportProgress('injection-progress', null, '成品站广告注入未完成：' + error.message, 'error');
                 renderAdInjectionResult(error.results || [], '', error.message, false);
                 renderExportPreflight(error.preflightReport, 'injection-result');
             } finally {
@@ -3524,9 +3521,8 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
 
     function getBatchTemplateOwner(templateId, exceptSite) {
         if (!isBatchAdBuild() || !templateId) return null;
-        return (appState.batchAdBuild.sites || []).find(function(site) {
-            return site !== exceptSite && site.config && site.config.templateId === templateId;
-        }) || null;
+        return findTemplateOwner(appState.batchAdBuild.sites, templateId, exceptSite,
+            exceptSite && exceptSite.themeId || appState.selectedTheme);
     }
 
     function getBatchTemplateIssue(site) {
@@ -3761,19 +3757,23 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         }
         setBatchDataImportProgress(0, '准备读取 ' + list.length + ' 份数据源…', 'loading');
         try {
-            var loaded = [];
-            for (var index = 0; index < list.length; index++) {
-                var file = list[index];
-                var progressBase = index / list.length;
-                setBatchDataImportProgress(progressBase * 100, '正在读取第 ' + (index + 1) + '/' + list.length + ' 份：' + file.name, 'loading');
-                await new Promise(function(resolve) { window.requestAnimationFrame(resolve); });
-                var site = await readBatchDataSource(file, index, function(fileProgress, phase) {
-                    var totalProgress = (index + Math.max(0, Math.min(1, Number(fileProgress) || 0))) / list.length;
-                    setBatchDataImportProgress(totalProgress * 100, '正在读取第 ' + (index + 1) + '/' + list.length + ' 份：' + file.name + ' · ' + phase, 'loading');
+            var fileProgresses = list.map(function() { return 0; });
+            var lastProgressPaint = 0;
+            var lastProgressPercent = -1;
+            // Two parsers overlap I/O while bounding transient decompression memory.
+            // Ordered results preserve site/TXT associations regardless of finish order.
+            var loaded = await mapWithConcurrency(list, 2, async function(file, index) {
+                await yieldToBrowser();
+                return readBatchDataSource(file, index, function(fileProgress, phase) {
+                    fileProgresses[index] = Math.max(fileProgresses[index], Math.max(0, Math.min(1, Number(fileProgress) || 0)));
+                    var percent = Math.floor(fileProgresses.reduce(function(sum, value) { return sum + value; }, 0) / list.length * 88);
+                    var now = Date.now();
+                    if (percent === lastProgressPercent && now - lastProgressPaint < 80) return;
+                    lastProgressPaint = now;
+                    lastProgressPercent = percent;
+                    setBatchDataImportProgress(percent, '正在读取第 ' + (index + 1) + '/' + list.length + ' 份：' + file.name + ' · ' + phase, 'loading');
                 });
-                loaded.push(site);
-                setBatchDataImportProgress(((index + 1) / list.length) * 100, '已完成第 ' + (index + 1) + '/' + list.length + ' 份：' + file.name, 'loading');
-            }
+            });
             appState.batchAdBuild = {
                 sites: loaded,
                 codes: [],
@@ -3784,10 +3784,15 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             resetWorkflowStepProgress('batch-ad-build');
             appState.adCodeMigration = null;
             // 每个数据源独立分析，严禁把第一份数据的医疗/科技等结果套用给同批其他站点。
-            loaded.forEach(function(site) {
+            for (var detectedIndex = 0; detectedIndex < loaded.length; detectedIndex++) {
+                var site = loaded[detectedIndex];
                 site.domainDetection = DomainEngine.detect(site.data, DOMAIN_CATALOG, { fileName: site.fileName });
                 if (site.domainDetection.suggestedId) configureBatchSiteTheme(site, site.domainDetection.suggestedId, 'auto');
-            });
+                setBatchDataImportProgress(88 + Math.floor((detectedIndex + 1) / loaded.length * 10), '正在分析领域 ' + (detectedIndex + 1) + '/' + loaded.length, 'loading');
+                // Domain detection stays per-site; release the main thread between
+                // sites so a 50-site import does not become one long blocking task.
+                await yieldToBrowser();
+            }
             syncBatchActiveSiteToApp();
             updateThemeCardSelection(appState.selectedTheme);
             renderBatchDomainSiteTabs();
@@ -4391,7 +4396,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         var matches = ids.map(function(id) {
             return TEMPLATE_PRESETS.find(function(template) { return template.id === id; });
         }).filter(function(template) {
-            return template && template.domainId === themeId;
+            return template && (template.domainId === themeId || template.domainId === '*');
         });
         return matches;
     }
@@ -4405,11 +4410,14 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             var fields = theme.fields.slice(0, 6).map(function(field) { return field.labelZh; }).join('、');
             var searchText = [profile.label, profile.nameEn, profile.description].concat(profile.keywords || []).join(' ').toLowerCase();
             return '<div class="theme-card" data-theme="' + themeId + '" data-search="' + escapeHtml(searchText) + '" role="radio" aria-checked="false" tabindex="0" style="--theme-accent:' + profile.accent + ';--theme-soft:' + profile.soft + '">' +
-                '<div class="theme-card-head"><div class="theme-icon domain-glyph" aria-hidden="true">' + profile.icon + '</div>' +
+                '<div class="theme-card-head"><div class="theme-icon domain-glyph" aria-hidden="true">' + DomainIcons.imageHTML(themeId) + '</div>' +
                 '<span class="theme-choice" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="m5 10 3 3 7-7"></path></svg></span></div>' +
                 '<h3>' + profile.label + '</h3><p class="theme-name-en">' + profile.nameEn + '</p>' +
                 '<p class="theme-desc">' + profile.description + '</p><ul class="theme-fields-preview"><li>' + fields + '</li></ul></div>';
         }).join('');
+        // Artwork attribution is separate from selectable cards and their search.
+        var credits = document.getElementById('domain-icon-credits');
+        if (credits) credits.innerHTML = DomainIcons.workbenchCreditsHTML();
         document.getElementById('theme-count').textContent = Object.keys(DOMAIN_CATALOG).length + ' 个可识别领域';
         document.getElementById('domain-visible-count').textContent = Object.keys(DOMAIN_CATALOG).length;
     }
@@ -4467,6 +4475,8 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
                 transitionSpeed: '0.3s',
                 metaBg: 'dark',
                 detailImgStyle: 'fullwidth',
+                // 编号是站点级显示偏好；新站点默认关闭，批量站点各自保存。
+                categoryNumbersEnabled: false,
                 categoryTitleStyle: 'single',
                 categoryTitleAlign: 'left',
                 cardImageHeight: '180px',
@@ -4729,16 +4739,18 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
                         if (hasLocalImages) {
                             var imageMap = {};
                             var imagePaths = Object.keys(images);
-                            return imagePaths.reduce(function(chain, path, imageIndex) {
-                                return chain.then(function() {
-                                    var completed = imageIndex + 1;
-                                    var percent = 70 + Math.round((completed / imagePaths.length) * 24);
-                                    setSingleImportProgress(percent, '正在读取图片 ' + completed + '/' + imagePaths.length + '：' + path, 'loading');
-                                    return images[path].async('blob').then(function(blob) {
-                                        imageMap[path] = blob;
-                                    });
-                                });
-                            }, Promise.resolve()).then(function() {
+                            var completedImages = 0;
+                            // Bound decompression memory and overlap asynchronous
+                            // image reads. Populate the map in archive order so
+                            // duplicate basenames retain their original precedence.
+                            return mapWithConcurrency(imagePaths, 2, async function(path) {
+                                var blob = await images[path].async('blob');
+                                completedImages++;
+                                var percent = 70 + Math.round((completedImages / imagePaths.length) * 24);
+                                setSingleImportProgress(percent, '正在读取图片 ' + completedImages + '/' + imagePaths.length + '：' + path, 'loading');
+                                return blob;
+                            }).then(function(blobs) {
+                                imagePaths.forEach(function(path, index) { imageMap[path] = blobs[index]; });
                                 processData(data, true, imageMap, false, { fileName: file.name, entryPath: jsonFilePath });
                                 finishSingleDataImport(file);
                             });
@@ -5000,73 +5012,33 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
 
     function renderFieldMapping() {
         if (isBatchAdBuild()) {
+            fieldMappingView = null;
             renderBatchFieldMapping();
             return;
         }
         var theme = THEMES[appState.selectedTheme];
         if (!theme) return;
 
-        var container = document.getElementById('mapping-container');
-        var html = '<div class="mapping-column left"><h4>📝 主题字段</h4>';
-        theme.fields.forEach(function(tf) {
-            html += '<div class="mapping-item">';
-            html += '<span class="field-name">' + tf.label + '</span>';
-            html += '<span class="field-label-zh">' + tf.labelZh + '</span>';
-            if (tf.required) html += '<span class="required-mark">*</span>';
-            html += '<select class="mapping-select" data-theme-field="' + tf.id + '"' +
-                (tf.required ? ' data-required="true"' : '') + '>';
-            html += '<option value="">-- 不匹配 --</option>';
-            appState.jsonFields.forEach(function(jf) {
-                var selected = appState.fieldMapping[tf.id] === jf.name ? ' selected' : '';
-                html += '<option value="' + jf.name + '"' + selected + '>' + jf.name + ' (' + jf.type + ')</option>';
-            });
-            html += '</select></div>';
-        });
-        html += '</div>';
-
-        html += '<div class="mapping-column right"><h4>📊 JSON数据字段</h4>';
-        appState.jsonFields.forEach(function(jf) {
-            var matched = Object.values(appState.fieldMapping).indexOf(jf.name) !== -1;
-            html += '<div class="mapping-item' + (matched ? ' mapped' : '') + '">';
-            html += '<span class="field-name">' + jf.name + '</span>';
-            html += '<span class="field-label-zh">(' + jf.type + ')</span>';
-            html += matched ? ' ✓' : '';
-            html += '</div>';
-        });
-        html += '</div>';
-
-        container.innerHTML = html;
-
-        // 绑定事件
-        var selects = container.querySelectorAll('.mapping-select');
-        selects.forEach(function(select) {
-            select.addEventListener('change', function() {
-                var themeField = this.dataset.themeField;
-                if (this.value) {
-                    appState.fieldMapping[themeField] = this.value;
-                    this.classList.add('mapped');
+        fieldMappingView = createFieldMappingView({
+            container: document.getElementById('mapping-container'),
+            summary: document.getElementById('mapping-summary'),
+            fields: theme.fields,
+            jsonFields: appState.jsonFields,
+            mapping: appState.fieldMapping,
+            onChange: function(themeField, value) {
+                // 主应用保留原有保存逻辑，视图模块只接收结果并更新显示。
+                if (value) {
+                    appState.fieldMapping[themeField] = value;
                 } else {
                     delete appState.fieldMapping[themeField];
-                    this.classList.remove('mapped');
                 }
                 updateMappingSummary();
-            });
+            }
         });
-
-        updateMappingSummary();
     }
 
     function updateMappingSummary() {
-        var theme = THEMES[appState.selectedTheme];
-        var total = theme.fields.length;
-        var mapped = Object.keys(appState.fieldMapping).length;
-        var unmapped = total - mapped;
-
-        var summary = document.getElementById('mapping-summary');
-        var text = document.getElementById('mapping-summary-text');
-
-        text.textContent = '已匹配 ' + mapped + ' 个字段，未匹配 ' + unmapped + ' 个字段（未匹配字段将不在网站中展示）';
-        summary.style.display = 'block';
+        if (fieldMappingView) fieldMappingView.update(appState.fieldMapping);
     }
 
     // ========== Step 4: 配置面板 ==========
@@ -5131,7 +5103,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
 
     // ========== 页面模板蓝图 ==========
     function getTemplateById(id) {
-        var match = TEMPLATE_PRESETS.find(function(template) { return template.id === id && template.domainId === appState.selectedTheme; });
+        var match = TEMPLATE_PRESETS.find(function(template) { return template.id === id && (template.domainId === appState.selectedTheme || template.domainId === '*'); });
         return match || getBlueprintsForTheme(appState.selectedTheme)[0] || null;
     }
 
@@ -5157,15 +5129,22 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
 
     function applyTemplateToConfig(c, template) {
         if (!c || !template) return;
+        // 选择新蓝图时一并清除旧模板的人工覆盖标记，后续微调重新记录。
+        c.controlOverrides = {};
         c.templateId = template.id;
 
         Object.keys(template.structure || {}).forEach(function(key) {
             // Hero visibility and navigation layout are operator preferences, not template side effects.
             // New sites start with Hero off and regular navigation; templates must not change either choice.
-            if (key !== 'heroEnabled' && key !== 'navbarLayout') c[key] = template.structure[key];
+            if (key !== 'heroEnabled' && key !== 'navbarLayout' && key !== 'categoryNumbersEnabled') c[key] = template.structure[key];
         });
         Object.keys(template.style || {}).forEach(function(key) {
-            c[key] = template.style[key];
+            // The optional reference material is an explicit operator choice.
+            // Keep it when switching/randomizing templates; choosing a different
+            // navbar style restores the original template-default behavior.
+            if (key === 'navbarStyle' && c.navbarStyle === 'soft-glass') return;
+            // 手动切换和随机组装共用此入口，蓝图不能覆盖用户的编号选择。
+            if (key !== 'categoryNumbersEnabled') c[key] = template.style[key];
         });
         // 品牌是模板可见身份的一部分。选择蓝图时必须同步标题，避免不同
         // 模板只改布局却仍保留上一个模板的导航栏名称。
@@ -5900,6 +5879,10 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         var container = document.getElementById('categories-config');
         closeCategoryIconPickers();
         var currentCats = appState.config.categories || theme.categories;
+        // 分类排版属于分类本身；仅八套独立资讯模板展示编辑入口。
+        // 切到旧模板时保留设置，切回来后仍可继续编辑。
+        var packageRecord = typeof TemplateRegistry !== 'undefined' && TemplateRegistry.get(appState.config.templateId);
+        var supportsCategoryLayouts = packageRecord && packageRecord.manifest.schemaVersion === 2;
 
         // 调整分类数量
         while (currentCats.length < count) {
@@ -5915,7 +5898,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             cat.icon = getCompatibleCategoryEmoji(cat.icon || '📌');
             var iconPool = theme.iconPool || [cat.icon || '📌'];
             var pickerIcons = getCategoryIconPickerChoices(iconPool, cat.icon, cat.name, appState.selectedTheme);
-            html += '<div class="category-config-item">';
+            html += '<div class="category-config-item' + (supportsCategoryLayouts ? ' category-config-custom-layout' : '') + '">';
             html += '<div class="cat-icon-picker" data-cat-idx="' + i + '">';
             html += '<button type="button" class="cat-icon-trigger" title="当前领域图标优先，也可选择全部 Emoji" aria-label="选择第' + (i + 1) + '个分类图标（当前领域图标优先，可选择全部 Emoji）" aria-expanded="false" data-cat-idx="' + i + '">' + (cat.icon || '📌') + '</button>';
             html += '<div class="cat-icon-menu" role="listbox" aria-label="分类图标选项：当前领域优先，包含全部 Emoji">';
@@ -5926,9 +5909,11 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             html += '</div></div>';
             html += '<input type="text" class="cat-name-input" value="' + cat.name + '" data-cat-idx="' + i + '" data-cat-field="name">';
             html += '<input type="number" class="cat-count-input" value="' + cat.count + '" min="1" max="20" data-cat-idx="' + i + '" data-cat-field="count">';
+            if (supportsCategoryLayouts) html += renderCategoryLayoutControls(cat, i);
             html += '</div>';
         });
         container.innerHTML = html;
+        if (supportsCategoryLayouts) bindCategoryLayoutControls(container, appState.config.categories, updatePreview);
 
         // 文本和数量字段
         container.querySelectorAll('input').forEach(function(input) {
@@ -6000,6 +5985,9 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
     }
 
     function bindConfigEvents() {
+        ConfigurationControls.bind(function() { return appState.config; });
+        // User motion preferences are independent of template defaults.
+        if (typeof SiteMotion !== 'undefined') SiteMotion.bindControls(function() { return appState.config; }, updatePreview);
         // 通用配置项绑定
         var configMap = {
             'contact-email': 'contactEmail',
@@ -6009,6 +5997,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             'card-columns': 'cardColumns',
             'meta-layout': 'metaLayout',
             'content-render': 'contentRender',
+            'action-btn-link-field': 'actionButtonLinkField',
             'navbar-style': 'navbarStyle',
             'navbar-height': 'navbarHeight',
             'logo-style': 'logoStyle',
@@ -6071,6 +6060,12 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         // 图标显隐只更新显示偏好，保留每个分类已有的图标选择。
         document.getElementById('category-icons-enabled').addEventListener('change', function() {
             appState.config.categoryIconsEnabled = this.checked;
+            updatePreview();
+        });
+
+        // 批量编辑时 appState.config 引用当前站点配置，导出沿用同一字段。
+        document.getElementById('category-numbers-enabled').addEventListener('change', function() {
+            appState.config.categoryNumbersEnabled = this.checked;
             updatePreview();
         });
 
@@ -6245,6 +6240,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         if (c.metaBg) document.getElementById('meta-bg').value = c.metaBg;
         if (c.detailImgStyle) document.getElementById('detail-img-style').value = c.detailImgStyle;
         document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
+        document.getElementById('category-numbers-enabled').checked = c.categoryNumbersEnabled === true;
         if (c.categoryTitleStyle) document.getElementById('category-title-style').value = c.categoryTitleStyle;
         if (c.categoryTitleAlign) document.getElementById('category-title-align').value = c.categoryTitleAlign;
         if (c.cardImageHeight) document.getElementById('card-image-height').value = c.cardImageHeight;
@@ -6439,6 +6435,10 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             if (e.source !== previewFrame.contentWindow) return;
             if (e.data && e.data.type === 'preview-nav') {
                 var page = e.data.page;
+                // Route and section state are separate; only a valid home anchor
+                // is carried into the next preview document, never into exports.
+                appState.previewHomeAnchor = page === 'home' && /^category-[a-z0-9-]+$/i.test(e.data.categoryAnchor || '')
+                    ? e.data.categoryAnchor : '';
                 if (page === 'detail' && Number.isInteger(e.data.itemIndex)) {
                     appState.previewDetailIndex = e.data.itemIndex;
                 }
@@ -6904,6 +6904,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
 
     var previewTimeout = null;
     function updatePreview(pageType) {
+        ConfigurationControls.sync(appState.config, appState);
         if (appState.currentStep !== 4) return;
         if (isAdPolicyWorkflow()) { updateAdPolicyPreview(pageType); return; }
         if (isAdInjectionWorkflow()) {
@@ -6931,8 +6932,10 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             if (!pageType) pageType = activeTab ? activeTab.dataset.page : 'home';
 
             try {
-                // 清理上一次预览中的本地图片blob URL
-                if (appState._previewBlobUrls.length > 0) {
+                // Shared cached images keep their URLs across style changes;
+                // legacy/differentiated renderers retain their original cleanup.
+                if ((appState.siteBuildMode === 'differentiated' || typeof PreviewImageCache === 'undefined') && appState._previewBlobUrls.length > 0) {
+                    if (typeof PreviewImageCache !== 'undefined') PreviewImageCache.clear();
                     appState._previewBlobUrls.forEach(function(u) { URL.revokeObjectURL(u); });
                     appState._previewBlobUrls = [];
                 }
@@ -6943,6 +6946,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
                         categorySlug: appState.previewSectionSlug
                     })
                     : Generator.generatePreviewHtml(appState, pageType, appState.previewDetailIndex);
+                if (appState.siteBuildMode !== 'differentiated') appState.previewHomeAnchor = '';
                 // 记录这次真正写入 iframe 的配置签名。普通与批量导出会核对该值，
                 // 防止界面显示一套配置、ZIP 却从另一个站点或旧状态读取配置。
                 if (appState.siteBuildMode !== 'differentiated' && typeof Generator.getBuildSignature === 'function') {
@@ -6959,6 +6963,17 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
                 setPreviewDocument(html);
             } catch(e) {
                 console.error('Preview error:', e);
+                // A failed render must replace an empty/stale iframe with an
+                // actionable notice, and must not certify an earlier preview
+                // as matching the current configuration during ZIP export.
+                appState._lastPreviewSignature = null;
+                if (isBatchAdBuild()) {
+                    var failedPreviewSite = getActiveBatchSite();
+                    if (failedPreviewSite) failedPreviewSite.previewSignature = null;
+                }
+                previewFrame.removeAttribute('sandbox');
+                previewFrame.removeAttribute('src');
+                setPreviewDocument(previewErrorDocument(e));
             }
         }, 300);
     }
@@ -6967,7 +6982,19 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
     function generateExportSummary(afterRender) {
         if (isAdPolicyWorkflow()) {
             var policySummary = document.getElementById('export-summary');
-            policySummary.innerHTML = '<h4>批量广告策略导出前检查</h4><p>共 ' + appState.adPolicySites.length + ' 个站点；' + Object.keys(appState.adPolicyOverrides).length + ' 个单站覆盖；' + Object.keys(appState.adPolicyCodeOverrides).length + ' 个广告代码替换。</p><p>首页、详情页和全部文章页分别保存广告配置。输出模板：' + escapeHtml(appState.adPolicyAdJsVersion) + '。</p>';
+            // 快速模式使用自己的 TXT 与目标站范围，不显示详细策略的旧覆盖计数。
+            var quickSummary = isQuickAdUpdate();
+            var quickSummaryPlan = quickSummary ? planQuickAdUpdate(appState.adPolicySites, appState.adQuickCodes, quickUpdateOptions()) : null;
+            policySummary.innerHTML = renderExportConfiguration({
+                title: quickSummary ? '快速更新广告' : '批量广告策略', themeName: '广告策略更新',
+                metrics: quickSummary
+                    ? [['目标站点', quickSummaryPlan.mappings.length], ['匹配成功', quickSummaryPlan.validCount], ['新广告 TXT', appState.adQuickCodes.length]]
+                    : [['站点数量', appState.adPolicySites.length], ['单站覆盖', Object.keys(appState.adPolicyOverrides).length], ['广告代码替换', Object.keys(appState.adPolicyCodeOverrides).length]],
+                groups: [
+                    { title: '处理配置', items: [['更新模式', quickSummary ? '快速更新' : '详细策略'], ['输出模板', quickSummary ? QUICK_AD_VERSION : appState.adPolicyAdJsVersion]] },
+                    { title: '输出方式', items: [['页面策略', quickSummary ? '保持原站广告位置' : '首页、详情页、全部文章页分别保存'], ['站点输出', '新目录或批量 ZIP'], ['广告代码', quickSummary ? '按目标站匹配新广告 TXT' : '支持单独导出 TXT']] }
+                ]
+            });
             updateAdRestorationControls();
             return;
         }
@@ -6981,14 +7008,14 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             var reactSourceSites = injectionSites.filter(function(site) { return site && site.project && site.project.kind === 'react-source'; });
             var injectionReady = injectionSites.length > 0 && injectionReport.validCount === injectionSites.length;
             var summary = document.getElementById('export-summary');
-            if (summary) summary.innerHTML = '<h4>成品站加广告导出前检查</h4><div class="summary-grid">' +
-                makeSummaryItem('已过审站点', injectionSites.length + ' 个') +
-                makeSummaryItem('有效广告 TXT', injectionCodes.filter(function(code) { return code.valid; }).length + '/' + injectionCodes.length + ' 份') +
-                makeSummaryItem('完成域名配对', injectionReport.validCount + '/' + injectionSites.length + ' 站') +
-                makeSummaryItem('广告位策略', appState.adInjectionPlacementModeDefault === 'fixed' ? '固定位置自动适配' : '手动放置') +
-                makeSummaryItem('ad.js 版本', appState.adInjectionAdJsVersion + (Object.keys(appState.adInjectionSiteOverrides || {}).length ? '；含单站覆盖' : '')) +
-                makeSummaryItem('导出内容', appState.adInjectionExportMode === 'source' ? '含广告的完整源码' : '静态站点副本') +
-                '</div><section class="migration-validation ' + (injectionReady ? '' : 'invalid') + '"><h5>' + (injectionReady ? '广告代码与站点配对校验通过' : '导出仍被阻止') + '</h5><p>' + (injectionReady ? '导出只向新副本增加广告脚本和已确认广告位；上传的已过审源站保持不变。' : '请返回“配置网站”上传广告代码 TXT，并确保每个站点都有一份有效且域名匹配的代码。') + '</p></section>';
+            if (summary) summary.innerHTML = renderExportConfiguration({
+                title: '成品站加广告', themeName: '广告注入',
+                metrics: [['已过审站点', injectionSites.length], ['有效广告 TXT', injectionCodes.filter(function(code) { return code.valid; }).length + '/' + injectionCodes.length], ['完成域名配对', injectionReport.validCount + '/' + injectionSites.length]],
+                groups: [
+                    { title: '广告配置', items: [['广告位策略', appState.adInjectionPlacementModeDefault === 'fixed' ? '固定位置自动适配' : '手动放置'], ['ad.js 版本', appState.adInjectionAdJsVersion + (Object.keys(appState.adInjectionSiteOverrides || {}).length ? '；含单站覆盖' : '')]] },
+                    { title: '导出配置', items: [['导出内容', appState.adInjectionExportMode === 'source' ? '含广告的完整源码' : '静态站点副本'], ['输出方式', 'ZIP 或新目录']] }
+                ]
+            }) + '<section class="migration-validation ' + (injectionReady ? '' : 'invalid') + '"><h5>' + (injectionReady ? '广告代码与站点配对校验通过' : '导出仍被阻止') + '</h5><p>' + (injectionReady ? '导出只向新副本增加广告脚本和已确认广告位；上传的已过审源站保持不变。' : '请返回“配置网站”上传广告代码 TXT，并确保每个站点都有一份有效且域名匹配的代码。') + '</p></section>';
             if (summary && reactSourceSites.length && appState.adInjectionExportMode === 'source') summary.innerHTML += '<section class="migration-validation"><h5>React 源码将完整导出</h5><p>浏览器不会执行 npm install 或 npm run build；工具会导出加入广告后的完整工程。请下载后在项目环境安装依赖并执行生产构建，再部署新生成的 dist、build 或框架输出目录。</p></section>';
             updateAdInjectionControls();
             if (typeof afterRender === 'function') afterRender();
@@ -7003,14 +7030,14 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
                 ? batchReport.assignments.filter(function(item) { return !batchSiteIssues(item.site).length && BatchAdBuilder.countReservedPlacements(item.reserveSettings); }).length
                 : batch.sites.filter(function(site) { return !batchSiteIssues(site).length && batch.codes.some(function(code) { return code.id === site.codeId && code.valid; }); }).length;
             var validDomains = reserveMode ? batchReport.assignments.filter(function(item) { return item.domain.valid; }).length : 0;
-            batchTarget.innerHTML = '<h4>批量广告建站导出前检查</h4><div class="summary-grid">' +
-                makeSummaryItem('站点数量', batch.sites.length + ' 个') +
-                (reserveMode ? makeSummaryItem('广告接入', '先预留广告位，后填 ID') : makeSummaryItem('有效广告代码', batch.codes.filter(function(code) { return code.valid; }).length + '/' + batch.codes.length + ' 份')) +
-                (reserveMode ? makeSummaryItem('有效唯一域名', validDomains + '/' + batch.sites.length + ' 站') : '') +
-                makeSummaryItem(reserveMode ? '字段与广告位就绪' : '字段与代码就绪', ready + '/' + batch.sites.length + ' 站') +
-                makeSummaryItem('模板与样式', '逐站独立配置') +
-                makeSummaryItem('导出格式', '每个站点独立 ZIP') +
-                '</div><section class="migration-validation ' + (batchReport.valid ? '' : 'invalid') + '"><h5>' + (batchReport.valid ? (reserveMode ? '预留广告位校验通过' : '一对一广告代码校验通过') : '导出已阻止') + '</h5>' +
+            batchTarget.innerHTML = renderExportConfiguration({
+                title: '批量广告建站', themeName: reserveMode ? '预留广告位' : '一对一广告接入',
+                metrics: [['站点数量', batch.sites.length], [reserveMode ? '字段与广告位就绪' : '字段与代码就绪', ready + '/' + batch.sites.length], [reserveMode ? '有效唯一域名' : '有效广告代码', reserveMode ? validDomains + '/' + batch.sites.length : batch.codes.filter(function(code) { return code.valid; }).length + '/' + batch.codes.length]],
+                groups: [
+                    { title: '建站配置', items: [['广告接入', reserveMode ? '先预留广告位，后填 ID' : '逐站配对有效广告 TXT'], ['模板与样式', '逐站独立配置']] },
+                    { title: '导出配置', items: [['导出格式', '每个站点独立 ZIP'], ['站点校验', '导出期间逐站验证']] }
+                ]
+            }) + '<section class="migration-validation ' + (batchReport.valid ? '' : 'invalid') + '"><h5>' + (batchReport.valid ? (reserveMode ? '预留广告位校验通过' : '一对一广告代码校验通过') : '导出已阻止') + '</h5>' +
                 (batchReport.valid ? '<p>' + (reserveMode ? '导出期间会逐站验证 GPT、广告容器和空配置 js/ad.js；占位域名提示不会阻止导出。' : '导出期间会逐站重新生成，然后验证首页、全部详情页、GPT 脚本、三个广告容器以及 js/ad.js 中的对应广告路径。') + '</p>' : '<ul>' + batchReport.errors.map(function(error) { return '<li>' + escapeHtml(error.message) + '</li>'; }).join('') + '</ul>') + '</section>';
             document.getElementById('btn-export').disabled = !batchReport.valid;
             if (typeof afterRender === 'function') afterRender();
@@ -7022,15 +7049,7 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
             document.querySelectorAll('[data-diff-export]').forEach(function(button) { button.disabled = true; });
             DifferentiatedBuilder.audit(appState, { variant: 'review', siteType: appState.differentiated.siteType }).then(function(outcome) {
                 var config = outcome.config;
-                target.innerHTML = '<h4>配置摘要</h4><div class="summary-grid">' +
-                    makeSummaryItem('建站方式', '差异化精品建站') +
-                    makeSummaryItem('站点类型', config.type === 'editorial' ? '资讯站' : '工具站') +
-                    makeSummaryItem('独立领域', config.vertical) +
-                    makeSummaryItem('数据条数', config.items.length + '条') +
-                    makeSummaryItem('设计家族', config.design.name) +
-                    makeSummaryItem('设计指纹', config.designFingerprint) +
-                    makeSummaryItem('正式域名', config.baseUrl || '尚未填写') +
-                    makeSummaryItem('联系邮箱', config.contactEmail || '尚未填写') + '</div>' +
+                target.innerHTML = renderDifferentiatedExportConfiguration(config, outcome.report.counts) +
                     DifferentiatedBuilder.renderAuditSummary(outcome.report);
                 document.querySelectorAll('[data-diff-export]').forEach(function(button) {
                     button.disabled = button.dataset.diffExport !== 'draft' && outcome.report.counts.blockers > 0;
@@ -7056,34 +7075,44 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         var template = getTemplateById(config.templateId);
         var iconSet = getIconSetById(config.iconSetId);
 
-        var summaryHtml = '<h4>配置摘要</h4><div class="summary-grid">';
-        summaryHtml += makeSummaryItem('主题', theme.name);
-        summaryHtml += makeSummaryItem('数据条数', appState.data.length + '条');
-        summaryHtml += makeSummaryItem('已匹配字段', mappedCount + '个');
-        summaryHtml += makeSummaryItem('未匹配字段', unmappedCount + '个（不展示）');
-        summaryHtml += makeSummaryItem('网站标题', config.siteTitle || theme.siteTitle);
-        summaryHtml += makeSummaryItem('联系邮箱', config.contactEmail || 'contact@your-domain.com');
-        summaryHtml += makeSummaryItem('页面模板', template.name);
-        summaryHtml += makeSummaryItem('图标组合', iconSet ? iconSet.name : '自定义组合');
-        summaryHtml += makeSummaryItem('视觉风格', selectedStyleName);
-        summaryHtml += makeSummaryItem('Hero区域', config.heroEnabled ? '开启' : '关闭');
-        summaryHtml += makeSummaryItem('分类数量', config.categories.length + '个');
-        summaryHtml += makeSummaryItem('内容渲染', config.contentRender === 'markdown' ? 'Markdown转HTML' : '纯文本');
-        summaryHtml += makeSummaryItem('操作按钮', config.actionButtonEnabled ? config.actionButtonText : '关闭');
-        summaryHtml += makeSummaryItem('相关推荐', config.relatedCount + '条');
         var migration = appState.legacyAdMigration;
         var isMigration = appState.siteBuildMode === 'ad-migration';
         var isReservedAds = appState.siteBuildMode === 'normal' && appState.normalAdMode === 'reserve';
-        summaryHtml += makeSummaryItem('建站方式', isMigration ? '广告移植建站' : '普通建站');
+        // 只调整展示顺序，配置取值与后续导出资格判断均沿用原有逻辑。
+        var adSummaryItems = [['建站方式', isMigration ? '广告移植建站' : '普通建站']];
         if (!isMigration) {
             var adModeSummary = isReservedAds
                 ? '先预留广告位（' + (appState.reservePlacementMode === 'fixed' ? '固定位置' : '手动放置') + '），后填 ID'
                 : (appState.siteBuildMode === 'normal'
                     ? '上传代码自动添加（' + (appState.directAdPlacementMode === 'manual' ? '手动放置' : '固定位置') + '）'
                     : '上传代码自动添加');
-            summaryHtml += makeSummaryItem('广告接入', adModeSummary);
+            adSummaryItems.push(['广告接入', adModeSummary]);
         }
-        summaryHtml += '</div>';
+        var summaryHtml = renderExportConfiguration({
+            title: config.siteTitle || theme.siteTitle,
+            themeName: theme.name,
+            metrics: [
+                ['数据条数', appState.data.length],
+                ['已匹配字段', mappedCount],
+                ['未匹配字段 · 不展示', unmappedCount]
+            ],
+            groups: [
+                { title: '网站与内容', items: [
+                    ['联系邮箱', config.contactEmail || 'contact@your-domain.com'],
+                    ['分类数量', config.categories.length + '个'],
+                    ['内容渲染', config.contentRender === 'markdown' ? 'Markdown转HTML' : '纯文本'],
+                    ['相关推荐', config.relatedCount + '条']
+                ] },
+                { title: '外观与功能', items: [
+                    ['页面模板', template.name],
+                    ['图标组合', iconSet ? iconSet.name : '自定义组合'],
+                    ['视觉风格', selectedStyleName],
+                    ['Hero区域', config.heroEnabled ? '开启' : '关闭'],
+                    ['操作按钮', config.actionButtonEnabled ? config.actionButtonText : '关闭']
+                ] },
+                { title: '广告配置', wide: true, items: adSummaryItems }
+            ]
+        });
         var adCode = appState.adCodeMigration;
         var isAdCodeBuild = !isMigration && !isReservedAds && !!adCode;
         var adCodeValid = !adCode || adCode.valid;
@@ -7103,28 +7132,8 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         if (typeof afterRender === 'function') afterRender();
     }
 
-    function makeSummaryItem(label, value) {
-        return '<div class="summary-item"><span class="label">' + escapeHtml(label) + '</span><span class="value">' + escapeHtml(value) + '</span></div>';
-    }
-
     function updateExportProgress(percent, message, state) {
-        var progressDiv = document.getElementById('export-progress');
-        var progressFill = document.getElementById('progress-fill');
-        var progressValue = document.getElementById('progress-value');
-        var progressText = document.getElementById('progress-text');
-        var numericPercent = Number(percent);
-        var safePercent = Number.isFinite(numericPercent)
-            ? Math.max(0, Math.min(100, Math.round(numericPercent)))
-            : Number(progressDiv && progressDiv.dataset.progress) || 0;
-
-        if (progressDiv) {
-            progressDiv.hidden = false;
-            progressDiv.dataset.state = state || 'loading';
-            progressDiv.dataset.progress = String(safePercent);
-        }
-        if (progressFill) progressFill.style.width = safePercent + '%';
-        if (progressValue) progressValue.textContent = safePercent + '%';
-        if (progressText) progressText.textContent = message;
+        updateWorkflowExportProgress('export-progress', percent, message, state);
     }
 
     // Resolve the ad-code host once for the ZIP filename and its site directory.
@@ -7317,8 +7326,10 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
     }
 
     function applyConfigToUI() {
+        if (typeof SiteMotion !== 'undefined') SiteMotion.syncControls(appState.config);
         var c = appState.config;
         document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
+        document.getElementById('category-numbers-enabled').checked = c.categoryNumbersEnabled === true;
 
         // 同步模板选择和首页开关，避免随机组装后面板仍显示旧值
         var templateCards = document.querySelectorAll('.template-card');
@@ -7372,6 +7383,21 @@ import { QUICK_AD_VERSION, planQuickAdUpdate, prepareQuickAdUpdate, applyQuickAd
         selectIds.forEach(function(id) {
             var elem = document.getElementById(id);
             if (elem && c[selectToConfig[id]] !== undefined) {
+                // Complete packages may use an identity-specific numeric size
+                // (for example 1240px). Represent it without changing the existing
+                // operator choices or showing a blank custom-select trigger.
+                elem.querySelectorAll('option[data-template-default]').forEach(function(option) { option.remove(); });
+                var value = String(c[selectToConfig[id]]);
+                var packageRecord = typeof TemplateRegistry !== 'undefined' ? TemplateRegistry.get(c.templateId) : null;
+                if (packageRecord && packageRecord.manifest.schemaVersion === 2 &&
+                    !Array.prototype.some.call(elem.options, function(option) { return option.value === value; }) &&
+                    /^(?:0|\d+(?:\.\d+)?(?:px|s)|full)$/.test(value)) {
+                    var option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = '模板默认（' + value + '）';
+                    option.dataset.templateDefault = 'true';
+                    elem.appendChild(option);
+                }
                 elem.value = c[selectToConfig[id]];
             }
         });

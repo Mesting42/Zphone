@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "id": "stone-crumb",
+  "name": "森绿·现代品牌",
+  "version": "1.0.0",
+  "domainId": "*",
+  "description": "06 Stone & Crumb · 独立导航、首页、列表与阅读版式",
+  "icon": "▤",
+  "reference": "06 Stone & Crumb",
+  "baseLayout": "portal-topic-matrix",
+  "palette": {
+    "bg": "#f3f7f2",
+    "secondary": "#e4eee7",
+    "surface": "#ffffff",
+    "primary": "#0f604d",
+    "text": "#172d27",
+    "muted": "#405a50",
+    "border": "#d5e2d9",
+    "card": "#ffffff",
+    "hover": "#e9f2ec"
+  },
+  "structure": {
+    "cardColumns": "2",
+    "footerStyle": "detailed",
+    "detailLayout": "single",
+    "backLinkStyle": "text"
+  },
+  "style": {
+    "selectedStyle": "reference-stone-crumb",
+    "fontStyle": "sans-serif",
+    "navbarStyle": "normal",
+    "logoStyle": "text-icon",
+    "cardBorder": "thin",
+    "cardRadius": "24px",
+    "cardHover": "accent-line",
+    "cardImageHeight": "260px",
+    "contentMaxWidth": "1240px",
+    "gridGap": "20px",
+    "cardSpacing": "20px",
+    "cardViewMode": "card",
+    "detailImgStyle": "banner",
+    "animationEnter": "none"
+  }
+}

@@ -98,14 +98,19 @@
         const domain = selected ? selected.domain : TemplateCatalog.getDomain(domainId);
         const headingMarkup = '<h2 class="category-title">' + title(config, category) + '</h2>';
         if (!selected && !recipe) return headingMarkup;
-        const number = '<span class="tpl-section-number" aria-hidden="true">' + String(index + 1).padStart(2, '0') + '</span>';
+        // 资讯生成器始终传入布尔值；未接入此选项的游戏生成器保留原有行为。
+        const numberPreference = config.style.categoryNumbersEnabled;
+        const number = numberPreference !== false
+            ? '<span class="tpl-section-number" aria-hidden="true">' + String(index + 1).padStart(2, '0') + '</span>' : '';
+        const numberAttribute = typeof numberPreference === 'boolean'
+            ? ' data-heading-number="' + (numberPreference ? 'on' : 'off') + '"' : '';
         const caption = domain ? '<p class="tpl-section-kicker">' + escape(domain.topicsLabel) + '</p>' : '';
         const navigationClass = selected ? ' tpl-heading-' + selected.layout.navigation : ' tpl-heading-legacy';
         const recipeAttributes = recipe
             ? ' data-heading-composition="' + recipe.composition + '" data-heading-marker="' + recipe.marker +
                 '" data-heading-icon-size="' + recipe.iconSize.toFixed(2) + '" data-heading-rule="' + recipe.rule + '"'
             : '';
-        return '<header class="tpl-section-heading' + navigationClass + '"' + recipeAttributes + '>' + number +
+        return '<header class="tpl-section-heading' + navigationClass + '"' + recipeAttributes + numberAttribute + '>' + number +
             '<div class="tpl-section-copy">' + caption + headingMarkup + '</div>' +
             '<span class="tpl-section-ornament" aria-hidden="true"></span></header>';
     }
@@ -207,6 +212,25 @@
         return '\n/* Template-specific category title: ' + recipe.signature + ' */\n' + styles;
     }
 
+    /**
+     * 编号显隐只影响标题中的编号节点和为它预留的空间。
+     * 独立于版式配方输出，避免逐个改动 1,080 套蓝图，也不会触及卡片计数器。
+     * 未传入偏好的调用方不追加规则，保持共享游戏排版器的原有输出。
+     */
+    function headingNumberCss(config) {
+        if (typeof config.style.categoryNumbersEnabled !== 'boolean') return '';
+        const enabled = 'body .tpl-section-heading[data-heading-number="on"]';
+        const disabled = 'body .tpl-section-heading[data-heading-number="off"]';
+        return '\n/* Category heading number preference */\n' +
+            enabled + '>.tpl-section-number{display:grid}' +
+            disabled + '{grid-template-columns:minmax(0,1fr)}' +
+            disabled + '>.tpl-section-copy{grid-column:1;grid-row:1}' +
+            // 这两种构图用额外内边距给绝对定位编号让位；窄屏继续沿用原内边距。
+            '@media(min-width:721px){' +
+            disabled + '[data-heading-composition="floating-index"]{padding-inline-start:0}' +
+            disabled + '[data-heading-composition="open-type"]{padding-inline-end:0}}';
+    }
+
     // 分类标题仍保持模板个性；首页不再分配导航侧栏或介绍区的空间。
     const headingRules = {
         rail: '.tpl-section-number{font-size:18px;width:42px;height:42px;border:1px solid var(--color-border);display:grid;place-items:center}',
@@ -247,7 +271,7 @@
     function css(config) {
         const selected = design(config);
         const heading = headingDesign(config);
-        const templateHeadingCss = headingCss(heading);
+        const templateHeadingCss = headingCss(heading) + headingNumberCss(config);
         if (!selected) return templateHeadingCss;
         const layout = selected.layout;
         const columns = Math.min(4, Math.max(1, Number(config.structure.cardColumns) || layout.columns));

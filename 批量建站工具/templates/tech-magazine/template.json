@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "tech-magazine",
+  "name": "科技·纸墨杂志",
+  "version": "1.0.0",
+  "domainId": "tech",
+  "description": "纸墨色调、清晰栏目与宽松正文阅读",
+  "icon": "▤",
+  "baseLayout": "portal-topic-matrix",
+  "structure": { "cardColumns": "3", "footerStyle": "detailed", "detailLayout": "single", "backLinkStyle": "text" },
+  "style": {
+    "selectedStyle": "newsprint", "fontStyle": "clean", "navbarStyle": "normal",
+    "cardBorder": "thin", "cardRadius": "0", "cardHover": "accent-line",
+    "cardImageHeight": "220px", "contentMaxWidth": "1200px", "gridGap": "24px",
+    "cardSpacing": "24px", "cardViewMode": "card", "detailImgStyle": "banner", "animationEnter": "none"
+  }
+}

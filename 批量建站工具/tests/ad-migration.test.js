@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import vm from 'node:vm';
+import { parseHTML } from 'linkedom';
 
 class ZipMock {
   constructor(prefix = '', root = null) { this.prefix = prefix; this.root = root || { files: {} }; }
@@ -133,9 +134,14 @@ describe('legacy ad migration', () => {
     expect(plainAll).toContain('<h1 class="category-title">All Articles</h1>');
     expect(count(plainAll, 'class="item-card"')).toBe(state.data.length);
     expect(plainAll).toContain('href="details/article1.html"');
-    expect(plain['website/index.html']).toContain('href="all-articles.html">All Articles</a>');
+    // Navigation may add ARIA/data attributes; verify the actual link contract.
+    const homeAllLink = parseHTML(plain['website/index.html']).document.querySelector('nav a[data-nav-page="all"]');
+    expect(homeAllLink?.getAttribute('href')).toBe('all-articles.html');
+    expect(homeAllLink?.textContent).toBe('All Articles');
     expect(plain['website/index.html']).toContain('href="all-articles.html">View All 4 Articles</a>');
-    expect(plain['website/details/article1.html']).toContain('href="../all-articles.html">All Articles</a>');
+    const detailAllLink = parseHTML(plain['website/details/article1.html']).document.querySelector('nav a[data-nav-page="all"]');
+    expect(detailAllLink?.getAttribute('href')).toBe('../all-articles.html');
+    expect(detailAllLink?.textContent).toBe('All Articles');
     expect(plainAll).not.toContain('securepubads.g.doubleclick.net');
     expect(count(context.__generator.generatePreviewHtml(state, 'all'), 'class="item-card"')).toBe(state.data.length);
     expect(context.__generator.generatePreviewHtml(state, 'home')).toContain('data-preview-page="all">View All 4 Articles</a>');
@@ -571,7 +577,9 @@ describe('legacy ad migration', () => {
     const ordinaryFooter = ordinary['website/index.html'].slice(ordinary['website/index.html'].indexOf('<footer'));
     expect((ordinaryNav.match(/<li>/g) || []).length).toBe(Math.min(ordinaryState.config.categories.length, 3) + 2);
     expect(ordinaryNav).toContain('>Home</a>');
-    expect(ordinaryNav).toContain('href="all-articles.html">All Articles</a>');
+    const ordinaryAllLink = parseHTML(ordinaryNav).document.querySelector('a[data-nav-page="all"]');
+    expect(ordinaryAllLink?.getAttribute('href')).toBe('all-articles.html');
+    expect(ordinaryAllLink?.textContent).toBe('All Articles');
     expect(ordinaryNav).not.toContain('Privacy Policy');
     expect(ordinaryNav).toMatch(/href="#category-[a-z0-9-]+"/);
     expect(ordinary['website/index.html']).toMatch(/<section id="category-[a-z0-9-]+" class="category-section">/);

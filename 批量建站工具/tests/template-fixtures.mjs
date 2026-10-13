@@ -2,21 +2,44 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-export function loadBuilder(game = false) {
+// Reuse compiled source across catalog exports, while creating a fresh global
+// context for each builder. The 36 original SVGs need not be parsed thousands
+// of times; source text remains the key so edits cannot reuse stale code.
+const compiledSources = new Map();
+function runSource(source, context) {
+  if (!compiledSources.has(source)) compiledSources.set(source, new vm.Script(source));
+  compiledSources.get(source).runInNewContext(context);
+}
+
+export function loadBuilder(game = false, registeredPackages = false, deterministic = false) {
   let files = {};
   class RecordingZip {
     constructor(prefix = '', root = {}) { this.prefix = prefix; this.root = root; }
     folder(name) { return new RecordingZip(this.prefix + name + '/', this.root); }
     file(name, value) { this.root[this.prefix + name] = value; return this; }
-    async generateAsync() { files = this.root; return new Blob(['fixture']); }
+    async generateAsync() {
+      // Real ZIP generation is asynchronous. Let worker RPC acknowledgements
+      // run between recorded exports instead of starving them with microtasks.
+      await new Promise(done => setImmediate(done));
+      files = this.root; return new Blob(['fixture']);
+    }
   }
   const context = { console, Blob, URL, TextDecoder, JSZip: RecordingZip, setTimeout: callback => callback(), window: {} };
+  // Paired whole-export comparisons need the same recommendation/shuffle draws.
+  // Normal tests and the product keep their original randomness.
+  if (deterministic) context.Math = Object.assign(Object.create(Math), { random: () => 0.5 });
   const source = (name, shared = false) => readFileSync(new URL('../' + (game && !shared ? 'game-builder/' : '') + 'js/' + name, import.meta.url), 'utf8');
-  vm.runInNewContext(source('template-catalog.js', true) + source('template-layouts.js', true) + source('navbar-layout.js', true) + source('data.js') +
+  runSource(source('template-catalog.js', true) + source('template-layouts.js', true) + source('navbar-layout.js', true) + source('data.js') +
     '\nthis.themes = THEMES; this.presets = ' + (game ? 'LAYOUT_PRESETS;' : 'TEMPLATE_PRESETS; this.domains = DOMAIN_CATALOG;'), context);
-  vm.runInNewContext(source('ad.js') + source('ad-migration.js') + source('generator.js') +
+  // Existing regression fixtures keep their original catalog. Package tests opt
+  // into the exact generated classic script used by the production tool.
+  if (registeredPackages) {
+    if (game) throw new Error('Independent editorial packages are not installed in the game builder');
+    runSource(source('template-packages.js', true), context);
+  }
+  runSource(source('configuration-controls.js', true) + source('site-motion.js', true) + source('ad.js') + source('ad-migration.js') + source('generator.js') +
     '\nthis.generator = Generator; this.migration = AdMigration;', context);
-  vm.runInNewContext(source('export-preflight.js', true), context);
+  runSource(source('export-preflight.js', true), context);
   const paths = Object.fromEntries(['bannerPath1', 'bannerPath2', 'bannerPath3', 'bannerPath4', 'interstitialPath', 'anchorPath', 'analyticsID']
     .map((key, index) => [key, key === 'analyticsID' ? 'G-TEMPLATE123' : '/123456/template.example.com-' + ['banner1', 'banner2', 'banner3', 'banner4', 'interstitial', 'anchor'][index]]));
   const migration = context.migration.inspectEntries([

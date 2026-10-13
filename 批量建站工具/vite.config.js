@@ -19,6 +19,18 @@ let isProductionBuild = false;
 
 // 旧版工作台脚本使用按顺序加载的全局变量，构建时原样复制，避免改变运行语义。
 export default defineConfig({
+  test: {
+    // Only maintained tests belong to the suite. Recoverable source snapshots
+    // under coverage must not be discovered and executed as a second test tree.
+    include: ['tests/**/*.{test,spec}.?(c|m)[jt]s?(x)']
+  },
+  server: {
+    watch: {
+      // 回归导出的 HTML 和源码构建产物不属于工作台源码。监听这些证据
+      // 会触发全页刷新并清空已上传数据，因此统一排除 coverage 目录。
+      ignored: ['**/coverage/**']
+    }
+  },
   plugins: [{
     name: 'copy-classic-runtime',
     configResolved(config) {
@@ -53,13 +65,16 @@ export default defineConfig({
       const docsSource = resolve(projectRoot, 'docs');
       if (existsSync(docsSource)) copyDirectoryContents(docsSource, resolve(buildOutputDirectory, 'docs'));
 
-      // 游戏工作流会复用根目录的液态玻璃层；它的 HTML 在 dist 中保持相对路径，
-      // 因此发布包也需要保留这一份未打包的共享样式。
-      const liquidGlassCssSource = resolve(projectRoot, 'css/liquid-glass.css');
-      const liquidGlassCssTarget = resolve(buildOutputDirectory, 'css/liquid-glass.css');
-      if (existsSync(liquidGlassCssSource)) {
-        mkdirSync(resolve(liquidGlassCssTarget, '..'), { recursive: true });
-        copyFileSync(liquidGlassCssSource, liquidGlassCssTarget);
+      // Copied game HTML retains relative paths to shared workbench styles. Keep
+      // originals alongside Vite's bundled CSS so static production works.
+      // 游戏端导出页也引用共用导出样式，随经典 HTML 一并保留原路径。
+      for (const stylesheet of ['liquid-glass.css', 'config-disclosures.css', 'export-page.css']) {
+        const sourceStylesheet = resolve(projectRoot, 'css', stylesheet);
+        const targetStylesheet = resolve(buildOutputDirectory, 'css', stylesheet);
+        if (existsSync(sourceStylesheet)) {
+          mkdirSync(resolve(targetStylesheet, '..'), { recursive: true });
+          copyFileSync(sourceStylesheet, targetStylesheet);
+        }
       }
 
       // 游戏工作流既要能被普通静态服务器直接访问，也要随生产构建发布。

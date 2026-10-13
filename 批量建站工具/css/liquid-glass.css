@@ -323,6 +323,17 @@ body::after {
     transition: opacity 220ms ease;
 }
 .liquid-glass-surface > * { position: relative; z-index: 1; }
+/* 配置导航必须覆盖通用玻璃子元素规则，固定在各自滚动面板顶部。 */
+.config-panel > .config-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    isolation: isolate;
+    background: rgba(248, 252, 255, .97);
+    box-shadow: 0 5px 16px rgba(36, 74, 116, .12);
+}
+.config-panel .configuration-condition-note { margin: 6px 0 12px; color: #617b95; font-size: 12px; line-height: 1.6; }
+.config-panel .configuration-unavailable { opacity: .65; }
 .liquid-glass-surface > .build-mode-selected-mark {
     position: absolute;
     z-index: 2;

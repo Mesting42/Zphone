@@ -1,0 +1,37 @@
+/* Scope every rule to generated documents. Existing layout/pseudo-elements stay intact. */
+[data-site-motion] [data-sf-card] { position:relative; }
+[data-site-motion] .sf-card-interactive {
+  --sf-lift:0px;
+  transform:perspective(1100px) translateY(var(--sf-lift)) rotateX(var(--sf-tilt-x,0deg)) rotateY(var(--sf-tilt-y,0deg));
+  transition:transform var(--sf-motion-speed,.28s) cubic-bezier(.2,.75,.25,1),border-color var(--sf-motion-speed,.28s) ease,box-shadow var(--sf-motion-speed,.28s) ease;
+  isolation:isolate;
+}
+/* Real child overlay avoids collisions with numbering/gradient ::before/::after. */
+[data-site-motion] .sf-card-glow { position:absolute;inset:0;z-index:3;border-radius:inherit;background:radial-gradient(320px circle at var(--sf-glow-x,50%) var(--sf-glow-y,0%),color-mix(in srgb,var(--sf-glow-color,var(--color-primary,#68c492)) 18%,transparent),transparent 64%);opacity:0;pointer-events:none;transition:opacity .3s; }
+[data-site-motion] .sf-card-orb { position:absolute;z-index:4;inset-inline-end:12px;top:12px;width:36px;height:36px;display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--sf-glow-color,var(--color-primary,#68c492)) 55%,transparent);border-radius:50%;background:var(--color-card-bg,var(--color-bg,#fff));color:var(--sf-glow-color,var(--color-primary,#68c492));pointer-events:none;box-shadow:0 4px 14px #0003;transition:border-color .3s,background .3s; }
+[data-site-motion] [data-sf-card] .card-image-frame { position:relative; }
+[data-site-motion] .sf-card-orb img { display:block;width:24px;height:24px;object-fit:contain;max-width:none; }
+[data-site-motion] .sf-icon-credits { flex-basis:100%;width:100%;margin-block-start:16px;padding-inline:12px;font:11px/1.6 system-ui,sans-serif;text-align:center;overflow-wrap:anywhere;opacity:.8; }
+[data-site-motion] .sf-icon-credits a { color:inherit;text-decoration:underline;text-underline-offset:2px; }
+[data-site-motion] .sf-card-arrow { position:absolute;z-index:4;inset-inline-end:12px;bottom:12px;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--color-card-bg,var(--color-bg,#fff));color:var(--sf-glow-color,var(--color-primary,#68c492));pointer-events:none;transition:transform .25s; }
+[data-site-motion] [data-sf-card]:has(.sf-card-arrow) .card-body { padding-inline-end:max(var(--card-spacing,20px),38px); }
+[data-site-motion] .sf-card-corner-icon .card-body { padding-inline-end:max(var(--card-spacing,20px),52px); }
+[data-site-motion] [data-sf-card]:focus-visible,[data-site-motion] [data-sf-card]:focus-within { outline:3px solid var(--sf-glow-color,var(--color-primary,#68c492));outline-offset:3px; }
+[data-site-motion] .sf-card-interactive .card-image { transition:transform .5s cubic-bezier(.2,.75,.25,1),filter .35s; }
+@media (hover:hover) and (pointer:fine) {
+  [data-site-motion] .sf-card-interactive:hover { --sf-lift:-6px;border-color:var(--sf-glow-color,var(--color-primary,#68c492));box-shadow:0 18px 38px #0003,0 0 0 1px color-mix(in srgb,var(--sf-glow-color,var(--color-primary,#68c492)) 20%,transparent);animation:none; }
+  [data-site-motion] .sf-card-interactive:hover .sf-card-glow { opacity:1; }
+  [data-site-motion] .sf-card-interactive:hover .card-image { transform:scale(1.045);filter:saturate(1.06) brightness(1.04); }
+  [data-site-motion] .sf-card-interactive:hover .sf-card-arrow { transform:translate(3px,-2px); }
+  [data-site-motion] .sf-card-interactive:hover .sf-card-orb { border-color:currentColor;background:color-mix(in srgb,var(--sf-glow-color,var(--color-primary,#68c492)) 12%,var(--color-card-bg,var(--color-bg,#fff))); }
+}
+/* No pointer effects or continuous icon movement on touch-only devices. */
+@media (hover:none),(pointer:coarse) {
+  [data-site-motion] .sf-card-interactive:hover { transform:none;animation:none; }
+  [data-site-motion] .sf-card-interactive:hover .card-image { transform:none;filter:none; }
+}
+@media (prefers-reduced-motion:reduce) {
+  [data-site-motion] .sf-reveal { opacity:1!important;translate:none!important;rotate:none!important;scale:none!important;filter:none!important; }
+  [data-site-motion] .sf-card-interactive,[data-site-motion] .sf-card-interactive:hover,[data-site-motion] .sf-card-interactive:hover .card-image,[data-site-motion] .sf-card-arrow { transform:none!important;translate:none!important;transition:none!important; }
+  [data-site-motion] .sf-card-glow,[data-site-motion] .sf-card-orb,[data-site-motion] .sf-card-interactive .card-image { transition:none!important; }
+}

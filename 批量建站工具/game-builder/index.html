@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>游戏建站工具 · 批量建站工具</title>
+    <link rel="stylesheet" href="../css/config-disclosures.css?v=20261012-reference-2">
     <link rel="stylesheet" href="css/tool.css?v=20260929-ad-template-default-1">
-  <link rel="stylesheet" href="../css/liquid-glass.css?v=20260929-workflow-mode-card-5">
+  <link rel="stylesheet" href="../css/liquid-glass.css?v=sha256-d5b2595235a35205">
+    <link rel="stylesheet" href="../css/export-page.css?v=sha256-3378432a641129e7">
     <!-- 压缩包解析优先使用当前发布包的本地依赖，CDN 仅作旧环境回退。 -->
     <script src="../node_modules/jszip/dist/jszip.min.js"></script>
     <script>if (!window.JSZip) document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\\/script>');</script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="../js/vendor/file-saver-2.0.5.min.js"></script>
 </head>
 <body>
     <!-- 步骤导航与当前工作流共用一张玻璃控制卡片。 -->
@@ -252,7 +254,7 @@
                         <div class="config-group">
                             <h4 class="group-title">🏠 首页结构</h4>
                             <div class="config-item">
-                                <label>Hero区域</label>
+                                <label for="hero-enabled">Hero区域</label>
                                 <div class="toggle-switch">
                                     <input type="checkbox" id="hero-enabled">
                                     <span class="toggle-slider"></span>
@@ -333,7 +335,7 @@
                                 </select>
                             </div>
                             <div class="config-item">
-                                <label>Play Now 按钮</label>
+                                <label for="action-btn-enabled">Play Now 按钮</label>
                                 <div class="toggle-switch">
                                     <input type="checkbox" id="action-btn-enabled" checked>
                                     <span class="toggle-slider"></span>
@@ -344,6 +346,7 @@
                                     <label>按钮文字</label>
                                     <input type="text" id="action-btn-text" class="text-input" value="Play Now">
                                 </div>
+                                <div class="config-item"><label for="action-btn-link-field">操作按钮链接字段</label><select id="action-btn-link-field" aria-label="选择操作按钮的网址字段"></select></div>
                             </div>
                             <div class="config-item">
                                 <label>相关推荐数量 <span class="range-value" id="related-count-value">4</span></label>
@@ -361,7 +364,7 @@
                         <div class="config-group">
                             <h4 class="group-title">📑 通用页面</h4>
                             <div class="config-item">
-                                <label>包含关于我们页面</label>
+                                <label for="about-enabled">包含关于我们页面</label>
                                 <div class="toggle-switch">
                                     <input type="checkbox" id="about-enabled" checked>
                                     <span class="toggle-slider"></span>
@@ -574,8 +577,9 @@
                             </div>
 
                             <div class="config-item">
-                                <label>入场动画</label>
-                                <select id="animation-enter">
+                                <!-- Preserve legacy config binding without exposing duplicate animation options. -->
+                                <label hidden>旧入场动画</label>
+                                <select id="animation-enter" style="display:none" aria-hidden="true" tabindex="-1">
                                     <option value="fadeIn">淡入(fadeIn)</option>
                                     <option value="slideUp">滑入(slideUp)</option>
                                     <option value="zoomIn">缩放(zoomIn)</option>
@@ -586,8 +590,14 @@
                                     <option value="none">无</option>
                                 </select>
                             </div>
+                            <div class="config-item"><label for="viewport-reveal-enabled">视口渐显</label><select id="viewport-reveal-enabled"><option value="on">开启（推荐）</option><option value="off">关闭</option></select></div>
+                            <div class="config-item"><label for="card-interaction-enabled">卡片悬浮交互</label><select id="card-interaction-enabled"><option value="on">开启（推荐）</option><option value="off">关闭</option></select></div>
+                            <div class="config-item"><label for="card-domain-icon-enabled">卡片领域圆标</label><select id="card-domain-icon-enabled"><option value="on">显示</option><option value="off">隐藏</option></select></div>
+                            <div class="config-item"><label for="card-arrow-enabled">装饰箭头</label><select id="card-arrow-enabled"><option value="on">显示</option><option value="off">隐藏</option></select></div>
+                            <div class="config-item"><label for="card-glow-color">卡片光晕颜色</label><select id="card-glow-color"><option value="theme">跟随主题色</option><option value="green">绿色</option><option value="cyan">青色</option><option value="blue">蓝色</option><option value="purple">紫色</option><option value="pink">粉色</option><option value="orange">橙色</option><option value="gold">金色</option><option value="custom">自定义颜色</option></select></div>
+                            <div class="config-item" id="card-glow-custom-row" hidden><label for="card-glow-custom">自定义光晕颜色</label><div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1"><input id="card-glow-custom" type="color" value="#68c492" style="width:38px;min-width:38px;height:34px;padding:2px;flex:0 0 38px"><input id="card-glow-hex" type="text" class="text-input" aria-label="光晕颜色值" value="#68c492" maxlength="7" placeholder="#68c492" style="min-width:0;width:100%;flex:1"></div></div>
                             <div class="config-item">
-                                <label>过渡时间</label>
+                                <label>交互过渡时间</label>
                                 <select id="transition-speed">
                                     <option value="0.1s">极快(0.1s)</option>
                                     <option value="0.2s">快(0.2s)</option>
@@ -929,46 +939,48 @@
         </div>
 
         <!-- ========== Step 2: 导出网站 ========== -->
-        <div class="step-panel" id="step-2">
-            <h2 class="panel-title">导出网站</h2>
-            <p class="panel-desc">确认配置后导出完整的静态网站文件</p>
+        <div class="step-panel game-export-panel" id="step-2">
+            <div class="export-page-heading">
+                <h2 class="panel-title">导出网站</h2>
+                <p class="panel-desc">核对游戏站配置与校验结果，准备好后即可导出网站文件。</p>
+            </div>
 
             <div class="export-summary" id="export-summary">
                 <!-- 由JS动态生成配置摘要 -->
-            </div>
-
-            <div class="export-options export-note" id="legacy-export-options">
-                <span class="export-note-icon">ZIP</span>
-                <div>
-                    <h4>浏览器端完整导出</h4>
-                    <p>包含首页、详情页、样式、数据与广告脚本，无需额外运行 Python。</p>
-                </div>
             </div>
 
             <section class="differentiated-export-options" id="differentiated-export-options" hidden aria-labelledby="diff-export-title">
                 <h4 id="diff-export-title">选择差异化游戏站导出级别</h4>
                 <p>草稿保留问题清单；递审版和广告版要求每款游戏可打开、来源与授权明确，且通过静态质量门禁。</p>
                 <div class="diff-export-grid">
-                    <button type="button" data-diff-export="draft"><strong>导出草稿</strong><span>允许未完成项并附审计报告</span></button>
-                    <button type="button" data-diff-export="review"><strong>导出递审版</strong><span>无广告并通过全部硬门禁</span></button>
-                    <button type="button" data-diff-export="ad-ready"><strong>导出过审后广告版</strong><span>仅使用已校验广告代码</span></button>
+                    <button type="button" class="btn-prev export-tier-button" data-diff-export="draft"><strong>导出草稿</strong><span>允许未完成项并附审计报告</span></button>
+                    <button type="button" class="btn-prev export-tier-button" data-diff-export="review"><strong>导出递审版</strong><span>无广告并通过全部硬门禁</span></button>
+                    <button type="button" class="btn-prev export-tier-button" data-diff-export="ad-ready"><strong>导出过审后广告版</strong><span>仅使用已校验广告代码</span></button>
                 </div>
             </section>
 
             <div class="export-actions">
-                <button class="btn-export" id="btn-export" disabled>
-                    📦 导出网站ZIP
+                <!-- 和资讯端共用操作卡片及现有果冻按钮；业务监听仍绑定原 ID。 -->
+                <div class="export-options" id="legacy-export-options">
+                    <h4>导出方式</h4>
+                    <p class="export-method-note">浏览器端生成 · ZIP 压缩包</p>
+                    <p class="export-method-detail">包含游戏站页面、样式与数据；广告文件按当前配置生成，无需 Python。</p>
+                </div>
+                <button type="button" class="btn-export btn-next" id="btn-export" disabled>
+                    <span class="export-button-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                            <path d="m7.5 4.27 9 5.15"/>
+                            <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+                            <path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>
+                        </svg>
+                    </span>
+                    <span class="export-button-label">导出网站 ZIP</span>
                 </button>
-                <section class="differentiated-export-options" id="differentiated-export-options" hidden aria-labelledby="diff-export-title">
-                    <h4 id="diff-export-title">差异化站点导出级别</h4>
-                    <p>草稿保留问题清单；递审版与广告版必须确保每款游戏可启动、来源与授权明确。</p>
-                    <div class="diff-export-grid">
-                        <button type="button" data-diff-export="draft"><strong>导出草稿</strong><span>允许保留待处理项</span></button>
-                        <button type="button" data-diff-export="review"><strong>导出递审版</strong><span>无广告并通过质量门禁</span></button>
-                        <button type="button" data-diff-export="ad-ready"><strong>导出广告版</strong><span>需要已校验广告代码</span></button>
+                <div class="export-progress" id="export-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
+                    <div class="export-progress-heading">
+                        <span>导出进度</span>
+                        <output class="export-progress-value" id="progress-value">0%</output>
                     </div>
-                </section>
-                <div class="export-progress" id="export-progress" style="display:none;">
                     <div class="progress-bar">
                         <div class="progress-fill" id="progress-fill"></div>
                     </div>
@@ -1012,7 +1024,7 @@
     <script src="js/open-source-games-bundle.js?v=20260910-6"></script>
     <script src="../js/template-catalog.js?v=20260926-content-first-1"></script>
     <script src="../js/template-layouts.js?v=20260928-heading-designs-1"></script>
-    <script src="../js/navbar-layout.js?v=20260926-nav-fit-1"></script>
+    <script src="../js/navbar-layout.js?v=sha256-9707c5fb66b0da4c"></script>
     <script src="js/data.js?v=20261008-ad-core-4"></script>
     <script src="../js/archive-naming.js?v=20260926-domain-folder-1"></script>
     <script src="js/ad-migration.js?v=20261008-ad-core-4"></script>
@@ -1023,13 +1035,18 @@
     <script src="js/game-zip-import.js?v=20260912-1"></script>
     <script src="js/built-in-game-sources.js?v=20260912-1"></script>
     <script src="js/saved-game-catalogs.js?v=20260912-content-identity-1"></script>
-    <script src="js/generator.js?v=20261008-ad-template-ga-1"></script>
+    <script src="../js/site-motion.js?v=sha256-33f78618c8f736db"></script>
+    <script src="../js/archive-export.js?v=sha256-784bb59d7feb4eea"></script>
+    <script src="../js/preview-image-cache.js?v=sha256-bd9f82e91188612d"></script>
+    <script src="../js/configuration-controls.js?v=sha256-ec06e879668c9a66"></script>
+    <script src="js/generator.js?v=sha256-b079670ff94e2565"></script>
   <script src="js/differentiated-builder.js?v=20260914-v101-48"></script>
   <script src="../js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
   <script src="../js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
   <script src="../js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-  <script src="js/app.js?v=20260929-workflow-mode-indicator-1"></script>
+  <script src="js/app.js?v=sha256-52b729f29a8b3cd7"></script>
   <script src="../js/jelly-button.js?v=20260918-9"></script>
   <script src="../js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
+  <script src="../js/config-disclosures.js?v=20261012-reference-2"></script>
 </body>
 </html>

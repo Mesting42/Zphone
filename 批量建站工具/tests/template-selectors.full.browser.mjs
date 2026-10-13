@@ -7,14 +7,15 @@ import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadBuilder, createState } from './template-fixtures.mjs';
+import {expandPicker} from './workbench-browser-helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
-const base = process.env.TEMPLATE_PREVIEW_URL || 'http://127.0.0.1:5173';
-const output = resolve('coverage/template-ui-full');
+const base = (process.env.TEMPLATE_PREVIEW_URL || 'http://127.0.0.1:5173').replace(/\/+$/, '');
+const output = resolve(process.env.TEMPLATE_SELECTOR_OUTPUT || 'coverage/template-ui-full');
 mkdirSync(output, { recursive: true });
 
-const builder = loadBuilder(false);
+const builder = loadBuilder(false, true);
 const domains = Object.keys(builder.domains);
 assert.equal(domains.length, 36, 'the UI domain selector must contain every ordinary domain');
 const runDomains = process.env.TEMPLATE_SELECTOR_DOMAIN ? domains.filter((domainId) => domainId === process.env.TEMPLATE_SELECTOR_DOMAIN) : domains;
@@ -24,27 +25,34 @@ const failures = [];
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
 
 async function runDomain(page, domainId) {
-  const presets = builder.presets.filter((preset) => preset.domainId === domainId);
-  assert.equal(presets.length, 30, `${domainId} must expose all 30 templates`);
+  const presets = builder.presets.filter((preset) => preset.domainId === domainId || preset.domainId === '*');
+  const expectedCount = 30 + builder.TemplateRegistry.list().filter(item => item.domainId === domainId || item.domainId === '*').length;
+  assert.equal(presets.length, expectedCount, `${domainId} must expose legacy templates and registered packages`);
   const state = createState(builder, presets[0]);
   const browserErrors = [];
   page.removeAllListeners('pageerror');
   page.on('pageerror', (error) => browserErrors.push(error.message));
 
   await page.goto(base + '/index.html', { waitUntil: 'load' });
+  // Module initialization can finish after load; upload only once its actual
+  // listeners are ready, then wait for parsing before advancing the wizard.
+  await page.locator('#upload-area[data-upload-ready="true"]').waitFor();
   await page.locator('#file-input').setInputFiles({
     name: `${domainId}.json`,
     mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(state.data))
   });
+  await page.waitForFunction(() => Number(document.getElementById('data-count')?.textContent) === 20);
   await page.locator('#btn-next').click();
+  await page.locator('#step-2.active').waitFor();
   await page.locator(`.theme-card[data-theme="${domainId}"]`).click();
   await page.locator('#btn-next').click();
   await page.locator('#btn-next').click();
   await page.locator('.config-tab[data-tab="style"]').click();
+  await expandPicker(page,'template-grid');
 
   const cards = page.locator('#template-grid .template-card');
-  assert.equal(await cards.count(), 30, `${domainId} must render all 30 selectable template cards`);
+  assert.equal(await cards.count(), expectedCount, `${domainId} must render all registered template cards`);
   const frame = page.locator('#preview-frame');
   const frameContent = page.frameLocator('#preview-frame');
   const checked = [];
@@ -88,7 +96,7 @@ try {
   const queue = runDomains.slice();
   async function worker() {
     const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
-    page.setDefaultTimeout(20000);
+    page.setDefaultTimeout(60000);
     await page.route('**/*', (route) => {
       const url = new URL(route.request().url());
       if (url.origin === new URL(base).origin || url.hostname === 'cdnjs.cloudflare.com') return route.continue();
@@ -99,7 +107,7 @@ try {
       try {
         const result = await runDomain(page, domainId);
         results.push(result);
-        console.log(`Selected all 30 templates for ${domainId} (${results.length}/${runDomains.length} domains)`);
+        console.log(`Selected all ${result.templates} templates for ${domainId} (${results.length}/${runDomains.length} domains)`);
       } catch (error) {
         const failure = { domainId, error: error.stack || error.message };
         failures.push(failure);
@@ -109,15 +117,21 @@ try {
     }
     await page.close();
   }
-  await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker));
+  // Same-origin workbench tabs can share a renderer. Serial clicks avoid
+  // starving another tab while a complete preview is generated synchronously.
+  const concurrency = Math.max(1, Number(process.env.TEMPLATE_SELECTOR_WORKERS) || 1);
+  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
 } finally {
   await browser.close();
 }
 
 results.sort((a, b) => domains.indexOf(a.domainId) - domains.indexOf(b.domainId));
 
-const summary = { expectedDomains: runDomains.length, checkedDomains: results.filter((result) => result.templates === 30).length,
-  expectedTemplateSelections: runDomains.length * 30, checkedTemplateSelections: results.reduce((sum, result) => sum + result.templates, 0),
+// Global editorial packages are available in every domain and must also count
+// toward the expected selections, matching the UI inventory assertion above.
+const expectedForDomain = domainId => builder.presets.filter(preset => preset.domainId === domainId || preset.domainId === '*').length;
+const summary = { expectedDomains: runDomains.length, checkedDomains: results.filter(result => result.templates === expectedForDomain(result.domainId)).length,
+  expectedTemplateSelections: runDomains.reduce((sum, id) => sum + expectedForDomain(id), 0), checkedTemplateSelections: results.reduce((sum, result) => sum + result.templates, 0),
   failures, results };
 writeFileSync(resolve(output, 'selector-results.json'), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify({ ...summary, results: summary.results.map(({ domainId, templates, failure }) => ({ domainId, templates, failure })) }, null, 2));

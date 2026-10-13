@@ -5,6 +5,24 @@
 
 const Generator = (function() {
 
+    // Assemble shared motion after each existing page renderer. Advertising and
+    // card DOM stay owned by their original renderers; excluded modes are gated
+    // by SiteMotion.normalize before the generator normalizes ad workflow names.
+    function motionPage(html, config, preview) {
+        if (typeof TemplateRegistry !== 'undefined') html = TemplateRegistry.documentHTML(html, config);
+        return typeof SiteMotion !== 'undefined' ? SiteMotion.documentHTML(html, config, preview) : html;
+    }
+    function generateIndexHtml(config, data) { return motionPage(generateIndexHtmlBase(config, data), config); }
+    function generateAllArticlesHtml(config, data) { return motionPage(generateAllArticlesHtmlBase(config, data), config); }
+    function generateDetailHtml(item, index, allItems, config) { return motionPage(generateDetailHtmlBase(item, index, allItems, config), config); }
+    function generateContactHtml(config) { return motionPage(generateContactHtmlBase(config), config); }
+    function generateAboutHtml(config) { return motionPage(generateAboutHtmlBase(config), config); }
+    function generatePrivacyHtml(config) { return motionPage(generatePrivacyHtmlBase(config), config); }
+    function generateTermsHtml(config) { return motionPage(generateTermsHtmlBase(config), config); }
+    function generatePreviewHtml(appState, pageType, detailIndex) {
+        return motionPage(generatePreviewHtmlBase(appState, pageType, detailIndex), buildConfig(appState), true);
+    }
+
     // The renderer can also be used without ad integration (for example in
     // domain-only previews); keep that path independent of the migration module.
     const adLayoutTools = typeof AdMigration !== 'undefined' ? AdMigration : {
@@ -2174,7 +2192,10 @@ ${style.detailLayout === 'sidebar' ? `
     }
 }
 ${TemplateLayouts.css(config)}
-${NavbarLayout.css()}
+${NavbarLayout.css()}${typeof TemplateRegistry !== 'undefined' ? TemplateRegistry.presentationCSS(config) : ''}
+${config.style.navbarStyle === 'soft-glass' ? NavbarLayout.softGlassCSS() : ''}
+${NavbarLayout.selectionCSS()}
+${typeof ConfigurationControls !== 'undefined' ? ConfigurationControls.css(config) : ''}
 /* 保留 300px 固定广告槽位；窄屏时避免详情页广告包装层裁切它。 */
 @media (min-width: 300px) and (max-width: 400px) {
     .detail-page #adv1,
@@ -2357,7 +2378,13 @@ ${NavbarLayout.css()}
         });
     }
 
+    // Presentation adapters receive only completed, safe link markup. The existing
+    // responsive menu and all advertising positions keep their original owners.
     function generateNavbar(config, pageContext) {
+        const markup = generateNavbarBase(config, pageContext);
+        return typeof TemplateRegistry !== 'undefined' ? TemplateRegistry.present('navigation', Object.assign({}, config, { referencePage: pageContext }), markup) : markup;
+    }
+    function generateNavbarBase(config, pageContext) {
         const theme = config.theme;
         const navLinks = ['home'];
         const homeHref = pageContext === 'detail' ? '../index.html' : 'index.html';
@@ -2369,6 +2396,7 @@ ${NavbarLayout.css()}
         const categories = populatedCategories.slice(0, headerCategoryLimit);
         const logoIcon = config.style.logoIcon || '🌐';
         const navbarClass = config.style.navbarStyle === 'glass-sticky' ? 'glass-sticky' :
+                           config.style.navbarStyle === 'soft-glass' ? 'soft-glass' :
                            config.style.navbarStyle === 'dark-fixed' ? 'dark-fixed' :
                            config.style.navbarStyle === 'transparent' ? 'transparent' :
                            config.style.navbarStyle === 'side-drawer' ? 'side-drawer' :
@@ -2389,14 +2417,14 @@ ${NavbarLayout.css()}
 
         function buildLinks(categoryItems) {
             let html = '';
-            if (navLinks.includes('home')) html += `<li><a href="${homeHref}">Home</a></li>`;
+            if (navLinks.includes('home')) html += `<li><a href="${homeHref}" data-nav-page="home"${pageContext === 'home' ? ' aria-current="page"' : ''}>Home</a></li>`;
             categoryItems.forEach(function(entry) {
                 const anchorId = categoryAnchorId(entry.category, entry.index);
-                html += `<li><a href="${categoryNavigationHref(anchorId, pageContext)}">${escapeNavigationText(entry.category.name)}</a></li>`;
+                html += `<li><a href="${categoryNavigationHref(anchorId, pageContext)}" data-nav-category="${anchorId}">${escapeNavigationText(entry.category.name)}</a></li>`;
             });
             if (config.structure.hasAllArticlesPage) {
                 const allHref = pageContext === 'detail' ? '../all-articles.html' : 'all-articles.html';
-                html += `<li><a href="${allHref}"${pageContext === 'all' ? ' aria-current="page"' : ''}>All Articles</a></li>`;
+                html += `<li><a href="${allHref}" data-nav-page="all"${pageContext === 'all' ? ' aria-current="page"' : ''}>All Articles</a></li>`;
             }
             return html;
         }
@@ -2413,7 +2441,7 @@ ${NavbarLayout.css()}
         </ul>`;
 
         const navbarClasses = ['navbar', navbarClass, layoutClass, isBoxedLogo ? 'has-boxed-logo' : ''].filter(Boolean).join(' ');
-        return `<nav class="${navbarClasses}">
+        return `<nav class="${navbarClasses}" data-navigation-page="${pageContext || 'other'}">
     <div class="container">
         ${logoHtml}
         ${primaryLinksHtml}
@@ -2435,55 +2463,21 @@ ${config.style.navbarStyle === 'side-drawer' ? `
 </div>` : ''}`;
     }
 
+    // All routes and the exported homepage share one menu state controller.
+    // Advertising layout remains a separate runtime after navigation setup.
     function generateNavbarInteractionScript() {
         return `${NavbarLayout.script()}
-${adLayoutTools.layoutRuntimeSource()}
-(function() {
-    var hamburger = document.querySelector('.hamburger');
-    var navLinks = document.querySelector('.nav-links');
-    var drawerPanel = document.querySelector('.side-drawer-panel');
-    var drawerOverlay = document.querySelector('.drawer-overlay');
-    var drawerClose = document.querySelector('.drawer-close');
-
-    function setExpanded(expanded) {
-        if (hamburger) hamburger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    }
-    function closeNavigation() {
-        if (navLinks) navLinks.classList.remove('active');
-        if (drawerPanel) drawerPanel.classList.remove('open');
-        if (drawerOverlay) drawerOverlay.classList.remove('active');
-        setExpanded(false);
-    }
-    function openDrawer() {
-        if (drawerPanel) drawerPanel.classList.add('open');
-        if (drawerOverlay) drawerOverlay.classList.add('active');
-        setExpanded(true);
-    }
-
-    if (hamburger && navLinks) {
-        hamburger.addEventListener('click', function() {
-            var willOpen = !navLinks.classList.contains('active');
-            navLinks.classList.toggle('active', willOpen);
-            setExpanded(willOpen);
-        });
-        var links = navLinks.querySelectorAll('a');
-        for (var i = 0; i < links.length; i++) links[i].addEventListener('click', closeNavigation);
-    }
-    if (drawerPanel) {
-        if (hamburger) hamburger.addEventListener('click', openDrawer);
-        if (drawerClose) drawerClose.addEventListener('click', closeNavigation);
-        if (drawerOverlay) drawerOverlay.addEventListener('click', closeNavigation);
-        var drawerLinks = drawerPanel.querySelectorAll('a');
-        for (var j = 0; j < drawerLinks.length; j++) drawerLinks[j].addEventListener('click', closeNavigation);
-    }
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') closeNavigation();
-    });
-})();`;
+${NavbarLayout.interactionScript()}
+${NavbarLayout.selectionScript()}
+${adLayoutTools.layoutRuntimeSource()}`;
     }
 
     // ========== 生成页脚HTML ==========
     function generateFooter(config) {
+        const markup = generateFooterBase(config);
+        return typeof TemplateRegistry !== 'undefined' ? TemplateRegistry.present('footer', config, markup) : markup;
+    }
+    function generateFooterBase(config) {
         const theme = config.theme;
         const siteName = theme.siteTitle;
         const footerLinks = config.structure.footerLinks || [];
@@ -2540,7 +2534,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成首页 index.html ==========
-    function generateIndexHtml(config, data) {
+    function generateIndexHtmlBase(config, data) {
         const theme = config.theme;
         const siteName = theme.siteTitle;
         const navbar = generateNavbar(config, 'home');
@@ -2583,6 +2577,8 @@ ${adLayoutTools.layoutRuntimeSource()}
             let staticCards = '';
             const categoryItems = categoryPlan[i] || [];
             const count = categoryItems.length;
+            const categoryLayoutAttrs = typeof TemplateRegistry !== 'undefined'
+                ? TemplateRegistry.categoryAttributes(config, cat, count) : '';
             for (let cardIndex = 0; cardIndex < count; cardIndex++) {
                 const entry = categoryItems[cardIndex];
                 staticCards += generateAllArticlesCard(entry.item, entry.index, config,
@@ -2594,7 +2590,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         <section id="${categoryAnchorId(cat, i)}" class="category-section">
             ${TemplateLayouts.categoryHeader(config, cat, i)}
             ${getHomeAd('cat-' + i + '-after-title')}
-            <div class="items-grid${count >= 1 && count <= 7 ? ' item-count-' + count : ''}" data-category="cat-${i}" data-static-rendered="true">${staticCards}</div>
+            <div class="items-grid${count >= 1 && count <= 7 ? ' item-count-' + count : ''}" data-category="cat-${i}" data-static-rendered="true"${categoryLayoutAttrs}>${staticCards}</div>
             ${getHomeAd('cat-' + i + '-after-last')}
         </section>`;
             // 分类区块之间广告
@@ -2662,7 +2658,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         return '<a class="item-card" href="' + href + '"' + previewAttribute + '>' + image + '<div class="card-body">' + fields + '</div></a>';
     }
 
-    function generateAllArticlesHtml(config, data) {
+    function generateAllArticlesHtmlBase(config, data) {
         const siteName = escapeNavigationText(config.theme.siteTitle);
         const adRuntimeVersion = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
         const adScripts = hasAdRuntime(config)
@@ -2872,52 +2868,12 @@ ${adLayoutTools.layoutRuntimeSource()}
         for (var i = 0; i < images.length; i++) adaptCardImage(images[i]);
     });
 
-    // 汉堡菜单交互
+    // The same serialized controller runs in preview, static homepage,
+    // detail/list and legal pages; no duplicated open/close handlers.
     function initNavbar() {
         ${NavbarLayout.script()}
-        var hamburger = document.querySelector('.hamburger');
-        var navLinks = document.querySelector('.nav-links');
-        var drawerPanel = document.querySelector('.side-drawer-panel');
-        var drawerOverlay = document.querySelector('.drawer-overlay');
-        var drawerClose = document.querySelector('.drawer-close');
-        function setExpanded(expanded) {
-            if (hamburger) hamburger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        }
-        function closeNavigation() {
-            if (navLinks) navLinks.classList.remove('active');
-            if (drawerPanel) drawerPanel.classList.remove('open');
-            if (drawerOverlay) drawerOverlay.classList.remove('active');
-            setExpanded(false);
-        }
-        if (hamburger && navLinks) {
-            hamburger.addEventListener('click', function() {
-                var willOpen = !navLinks.classList.contains('active');
-                navLinks.classList.toggle('active', willOpen);
-                setExpanded(willOpen);
-            });
-            var links = navLinks.querySelectorAll('a');
-            for (var i = 0; i < links.length; i++) {
-                links[i].addEventListener('click', closeNavigation);
-            }
-        }
-        // 侧边抽屉交互
-        if (drawerPanel) {
-            function openDrawer() {
-                drawerPanel.classList.add('open');
-                if (drawerOverlay) drawerOverlay.classList.add('active');
-                setExpanded(true);
-            }
-            if (hamburger) hamburger.addEventListener('click', openDrawer);
-            if (drawerClose) drawerClose.addEventListener('click', closeNavigation);
-            if (drawerOverlay) drawerOverlay.addEventListener('click', closeNavigation);
-            var dLinks = drawerPanel.querySelectorAll('a');
-            for (var j = 0; j < dLinks.length; j++) {
-                dLinks[j].addEventListener('click', closeNavigation);
-            }
-        }
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape') closeNavigation();
-        });
+        ${NavbarLayout.interactionScript()}
+        ${NavbarLayout.selectionScript()}
     }
 
     // 初始化
@@ -2956,8 +2912,21 @@ ${adLayoutTools.layoutRuntimeSource()}
         return `<a href="${href}" class="back-link${variantClass}">← Back to Home</a>`;
     }
 
+    /** 预览和导出使用同一条数据链接，缺少有效地址时不显示虚假的操作按钮。 */
+    function renderConfiguredAction(item, config) {
+        const structure = config.structure;
+        if (!structure.actionButtonEnabled || !structure.actionButtonLinkField) return '';
+        const raw = item[config.fieldMapping[structure.actionButtonLinkField] || structure.actionButtonLinkField];
+        if (!raw) return '';
+        let url;
+        try { url = new URL(String(raw)); } catch (_) { return ''; }
+        if (!['http:', 'https:'].includes(url.protocol)) return '';
+        const escape = value => String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+        return '<a class="action-btn" href="' + escape(url.href) + '" target="_blank" rel="noopener noreferrer">' + escape(structure.actionButtonText || '') + '</a>';
+    }
+
     // ========== 生成详情页HTML ==========
-    function generateDetailHtml(item, index, allItems, config) {
+    function generateDetailHtmlBase(item, index, allItems, config) {
         const theme = config.theme;
         const style = config.style;
         const mapping = config.fieldMapping;
@@ -3012,13 +2981,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         });
 
         // 操作按钮
-        let actionBtnHtml = '';
-        if (config.structure.actionButtonEnabled && config.structure.actionButtonLinkField) {
-            const url = item[mapping[config.structure.actionButtonLinkField]];
-            if (url) {
-                actionBtnHtml = `<a class="action-btn" href="${url}" target="_blank">${config.structure.actionButtonText}</a>`;
-            }
-        }
+        const actionBtnHtml = renderConfiguredAction(item, config);
 
         // 相关推荐
         const others = allItems.filter((d, i) => i !== index);
@@ -3198,7 +3161,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成Contact页面 ==========
-    function generateContactHtml(config) {
+    function generateContactHtmlBase(config) {
         const theme = config.theme;
         const navbar = generateNavbar(config);
         const footer = generateFooter(config);
@@ -3223,7 +3186,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成About页面 ==========
-    function generateAboutHtml(config) {
+    function generateAboutHtmlBase(config) {
         const theme = config.theme;
         const navbar = generateNavbar(config);
         const footer = generateFooter(config);
@@ -3248,7 +3211,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成Privacy页面 ==========
-    function generatePrivacyHtml(config) {
+    function generatePrivacyHtmlBase(config) {
         const theme = config.theme;
         const navbar = generateNavbar(config);
         const footer = generateFooter(config);
@@ -3273,7 +3236,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成Terms页面 ==========
-    function generateTermsHtml(config) {
+    function generateTermsHtmlBase(config) {
         const theme = config.theme;
         const navbar = generateNavbar(config);
         const footer = generateFooter(config);
@@ -3322,6 +3285,10 @@ ${adLayoutTools.layoutRuntimeSource()}
             ? requestedFolderName
             : 'website';
         const siteFolder = zip.folder(safeFolderName);
+
+        if (config.style.siteMotion && typeof SiteMotion !== 'undefined') {
+            SiteMotion.exportAssets(siteFolder, config.style.siteMotion);
+        }
 
         // CSS：保留独立文件给正常托管；同一份样式也内联至所有页面，作为
         // 忽略 css/ 目录或错误返回 MIME 类型的静态托管环境的可靠兜底。
@@ -3386,7 +3353,10 @@ ${adLayoutTools.layoutRuntimeSource()}
             selectedStyle: config.style.selectedStyle,
             fontStyle: config.style.fontStyle,
             categories: config.structure.categories.map(function(category) {
-                return { name: category.name, count: category.count };
+                const layout = typeof TemplateRegistry !== 'undefined' && TemplateRegistry.categoryAttributes(config, category, category.count)
+                    ? TemplateRegistry.categorySettings(category) : null;
+                return { name: category.name, count: category.count,
+                    ...(layout ? { layout: layout.layout, columns: layout.columns } : {}) };
             }),
             assets: config.generatedAssets
         }, null, 2) + '\n');
@@ -3440,9 +3410,14 @@ ${adLayoutTools.layoutRuntimeSource()}
             siteFolder.file('AD_PLACEHOLDER_SETUP.txt', '本网站已预留广告容器，并生成路径为空的 js/ad.js。拿到运营广告代码后，请填写 adUnitBanner1、adUnitBanner2、adUnitBanner3、adUnitInterstitial、adUnitAnchor 与 gaMeasurementId；不需要重新生成页面。请勿使用旧版 generate_details.py 覆盖详情页。\n');
         }
 
+        // Batch export inspects this exact uncompressed archive and applies all
+        // preflight/ad checks before its only compression pass.
+        if (exportOptions && exportOptions.returnArchive) return zip;
+
         onProgress(95, '正在打包ZIP...');
 
-        const blob = await zip.generateAsync({
+        const pack = typeof ArchiveExport !== 'undefined' ? ArchiveExport.generate : function(archive, options, progress) { return archive.generateAsync(options, progress); };
+        const blob = await pack(zip, {
             type: 'blob',
             compression: 'DEFLATE',
             compressionOptions: { level: 6 }
@@ -3538,12 +3513,13 @@ ${adLayoutTools.layoutRuntimeSource()}
                 termsLength: appState.config.termsLength || 'full'
             },
             style: {
+                controlOverrides: Object.assign({}, appState.config.controlOverrides || {}),
                 selectedStyle: appState.config.selectedStyle || 'dark',
                 navbarStyle: appState.config.navbarStyle || 'glass-sticky',
                 navbarHeight: appState.config.navbarHeight || '60px',
                 logoStyle: appState.config.logoStyle || 'text',
                 logoIcon: appState.config.logoIcon || '🌐',
-                cardHover: appState.config.cardHover || 'float',
+                cardHover: typeof SiteMotion !== 'undefined' && SiteMotion.normalize(appState) ? 'none' : appState.config.cardHover || 'float',
                 cardBorder: appState.config.cardBorder || 'rounded',
                 cardRadius: appState.config.cardRadius || '8px',
                 cardSpacing: appState.config.cardSpacing || '20px',
@@ -3552,13 +3528,16 @@ ${adLayoutTools.layoutRuntimeSource()}
                 btnSize: appState.config.btnSize || 'medium',
                 gridGap: appState.config.gridGap || '20px',
                 fontStyle: appState.config.fontStyle || 'sans-serif',
-                animationEnter: appState.config.animationEnter || 'fadeIn',
+                animationEnter: typeof SiteMotion !== 'undefined' && SiteMotion.normalize(appState) ? 'none' : appState.config.animationEnter || 'fadeIn',
+                siteMotion: typeof SiteMotion !== 'undefined' ? SiteMotion.normalize(appState) : null,
                 transitionSpeed: appState.config.transitionSpeed || '0.3s',
                 metaLayout: appState.config.metaLayout || 'grid',
                 metaBg: appState.config.metaBg || 'dark',
                 detailImgStyle: appState.config.detailImgStyle || 'fullwidth',
                 // 缺省保持现有图标可见，隐藏时不修改分类保存的 icon。
                 categoryIconsEnabled: appState.config.categoryIconsEnabled !== false,
+                // 在资讯生成器边界统一缺省值，预览、单站和批量导出均默认关闭。
+                categoryNumbersEnabled: appState.config.categoryNumbersEnabled === true,
                 categoryTitleStyle: appState.config.categoryTitleStyle || 'single',
                 categoryTitleAlign: appState.config.categoryTitleAlign || 'left',
                 cardImageHeight: appState.config.cardImageHeight || '180px',
@@ -3581,7 +3560,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成预览HTML ==========
-    function generatePreviewHtml(appState, pageType, detailIndex) {
+    function generatePreviewHtmlBase(appState, pageType, detailIndex) {
         const config = buildConfig(appState, { previewManualAds: true });
         const theme = config.theme;
         const data = appState.data;
@@ -3597,7 +3576,11 @@ ${adLayoutTools.layoutRuntimeSource()}
 
         // 本地图片路径 → blob URL 映射（供预览使用）
         const localImageUrls = {};
-        if (isLocalImages && appState.localImages) {
+        if (typeof PreviewImageCache !== 'undefined') {
+            const cached = PreviewImageCache.acquire(isLocalImages ? appState.localImages : {});
+            Object.assign(localImageUrls, cached.byFilename);
+            appState._previewBlobUrls = cached.urls;
+        } else if (isLocalImages && appState.localImages) {
             for (const [path, blob] of Object.entries(appState.localImages)) {
                 const filename = path.split('/').pop().split('\\').pop();
                 const blobUrl = URL.createObjectURL(blob);
@@ -3724,6 +3707,8 @@ ${adLayoutTools.layoutRuntimeSource()}
             categories.forEach((cat, ci) => {
                 const categoryItems = categoryPlan[ci] || [];
                 const previewItemCount = categoryItems.length;
+                const categoryLayoutAttrs = typeof TemplateRegistry !== 'undefined'
+                    ? TemplateRegistry.categoryAttributes(config, cat, previewItemCount) : '';
                 const itemCountClass = previewItemCount === 1 ? ' item-count-1' :
                     (previewItemCount === 2 ? ' item-count-2' :
                     (previewItemCount === 3 ? ' item-count-3' :
@@ -3735,7 +3720,7 @@ ${adLayoutTools.layoutRuntimeSource()}
                     ${TemplateLayouts.categoryHeader(config, cat, ci)}`;
                 if (isPlacingAds) bodyContent += genMarker('cat-' + ci + '-after-title', pageType);
                 bodyContent += getAdCodeAt('cat-' + ci + '-after-title', pageType, adPlacements);
-                bodyContent += '<div class="items-grid' + itemCountClass + '">';
+                bodyContent += '<div class="items-grid' + itemCountClass + '"' + categoryLayoutAttrs + '>';
 
                 for (let i = 0; i < categoryItems.length; i++) {
                     const entry = categoryItems[i];
@@ -3840,9 +3825,7 @@ ${adLayoutTools.layoutRuntimeSource()}
             }
 
             // 操作按钮
-            if (config.structure.actionButtonEnabled) {
-                bodyContent += `<a class="action-btn" href="#">${config.structure.actionButtonText}</a>`;
-            }
+            bodyContent += renderConfiguredAction(item, config);
 
             if (isPlacingAds) bodyContent += genMarker('detail-before-content', pageType);
             bodyContent += getAdCodeAt('detail-before-content', pageType, adPlacements);
@@ -3929,6 +3912,13 @@ ${adLayoutTools.layoutRuntimeSource()}
             bodyContent += generateFooter(config);
         }
 
+        // Preview navigation from a different route carries a validated anchor;
+        // the shared controller positions it after the home DOM is available.
+        if (pageType === 'home' && /^category-[a-z0-9-]+$/i.test(appState.previewHomeAnchor || '')) {
+            bodyContent = bodyContent.replace('data-navigation-page="home"',
+                'data-navigation-page="home" data-initial-category="' + appState.previewHomeAnchor + '"');
+        }
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3969,14 +3959,18 @@ ${adLayoutTools.layoutRuntimeSource()}
             window.parent.postMessage({ type: 'ad-place', position: marker.dataset.position, page: marker.dataset.page }, '*');
             return;
         }
+        if (e.defaultPrevented) return; // Same-page categories are owned by the shared controller.
         var target = e.target.closest('a');
         if (target && target.href) {
+            // Artwork source/license links use their normal external target.
+            if (target.closest('[data-domain-icon-credits]')) return;
             e.preventDefault();
             var href = target.getAttribute('href') || '';
-            var categoryMatch = href.match(/^#(category-[a-z0-9-]+)$/i);
+            var categoryMatch = href.match(/#(category-[a-z0-9-]+)$/i);
             if (categoryMatch) {
                 var categorySection = document.getElementById(categoryMatch[1]);
-                if (categorySection) categorySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                if (categorySection) categorySection.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+                else window.parent.postMessage({ type: 'preview-nav', page: 'home', categoryAnchor: categoryMatch[1] }, '*');
                 return;
             }
             var page = 'home';
@@ -4004,6 +3998,11 @@ ${adLayoutTools.layoutRuntimeSource()}
     // 公开接口
     return {
         exportWebsite: exportWebsite,
+        // The same renderer and guards are used for both paths; only ZIP encoding
+        // is deferred until the batch has passed every existing validation.
+        createWebsiteArchive: function(appState, onProgress, options) {
+            return exportWebsite(appState, onProgress, Object.assign({}, options, { returnArchive: true }));
+        },
         generatePreviewHtml: generatePreviewHtml,
         buildConfig: buildConfig,
         getBuildSignature: function(appState) {

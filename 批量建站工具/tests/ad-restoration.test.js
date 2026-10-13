@@ -6,8 +6,9 @@ import JSZip from 'jszip';
 import { injectReactSource } from '../js/react-source-ad-injector.js';
 
 const { DOMParser } = createRequire(import.meta.url)('../js/source-export-dom.cjs');
-const context = { TextEncoder, TextDecoder, Blob, Response, DecompressionStream, DOMParser, JSZip, window: {} };
+const context = { TextEncoder, TextDecoder, Blob, Response, DecompressionStream, DOMParser, JSZip, Uint8Array, ArrayBuffer, window: {} };
 const source = (name) => readFileSync(new URL('../js/' + name, import.meta.url), 'utf8');
+vm.runInNewContext(source('archive-export.js'), context);
 vm.runInNewContext(source('template-catalog.js') + source('template-layouts.js') + source('navbar-layout.js') + source('data.js') + '\nthis.__themes = THEMES;', context);
 vm.runInNewContext(source('domain.js'), context);
 vm.runInNewContext(source('ad-migration.js') + '\nthis.__migration = AdMigration;', context);
@@ -17,6 +18,35 @@ vm.runInNewContext(source('finished-site-ads.js') + '\nthis.__fixed = FinishedSi
 vm.runInNewContext(source('zip-archive-worker-client.js'), context);
 vm.runInNewContext(source('ad-restoration.js') + '\nthis.__restoration = AdRestoration;', context);
 vm.runInNewContext(source('export-preflight.js'), context);
+
+describe('finished-site middle ads stay outside clickable cards', () => {
+  const paths = { bannerPath2: '/123456/example.test-banner2' };
+  const card = '<article class="card article-card"><a href="/news/item"><div class="card-surface"><div class="card-body">'
+    + '<p class="card-kicker">News category</p><h3 class="card-title">Related story</h3>'
+    + '<p class="card-excerpt">A related story with a long excerpt that resembles body copy.</p>'
+    + '<div class="card-footer">Read story</div></div></div></a></article>';
+
+  it('uses real article paragraphs when a related card contains four named subparts', () => {
+    const html = '<html><head></head><body><main><article class="article-content"><div class="article-body">'
+      + '<p>A complete first paragraph of genuine article body text.</p>'
+      + '<p>A complete second paragraph of genuine article body text.</p></div></article>'
+      + '<section><div class="card-grid">' + card.repeat(2) + '</div></section></main></body></html>';
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const result = context.__fixed.place(doc, 'detail', paths);
+    expect(result.placed).toContain('banner2');
+    expect(doc.querySelector('#adv2')?.parentElement.className).toBe('article-body');
+    expect(doc.querySelector('a #adv2')).toBeNull();
+  });
+
+  it('retains a real four-card grid as the middle-ad parent', () => {
+    const doc = new DOMParser().parseFromString('<html><head></head><body><main><div class="card-grid">'
+      + card.repeat(4) + '</div></main></body></html>', 'text/html');
+    context.__fixed.place(doc, 'detail', paths);
+    expect(doc.querySelector('#adv2')?.parentElement.className).toBe('card-grid');
+    expect(doc.querySelector('a #adv2')).toBeNull();
+    expect(doc.querySelectorAll('.article-card').length).toBe(4);
+  });
+});
 
 const oldAdJs = `
 // const bannerPath1 = "/23334460889/zp0903a.example.pro-banner1";

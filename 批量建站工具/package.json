@@ -1,9 +1,14 @@
 {
   "name": "sitefoundry-batch-publisher",
-  "version": "1.0.6.3",
+  "version": "1.0.6.4",
   "private": true,
   "type": "module",
   "scripts": {
+    "templates:build": "node scripts/build-template-packages.mjs",
+    "motion:build": "node scripts/build-site-motion.mjs",
+    "template:new": "node scripts/create-template.mjs",
+    "predev": "npm run templates:build && npm run motion:build",
+    "prebuild": "npm run templates:build && npm run motion:build",
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "build:source-runtime": "node scripts/build-source-export-runtime.mjs",

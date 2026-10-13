@@ -4,13 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>批量资讯站建站工具</title>
-    <link rel="stylesheet" href="css/tool.css?v=20261009-quick-ad-2">
-    <link rel="stylesheet" href="css/liquid-glass.css?v=20260929-workflow-mode-card-5">
+    <link rel="stylesheet" href="css/config-disclosures.css?v=20261012-reference-2">
+    <link rel="stylesheet" href="css/tool.css?v=sha256-98ad260148e70d29">
+    <link rel="stylesheet" href="css/liquid-glass.css?v=sha256-d5b2595235a35205">
+    <link rel="stylesheet" href="css/field-mapping.css?v=sha256-1219396f95248285">
+    <link rel="stylesheet" href="css/export-page.css?v=sha256-3378432a641129e7">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
     <script>if (!window.JSZip) document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');</script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <script src="js/vendor/file-saver-2.0.5.min.js"></script>
 </head>
 <body>
     <!-- 步骤导航与当前工作流共用一张玻璃控制卡片。 -->
@@ -218,10 +220,15 @@
 
                 <div class="restoration-rule-note"><strong>输出方式</strong><span>默认让你选择一个目标目录，并在其中新建带时间的“广告策略处理”总目录；每个站点保持独立文件夹，源目录不会被覆盖。浏览器不支持目录写入时自动改为下载一个批量 ZIP。</span></div>
                 <div class="restoration-actions">
-                    <button type="button" class="restoration-run-button" id="restoration-run" disabled>应用策略并生成新总目录</button>
-                    <button type="button" class="restoration-run-button" id="restoration-run-zip" disabled>下载批量站点 ZIP</button>
-                    <button type="button" class="restoration-code-export-button" id="restoration-export-code" disabled>仅识别并导出广告代码</button>
-                    <div class="restoration-progress" id="restoration-progress" hidden><div><span id="restoration-progress-fill"></span></div><p id="restoration-progress-text">准备中…</p></div>
+                    <!-- btn-next/btn-prev 复用主次按钮材质与果冻交互；导出行为仍由原 ID 绑定。 -->
+                    <button type="button" class="restoration-run-button btn-next export-workflow-button" id="restoration-run" disabled>应用策略并生成新总目录</button>
+                    <button type="button" class="restoration-run-button btn-prev export-workflow-button" id="restoration-run-zip" disabled>下载批量站点 ZIP</button>
+                    <button type="button" class="restoration-code-export-button btn-prev export-workflow-button" id="restoration-export-code" disabled>仅识别并导出广告代码</button>
+                    <div class="export-progress" id="restoration-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
+                        <div class="export-progress-heading"><span>广告策略导出进度</span><output class="export-progress-value" id="restoration-progress-value">0%</output></div>
+                        <div class="progress-bar" aria-hidden="true"><div class="progress-fill" id="restoration-progress-fill"></div></div>
+                        <p class="progress-text" id="restoration-progress-text">准备中…</p>
+                    </div>
                 </div>
                 <p class="restoration-action-help">处理前会校验每个页面的广告容器数量和脚本引用；失败站点不会写入输出目录。“仅识别”不修改站点，导出可复用的广告代码 TXT。</p>
                 <div class="restoration-result" id="restoration-result" hidden aria-live="polite"></div>
@@ -326,19 +333,32 @@
                 </label>
             </div>
             <div class="theme-grid" id="theme-grid" role="radiogroup" aria-label="网站内容领域"></div>
+            <p class="domain-icon-credits" id="domain-icon-credits"></p>
         </div>
 
         <!-- ========== Step 3: 字段匹配 ========== -->
         <div class="step-panel" id="step-3">
-            <h2 class="panel-title">字段匹配</h2>
-            <p class="panel-desc">将JSON数据中的字段映射到网站模板所需的字段（必填字段标有 * ）</p>
+            <div class="mapping-page-heading">
+                <div>
+                    <h2 class="panel-title">字段匹配</h2>
+                    <p class="panel-desc">确认网站字段与 JSON 数据的对应关系，完成必填项后即可继续配置。</p>
+                </div>
+            </div>
 
             <div class="mapping-container" id="mapping-container">
                 <!-- 由JS动态生成 -->
             </div>
 
-            <div class="mapping-summary" id="mapping-summary" style="display:none;">
-                <h4>匹配结果摘要</h4>
+            <div class="mapping-summary" id="mapping-summary" style="display:none;" role="status" aria-live="polite" aria-atomic="true">
+                <div class="mapping-summary-heading">
+                    <h4>匹配结果摘要</h4>
+                    <span class="mapping-summary-status" data-mapping-summary-status></span>
+                </div>
+                <dl class="mapping-metrics">
+                    <div><dt>已匹配字段</dt><dd data-mapping-mapped>0</dd></div>
+                    <div><dt>未匹配字段</dt><dd data-mapping-unmapped>0</dd></div>
+                    <div><dt>必填项完成</dt><dd data-mapping-required>0 / 0</dd></div>
+                </dl>
                 <p id="mapping-summary-text"></p>
             </div>
         </div>
@@ -661,7 +681,7 @@
                                 </select>
                             </div>
                             <div class="config-item">
-                                <label>操作按钮</label>
+                                <label for="action-btn-enabled">操作按钮</label>
                                 <div class="toggle-switch">
                                     <input type="checkbox" id="action-btn-enabled">
                                     <span class="toggle-slider"></span>
@@ -672,6 +692,7 @@
                                     <label>按钮文字</label>
                                     <input type="text" id="action-btn-text" class="text-input">
                                 </div>
+                                <div class="config-item"><label for="action-btn-link-field">操作按钮链接字段</label><select id="action-btn-link-field" aria-label="选择操作按钮的网址字段"></select></div>
                             </div>
                             <div class="config-item">
                                 <label>相关推荐数量 <span class="range-value" id="related-count-value">4</span></label>
@@ -698,7 +719,7 @@
                         <div class="config-group">
                             <h4 class="group-title">📑 通用页面</h4>
                             <div class="config-item">
-                                <label>包含关于我们页面</label>
+                                <label for="about-enabled">包含关于我们页面</label>
                                 <div class="toggle-switch">
                                     <input type="checkbox" id="about-enabled" checked>
                                     <span class="toggle-slider"></span>
@@ -735,7 +756,7 @@
                         <!-- 页面模板蓝图 -->
                         <div class="config-group">
                             <h4 class="group-title">🧱 领域专属模板蓝图（30 种）</h4>
-                            <p class="group-hint">这里只显示当前识别领域适配的 30 个蓝图；每个都会改变首页、详情页和组件组合，不是单纯换色。</p>
+                            <p class="group-hint">显示当前领域的专属蓝图与全领域通用视觉模板；选择后会改变首页、详情页、导航和组件组合，配色可另行切换。</p>
                             <div class="template-grid" id="template-grid">
                                 <!-- 由JS动态生成 -->
                             </div>
@@ -824,6 +845,7 @@
                                 <label>导航栏样式</label>
                                 <select id="navbar-style">
                                     <option value="glass-sticky">毛玻璃+sticky</option>
+                                    <option value="soft-glass">柔光玻璃（参考站）</option>
                                     <option value="normal">常规</option>
                                     <option value="transparent">透明</option>
                                     <option value="dark-fixed">深色固定</option>
@@ -908,8 +930,9 @@
                             </div>
 
                             <div class="config-item">
-                                <label>入场动画</label>
-                                <select id="animation-enter">
+                                <!-- Kept hidden for older saved configs; the new controls replace this UI. -->
+                                <label hidden>旧入场动画</label>
+                                <select id="animation-enter" style="display:none" aria-hidden="true" tabindex="-1">
                                     <option value="fadeIn">淡入(fadeIn)</option>
                                     <option value="slideUp">滑入(slideUp)</option>
                                     <option value="zoomIn">缩放(zoomIn)</option>
@@ -920,8 +943,14 @@
                                     <option value="none">无</option>
                                 </select>
                             </div>
+                            <div class="config-item"><label for="viewport-reveal-enabled">视口渐显</label><select id="viewport-reveal-enabled"><option value="on">开启（推荐）</option><option value="off">关闭</option></select></div>
+                            <div class="config-item"><label for="card-interaction-enabled">卡片悬浮交互</label><select id="card-interaction-enabled"><option value="on">开启（推荐）</option><option value="off">关闭</option></select></div>
+                            <div class="config-item"><label for="card-domain-icon-enabled">卡片领域圆标</label><select id="card-domain-icon-enabled"><option value="on">显示</option><option value="off">隐藏</option></select></div>
+                            <div class="config-item"><label for="card-arrow-enabled">装饰箭头</label><select id="card-arrow-enabled"><option value="on">显示</option><option value="off">隐藏</option></select></div>
+                            <div class="config-item"><label for="card-glow-color">卡片光晕颜色</label><select id="card-glow-color"><option value="theme">跟随主题色</option><option value="green">绿色</option><option value="cyan">青色</option><option value="blue">蓝色</option><option value="purple">紫色</option><option value="pink">粉色</option><option value="orange">橙色</option><option value="gold">金色</option><option value="custom">自定义颜色</option></select></div>
+                            <div class="config-item" id="card-glow-custom-row" hidden><label for="card-glow-custom">自定义光晕颜色</label><div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1"><input id="card-glow-custom" type="color" value="#68c492" style="width:38px;min-width:38px;height:34px;padding:2px;flex:0 0 38px"><input id="card-glow-hex" type="text" class="text-input" aria-label="光晕颜色值" value="#68c492" maxlength="7" placeholder="#68c492" style="min-width:0;width:100%;flex:1"></div></div>
                             <div class="config-item">
-                                <label>过渡时间</label>
+                                <label>交互过渡时间</label>
                                 <select id="transition-speed">
                                     <option value="0.1s">极快(0.1s)</option>
                                     <option value="0.2s">快(0.2s)</option>
@@ -959,6 +988,14 @@
                                 </div>
                             </div>
                             <p class="group-hint">全站统一显示或隐藏分类标题图标；关闭后保留已选图标。</p>
+                            <div class="config-item">
+                                <label for="category-numbers-enabled">显示分类标题编号</label>
+                                <div class="toggle-switch category-number-toggle">
+                                    <input type="checkbox" id="category-numbers-enabled" role="switch" aria-describedby="category-numbers-help">
+                                    <span class="toggle-slider" aria-hidden="true"></span>
+                                </div>
+                            </div>
+                            <p class="group-hint" id="category-numbers-help">默认关闭；开启后显示分类标题旁的 01、02… 编号。切换模板或随机组装时保留当前选择。</p>
                             <div class="config-item">
                                 <label>分类标题样式</label>
                                 <select id="category-title-style">
@@ -1316,8 +1353,10 @@
 
         <!-- ========== Step 5: 导出网站 ========== -->
         <div class="step-panel" id="step-5">
-            <h2 class="panel-title">导出网站</h2>
-            <p class="panel-desc">确认配置后导出完整的静态网站文件</p>
+            <div class="export-page-heading">
+                <h2 class="panel-title">导出网站</h2>
+                <p class="panel-desc">核对网站配置与校验结果，准备好后即可导出网站文件。</p>
+            </div>
 
             <div class="export-summary" id="export-summary">
                 <!-- 由JS动态生成配置摘要 -->
@@ -1343,30 +1382,35 @@
                     <p class="injection-action-help" id="injection-export-content-help" aria-live="polite">当前导出静态副本。若需继续修改原工程，请选择完整源码。</p>
                 </fieldset>
                 <div class="injection-actions">
-                    <button type="button" class="injection-run-button" id="injection-run" disabled>下载静态站点 ZIP</button>
-                    <button type="button" class="injection-run-button" id="injection-run-directory" disabled>写入新目录</button>
-                    <div class="injection-progress" id="injection-progress" hidden><div><span id="injection-progress-fill"></span></div><p id="injection-progress-text">准备中…</p></div>
+                    <button type="button" class="injection-run-button btn-next export-workflow-button" id="injection-run" disabled>下载静态站点 ZIP</button>
+                    <button type="button" class="injection-run-button btn-prev export-workflow-button" id="injection-run-directory" disabled>写入新目录</button>
+                    <div class="export-progress" id="injection-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
+                        <div class="export-progress-heading"><span>广告注入导出进度</span><output class="export-progress-value" id="injection-progress-value">0%</output></div>
+                        <div class="progress-bar" aria-hidden="true"><div class="progress-fill" id="injection-progress-fill"></div></div>
+                        <p class="progress-text" id="injection-progress-text">准备中…</p>
+                    </div>
                 </div>
                 <p class="injection-action-help">默认包含 banner1/2/3，以及广告代码中存在的插屏与锚点。固定位置无法安全识别时会跳过该广告位并提示手动放置；广告代码或导出核验失败时会停止导出。</p>
                 <div class="injection-result" id="injection-result" hidden aria-live="polite"></div>
             </section>
 
-            <div class="export-options" id="legacy-export-options">
-                <h4>导出方式</h4>
-                <p class="export-method-note">浏览器端生成（无需 Python，一键导出）</p>
-            </div>
-
             <section class="differentiated-export-options" id="differentiated-export-options" hidden aria-labelledby="diff-export-title">
                 <h4 id="diff-export-title">选择差异化站点导出级别</h4>
                 <p>草稿允许保留阻断项；递审版和过审后广告版必须通过全部硬门禁。Google 是否收录或批准 AdSense 仍由 Google 决定。</p>
                 <div class="diff-export-grid">
-                    <button type="button" data-diff-export="draft"><strong>导出草稿</strong><span>保留完整审计报告，便于继续补齐资料</span></button>
-                    <button type="button" data-diff-export="review"><strong>导出递审版</strong><span>无广告；至少40篇资讯或 ≥25 个工具并通过门禁</span></button>
-                    <button type="button" data-diff-export="ad-ready"><strong>导出过审后广告版</strong><span>仅使用已校验广告代码，且不在政策页或交互控件旁投放</span></button>
+                    <button type="button" class="btn-prev export-tier-button" data-diff-export="draft"><strong>导出草稿</strong><span>保留完整审计报告，便于继续补齐资料</span></button>
+                    <button type="button" class="btn-prev export-tier-button" data-diff-export="review"><strong>导出递审版</strong><span>无广告；至少40篇资讯或 ≥25 个工具并通过门禁</span></button>
+                    <button type="button" class="btn-prev export-tier-button" data-diff-export="ad-ready"><strong>导出过审后广告版</strong><span>仅使用已校验广告代码，且不在政策页或交互控件旁投放</span></button>
                 </div>
             </section>
 
             <div class="export-actions">
+                <!-- 方式说明与按钮归入同一操作卡片，保留工作流切换所用 ID。 -->
+                <div class="export-options" id="legacy-export-options">
+                    <h4>导出方式</h4>
+                    <p class="export-method-note">浏览器端生成 · ZIP 压缩包</p>
+                    <p class="export-method-detail">无需 Python，点击按钮即可生成并下载。</p>
+                </div>
                 <button type="button" class="btn-export btn-next" id="btn-export" disabled>
                     <span class="export-button-icon" aria-hidden="true">
                         <svg data-lucide-icon="package" viewBox="0 0 24 24" focusable="false">
@@ -1430,26 +1474,32 @@
 
     <!-- JS脚本（顺序加载） -->
     <script src="js/template-catalog.js?v=20260926-content-first-1"></script>
-    <script src="js/template-layouts.js?v=20260928-heading-designs-1"></script>
-    <script src="js/navbar-layout.js?v=20260926-nav-fit-1"></script>
+    <script src="js/template-layouts.js?v=20261012-category-numbers-1"></script>
+    <script src="js/navbar-layout.js?v=sha256-9707c5fb66b0da4c"></script>
     <script src="js/data.js?v=20261008-ad-core-4"></script>
+    <script src="js/template-packages.js?v=sha256-4de1b1d0c4d646f5"></script>
     <script src="js/domain.js?v=20260921-tag-array-recognition-1"></script>
     <script src="js/archive-naming.js?v=20260926-domain-folder-1"></script>
     <script src="js/ad-migration.js?v=20261009-page-ad-isolation-1"></script>
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
     <script src="js/ad-template-catalog.js?v=20260929-ad-template-default-1"></script>
     <script src="js/export-preflight.js?v=20261008-ad-core-4"></script>
-    <script src="js/finished-site-ads.js?v=20261008-ad-core-4"></script>
+    <script src="js/finished-site-ads.js?v=sha256-f58cf1502aab58bf"></script>
     <script type="module" src="js/rar-import.js?v=20260928-rar-timeout-fallback-2"></script>
-    <script src="js/generator.js?v=20261009-page-ad-isolation-1"></script>
+    <script src="js/site-motion.js?v=sha256-33f78618c8f736db"></script>
+    <script src="js/archive-export.js?v=sha256-784bb59d7feb4eea"></script>
+    <script src="js/preview-image-cache.js?v=sha256-bd9f82e91188612d"></script>
+    <script src="js/configuration-controls.js?v=sha256-ec06e879668c9a66"></script>
+    <script src="js/generator.js?v=sha256-e68c76ef486c6188"></script>
     <script src="js/zip-archive-worker-client.js?v=20260928-zip-worker-progress-1"></script>
-    <script src="js/ad-restoration.js?v=20261009-policy-origin-layout-2"></script>
-    <script src="js/batch-ad-builder.js?v=20261009-page-ad-isolation-1"></script>
+    <script src="js/ad-restoration.js?v=sha256-7d095054ca4f7871"></script>
+    <script src="js/batch-ad-builder.js?v=sha256-b9f9f82f528122c3"></script>
 <script src="js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
 <script src="js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
 <script src="js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-<script type="module" src="js/app.js?v=20261009-quick-ad-2"></script>
+<script type="module" src="js/app.js?v=sha256-bbef5aa6038c9a16"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
   <script src="js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
+  <script src="js/config-disclosures.js?v=20261012-reference-2"></script>
 </body>
 </html>

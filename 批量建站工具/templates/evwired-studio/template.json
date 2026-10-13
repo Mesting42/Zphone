@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "id": "evwired-studio",
+  "name": "荧绿·工业观察",
+  "version": "1.0.0",
+  "domainId": "*",
+  "description": "07 EVWired · 独立导航、首页、列表与阅读版式",
+  "icon": "▤",
+  "reference": "07 EVWired",
+  "baseLayout": "portal-topic-matrix",
+  "palette": {
+    "bg": "#080a09",
+    "secondary": "#111415",
+    "surface": "#1a1e20",
+    "primary": "#d9f43c",
+    "text": "#f4f6ed",
+    "muted": "#acb3ae",
+    "border": "#2b3030",
+    "card": "#111415",
+    "hover": "#1c2420"
+  },
+  "structure": {
+    "cardColumns": "2",
+    "footerStyle": "detailed",
+    "detailLayout": "single",
+    "backLinkStyle": "text"
+  },
+  "style": {
+    "selectedStyle": "reference-evwired-studio",
+    "fontStyle": "sans-serif",
+    "navbarStyle": "normal",
+    "logoStyle": "text-icon",
+    "cardBorder": "thin",
+    "cardRadius": "8px",
+    "cardHover": "accent-line",
+    "cardImageHeight": "260px",
+    "contentMaxWidth": "1240px",
+    "gridGap": "20px",
+    "cardSpacing": "20px",
+    "cardViewMode": "card",
+    "detailImgStyle": "banner",
+    "animationEnter": "none"
+  }
+}

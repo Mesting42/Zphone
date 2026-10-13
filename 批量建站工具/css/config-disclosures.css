@@ -1,0 +1,18 @@
+/* Workbench-only disclosure controls; no rules target the generated iframe. */
+.config-disclosure-toggle{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:5px 0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.config-disclosure-label{flex:none;font-weight:650}
+.config-disclosure .config-disclosure-count{flex:none;font-size:11px;font-weight:500;color:inherit;opacity:1}
+.config-disclosure-summary{min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:450;opacity:.8}
+.config-disclosure-arrow{flex:none;font-size:20px;line-height:1;transition:transform .24s ease;transform:rotate(0deg)}
+.config-disclosure.is-expanded .config-disclosure-arrow{transform:rotate(180deg)}
+.config-disclosure-toggle:focus-visible{outline:2px solid currentColor;outline-offset:4px;border-radius:5px}
+.config-disclosure-panel{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .24s ease,opacity .18s ease}
+.config-disclosure-panel[hidden]{display:none}
+.config-disclosure.is-expanded .config-disclosure-panel{grid-template-rows:1fr;opacity:1}
+.config-disclosure-content{min-height:0;overflow:hidden}
+.config-disclosure.is-settled .config-disclosure-content{overflow:visible}
+.config-disclosure .group-title{margin-bottom:0}
+.config-disclosure .diff-blueprint-heading{display:block}
+.config-disclosure .preset-heading{display:block}
+@media(max-width:560px){.config-disclosure-toggle{flex-wrap:wrap;gap:7px}.config-disclosure-label{font-size:13px}.config-disclosure-summary{font-size:11px;max-width:45%}}
+@media(prefers-reduced-motion:reduce){.config-disclosure-panel,.config-disclosure-arrow{transition:none}}

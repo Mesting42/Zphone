@@ -14,6 +14,9 @@ import { updateWorkflowExportProgress, setWorkflowExportButtonLabel } from './ex
 import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066db4b8e1535';
 import { collectDataDirectory, directoryFileEntries, readDataDirectory } from './data-directory-import.js';
 import { rewritePreviewCss } from './preview-css.js';
+import { parseContentJson, extractStaticSiteContent, inspectTemplate, reuseTemplateSite } from './template-reuse.js';
+import { templateOriginalPolicy, siteForReplacementCode, retargetTemplateHost } from './template-reuse-policy.js';
+import { normalizePath } from './template-reuse-content.js';
 
 /**
  * 主应用逻辑
@@ -65,6 +68,7 @@ import { rewritePreviewCss } from './preview-css.js';
         adPolicyOverrides: {},
         adPolicyCodeOverrides: {}, // 原包保留不变，仅记录用户明确替换的代码。
         adPolicyTask: 'advanced',
+        templateReuse: { contentItems: [], assets: [], sourceName: '', sourceKind: '', paletteId: '', palette: null, report: null },
         adQuickScope: 'single',
         adQuickCodes: [],
         adQuickPreserveSwitches: false,
@@ -225,8 +229,9 @@ import { rewritePreviewCss } from './preview-css.js';
     function isAdInjectionWorkflow() {
         return appState.siteBuildMode === 'ad-injection';
     }
-    function isAdPolicyWorkflow() { return appState.siteBuildMode === 'ad-restoration'; }
-    function isQuickAdUpdate() { return appState.adPolicyTask === 'quick'; }
+    function isTemplateReuseWorkflow() { return appState.siteBuildMode === 'ad-template-reuse'; }
+    function isAdPolicyWorkflow() { return appState.siteBuildMode === 'ad-restoration' || isTemplateReuseWorkflow(); }
+    function isQuickAdUpdate() { return appState.siteBuildMode === 'ad-restoration' && appState.adPolicyTask === 'quick'; }
     function quickUpdateOptions() {
         return { scope: appState.adQuickScope, siteId: appState.adPolicyActiveSiteId, preserveSwitches: appState.adQuickPreserveSwitches };
     }
@@ -266,7 +271,7 @@ import { rewritePreviewCss } from './preview-css.js';
 
     function resetWorkflowStepProgress(workflowKey, steps) {
         var key = workflowKey || currentWorkflowProgressKey();
-        var sequence = steps || (key === 'ad-injection' || key === 'ad-restoration' ? injectionWorkflowSteps() : [1, 2, 3, 4, 5]);
+        var sequence = steps || (key === 'ad-injection' || key === 'ad-restoration' || key === 'ad-template-reuse' ? injectionWorkflowSteps() : [1, 2, 3, 4, 5]);
         var progress = appState.workflowStepProgress || (appState.workflowStepProgress = {});
         progress[key] = window.WorkflowStepNavigation.getFirstStep(sequence);
         if (key === currentWorkflowProgressKey()) syncWorkflowNavigation();
@@ -468,7 +473,8 @@ import { rewritePreviewCss } from './preview-css.js';
     function syncBuildModeUI() {
         var isMigration = appState.siteBuildMode === 'ad-migration';
         var isDifferentiated = appState.siteBuildMode === 'differentiated';
-        var isRestoration = appState.siteBuildMode === 'ad-restoration';
+        var isRestoration = isAdPolicyWorkflow();
+        var isTemplateReuse = isTemplateReuseWorkflow();
         var isInjection = appState.siteBuildMode === 'ad-injection';
         var isBatchAdBuild = appState.siteBuildMode === 'batch-ad-build';
         var isStandaloneTool = false;
@@ -490,6 +496,20 @@ import { rewritePreviewCss } from './preview-css.js';
         if (differentiatedSection) differentiatedSection.hidden = !isDifferentiated;
         var restorationSection = document.getElementById('ad-restoration-setup');
         if (restorationSection) restorationSection.hidden = !isRestoration;
+        var restorationTitle = document.getElementById('ad-restoration-title');
+        if (restorationTitle) restorationTitle.textContent = isTemplateReuse ? '广告模板复用' : '批量广告策略编辑器';
+        var restorationIntro = restorationSection && restorationSection.querySelector('.ad-restoration-intro');
+        if (restorationIntro) restorationIntro.textContent = isTemplateReuse
+            ? '上传已经加过广告的静态源码压缩包，保留原站布局、视觉、导航与广告位置，只替换内容、主题配色和广告单元。'
+            : '上传站点压缩包或读取站点目录，选择快速更新广告或详细配置策略，再导出新副本。';
+        var templateReuseSource = document.getElementById('template-reuse-source');
+        if (templateReuseSource) templateReuseSource.hidden = !isTemplateReuse;
+        document.getElementById('template-reuse-config').hidden = !isTemplateReuse;
+        if (restorationSection) restorationSection.querySelector('.ad-quick-mode-options').hidden = isTemplateReuse;
+        if (isTemplateReuse) {
+            appState.adPolicyTask = 'advanced';
+            document.querySelector('[name="ad-policy-task"][value="advanced"]').checked = true;
+        }
         var injectionSection = document.getElementById('ad-injection-setup');
         if (injectionSection) injectionSection.hidden = !isInjection;
         var batchSection = document.getElementById('batch-ad-setup');
@@ -588,7 +608,7 @@ import { rewritePreviewCss } from './preview-css.js';
             window.location.assign('game-builder/index.html');
             return;
         }
-        var nextMode = mode === 'ad-migration' || mode === 'differentiated' || mode === 'ad-restoration' || mode === 'ad-injection' || mode === 'batch-ad-build' ? mode : 'normal';
+        var nextMode = mode === 'ad-migration' || mode === 'differentiated' || mode === 'ad-restoration' || mode === 'ad-template-reuse' || mode === 'ad-injection' || mode === 'batch-ad-build' ? mode : 'normal';
         if (nextMode !== appState.siteBuildMode) {
             markWorkflowModeTransition();
             if (typeof PreviewImageCache !== 'undefined') PreviewImageCache.acquire({});
@@ -606,6 +626,7 @@ import { rewritePreviewCss } from './preview-css.js';
         }
         if (appState.siteBuildMode !== 'ad-migration') appState.legacyAdMigration = null;
         else appState.adCodeMigration = null;
+        if (!isTemplateReuseWorkflow()) appState.templateReuse = { contentItems: [], assets: [], sourceName: '', sourceKind: '', paletteId: '', palette: null, report: null };
         syncBuildModeUI();
         updatePreview();
     }
@@ -862,8 +883,8 @@ import { rewritePreviewCss } from './preview-css.js';
         document.getElementById('ad-quick-config').hidden = !quick;
         document.getElementById('ad-policy-detailed-config').hidden = quick;
         document.getElementById('restoration-export-code').hidden = quick;
-        document.getElementById('ad-policy-config-title').textContent = quick ? '快速更新广告' : '配置广告策略';
-        document.querySelector('#ad-policy-config-panel > .panel-desc').textContent = quick ? '匹配新 TXT，核对广告单元、模板和 GA。' : '预览原站，分别调整首页、详情页和全部文章页的广告。';
+        document.getElementById('ad-policy-config-title').textContent = isTemplateReuseWorkflow() ? '配置模板内容与广告' : quick ? '快速更新广告' : '配置广告策略';
+        document.querySelector('#ad-policy-config-panel > .panel-desc').textContent = isTemplateReuseWorkflow() ? '核对新内容、主题配色和广告单元。上传新 TXT 后，以其域名导出站点。' : quick ? '匹配新 TXT，核对广告单元、模板和 GA。' : '预览原站，分别调整首页、详情页和全部文章页的广告。';
         setWorkflowExportButtonLabel('restoration-run', quick ? '更新广告并写入新目录' : '应用策略并生成新总目录');
         setWorkflowExportButtonLabel('restoration-run-zip', quick ? (batch ? '下载更新后的批量 ZIP' : '下载更新后的站点 ZIP') : '下载批量站点 ZIP');
         document.getElementById('ad-policy-export-panel').querySelector('h3').textContent = quick ? '更新广告并导出新副本' : '应用策略并导出新副本';
@@ -950,6 +971,7 @@ import { rewritePreviewCss } from './preview-css.js';
         }
         if (workspace) workspace.hidden = sites.length === 0;
         if (runButton) runButton.disabled = adRestorationRunning || policyCompatibleCount === 0 || policyInvalid;
+        if (runButton && isTemplateReuseWorkflow() && (appState.templateReuse.error || appState.templateReuse.loading || !appState.templateReuse.contentItems.length)) runButton.disabled = true;
         var zipButton = document.getElementById('restoration-run-zip');
         if (zipButton) zipButton.disabled = !runButton || runButton.disabled;
         if (codeExportButton) codeExportButton.disabled = adRestorationRunning || validCount === 0;
@@ -1089,7 +1111,7 @@ import { rewritePreviewCss } from './preview-css.js';
         document.getElementById('ad-policy-global-editor').hidden = !!override;
         document.getElementById('ad-policy-scope-status').textContent = override ? '正在编辑当前站点的独立策略。' : '正在编辑全局策略；没有开启单站覆盖的站点共同使用。';
         var code = site && appState.adPolicyCodeOverrides[site.id];
-        document.getElementById('ad-policy-code-status').textContent = site ? (code ? '已替换：' + code.fileName : '使用原站 ad.js') + ' · ' + (site.metadata.detectedHost || '域名未识别') : '请先上传站点。';
+        document.getElementById('ad-policy-code-status').textContent = site ? (code ? '已替换：' + code.fileName : '使用原站 ad.js') + ' · ' + (isTemplateReuseWorkflow() && code ? '输出域名：' + code.detectedHost : site.metadata.detectedHost || '域名未识别') : '请先上传站点。';
         document.getElementById('ad-policy-code-upload').disabled = !site || adRestorationRunning;
         document.getElementById('ad-policy-code-restore').disabled = !code || adRestorationRunning;
         document.getElementById('ad-policy-manual-controls').hidden = appState.adPolicyPlacementMode !== 'manual';
@@ -1099,12 +1121,112 @@ import { rewritePreviewCss } from './preview-css.js';
         }
     }
 
+    function templateReuseSiteFor(site) {
+        if (!isTemplateReuseWorkflow() || !site) return site;
+        var code = appState.adPolicyCodeOverrides[site.id];
+        var host = code && code.detectedHost || site.metadata.detectedHost;
+        var cached = site.templateReuseCache;
+        if (cached && cached.items === appState.templateReuse.contentItems && cached.palette === appState.templateReuse.palette && cached.host === host) return cached.result;
+        var original = Object.assign({}, site, { entries: site.templateEntries || site.entries });
+        var result = reuseTemplateSite(original, appState.templateReuse, { host: host });
+        appState.templateReuse.report = result.templateReuseReport;
+        var reportTarget = document.getElementById('template-reuse-config-report');
+        if (reportTarget) reportTarget.textContent = result.templateReuseReport.detailPages + ' 个新详情页 · ' + result.templateReuseReport.copiedAssets + ' 张本地图片 · 广告默认保留原位置及开关';
+        result = retargetTemplateHost(result, host);
+        site.templateReuseCache = { items: appState.templateReuse.contentItems, palette: appState.templateReuse.palette, host: host, result: result };
+        return result;
+    }
+
+    function templateReuseSites() {
+        return (appState.adPolicySites || []).map(templateReuseSiteFor);
+    }
+
+    function validateTemplateReuse() {
+        if (!isTemplateReuseWorkflow()) return '';
+        try {
+            (appState.adPolicySites || []).forEach(function(site) { inspectTemplate(site); });
+            if (appState.templateReuse.contentItems.length) templateReuseSites();
+            appState.templateReuse.error = '';
+        } catch (error) { appState.templateReuse.error = error.message; }
+        return appState.templateReuse.error;
+    }
+
+    function updateTemplateReuseControls() {
+        var source = document.getElementById('template-reuse-source');
+        if (!source) return;
+        source.hidden = !isTemplateReuseWorkflow();
+        var result = document.getElementById('template-reuse-result');
+        var reuse = appState.templateReuse;
+        validateTemplateReuse();
+        if (result) {
+            result.className = reuse.error ? 'migration-result error' : reuse.contentItems.length ? 'migration-result success' : 'migration-result pending';
+            result.textContent = reuse.error || (reuse.contentItems.length
+                ? `已读取 ${reuse.contentItems.length} 项内容 · ${reuse.sourceName || reuse.sourceKind} · 将生成 ${reuse.contentItems.length} 个新详情页并移除多余旧内容页`
+                : '尚未选择内容来源。');
+        }
+        var select = document.getElementById('template-reuse-theme');
+        if (select && typeof STYLE_PRESETS !== 'undefined' && select.options.length <= 1) {
+            STYLE_PRESETS.forEach(function(preset) {
+                var option = document.createElement('option'); option.value = preset.id; option.textContent = preset.name; select.appendChild(option);
+            });
+        }
+        if (select) select.value = reuse.paletteId || '';
+    }
+
+    async function readTemplateReuseZip(file) {
+        if (typeof JSZip === 'undefined') throw new Error('本地 ZIP 解析器尚未加载。');
+        var zip = await JSZip.loadAsync(file);
+        var entries = [];
+        for (var name of Object.keys(zip.files)) {
+            var item = zip.files[name];
+            if (item.dir || name.endsWith('/') || /^__MACOSX\//.test(name)) continue;
+            entries.push({ path: normalizePath(name), bytes: await item.async('uint8array') });
+        }
+        return entries;
+    }
+
+    async function readTemplateReuseContent(file, kind) {
+        var name = String(file.name || '').toLowerCase();
+        if (kind === 'json' || name.endsWith('.json')) return { items: parseContentJson(await file.text()), assets: [], kind: 'JSON 内容' };
+        var entries = await readTemplateReuseZip(file);
+        var assets = entries.filter(function(entry) { return /\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(entry.path); });
+        if (kind === 'static') return { items: extractStaticSiteContent(entries), assets: assets, kind: '静态网站内容' };
+        var jsonEntry = entries.find(function(entry) { return /(?:^|\/)(?:articles|content|data)?[^/]*\.json$/i.test(entry.path); });
+        if (!jsonEntry) return { items: extractStaticSiteContent(entries), assets: assets, kind: '静态 ZIP 内容' };
+        return { items: parseContentJson(new TextDecoder().decode(jsonEntry.bytes), { ownerPath: jsonEntry.path }), assets: assets, kind: 'JSON/图片 ZIP' };
+    }
+
+    var templateReuseImportToken = 0;
+    async function handleTemplateReuseContent(file, kind) {
+        var token = ++templateReuseImportToken;
+        appState.templateReuse.loading = true;
+        var result = document.getElementById('template-reuse-result');
+        if (result) { result.className = 'migration-result pending'; result.textContent = '正在读取内容并建立模板适配…'; }
+        try {
+            var parsed = await readTemplateReuseContent(file, kind);
+            if (token !== templateReuseImportToken) return;
+            appState.templateReuse.contentItems = parsed.items;
+            appState.templateReuse.assets = parsed.assets || [];
+            appState.templateReuse.sourceName = file.name;
+            appState.templateReuse.sourceKind = parsed.kind;
+            updateTemplateReuseControls();
+            if (!appState.templateReuse.error && appState.currentStep === 4) updateAdPolicyPreview();
+        } catch (error) {
+            if (token !== templateReuseImportToken) return;
+            appState.templateReuse.contentItems = [];
+            appState.templateReuse.assets = [];
+            appState.templateReuse.error = error.message;
+            if (result) { result.className = 'migration-result error'; result.textContent = '内容读取失败：' + error.message; }
+        } finally { if (token === templateReuseImportToken) { appState.templateReuse.loading = false; updateAdRestorationControls(); } }
+    }
+
     function updateAdPolicyPreview(pageType) {
         if (!isAdPolicyWorkflow() || appState.currentStep !== 4) return;
         var site = activeAdPolicySite();
         if (!site) return;
-        var metadata = site.metadata;
-        var paths = appState.adPolicySites.length && site.entries.filter(function(entry) { return /\.html?$/i.test(entry.path) && entry.path.indexOf(metadata.siteRoot) === 0 && !/(?:^|\/)vendor-games\//i.test(entry.path); }).map(function(entry) { return entry.path; });
+        var previewSite = templateReuseSiteFor(site);
+        var metadata = previewSite.metadata;
+        var paths = appState.adPolicySites.length && previewSite.entries.filter(function(entry) { return /\.html?$/i.test(entry.path) && entry.path.indexOf(metadata.siteRoot) === 0 && !/(?:^|\/)vendor-games\//i.test(entry.path); }).map(function(entry) { return entry.path; });
         if (pageType) {
             appState.adPolicyPlacingSlot = null;
             appState.adPolicyPreviewPath = pageType === 'home' ? metadata.homePath : pageType === 'all' ? (metadata.listingPaths || [])[0] : pageType === 'detail' ? metadata.detailPaths[0] : paths.find(function(path) { return adPolicyPageType(path, metadata) === pageType; });
@@ -1126,7 +1248,7 @@ import { rewritePreviewCss } from './preview-css.js';
         var quickMapping = isQuickAdUpdate() && planQuickAdUpdate(appState.adPolicySites, appState.adQuickCodes, quickUpdateOptions()).mappings.find(function(item) { return item.site.id === site.id; });
         var prepared = isQuickAdUpdate()
             ? quickMapping && quickMapping.valid ? prepareQuickAdUpdate(site, quickMapping.code, quickUpdateOptions(), AdRestoration) : { valid: false, errors: quickMapping ? quickMapping.errors : [{ message: '当前站点不在本次更新范围中。' }] }
-            : AdRestoration.preparePolicySite(site, policy, { adJsVersionMode: appState.adPolicyAdJsVersion, codeOverride: appState.adPolicyCodeOverrides[site.id], preserveOriginalPlacements: true });
+            : AdRestoration.preparePolicySite(previewSite, policy, { adJsVersionMode: appState.adPolicyAdJsVersion, codeOverride: appState.adPolicyCodeOverrides[site.id], preserveOriginalPlacements: true });
         if (!prepared.valid) {
             setPreviewDocument('<!doctype html><html><meta charset="utf-8"><body><p>' + escapeHtml(prepared.errors.map(function(error) { return error.message; }).join('；')) + '</p></body></html>');
             return;
@@ -1176,7 +1298,10 @@ import { rewritePreviewCss } from './preview-css.js';
             var site = appState.adPolicySites.find(function(item) { return item.id === codeTargetId; }) || activeAdPolicySite();
             var file = codeFile.files[0]; if (!site || !file) return;
             var code = AdRestoration.inspectCodeText(await file.text(), file.name);
-            var candidate = AdRestoration.preparePolicySite(site, appState.adPolicyOverrides[site.id] || appState.adPolicyGlobal, { codeOverride: code, adJsVersionMode: appState.adPolicyAdJsVersion });
+            // Template reuse explicitly pairs this TXT to the selected template;
+            // other ad workflows retain strict original-domain matching.
+            var candidateSite = isTemplateReuseWorkflow() ? siteForReplacementCode(site, code) : site;
+            var candidate = AdRestoration.preparePolicySite(candidateSite, appState.adPolicyOverrides[site.id] || appState.adPolicyGlobal, { codeOverride: code, adJsVersionMode: appState.adPolicyAdJsVersion });
             if (!candidate.valid) { showNotice(candidate.errors.map(function(error) { return error.message; }).join('；'), '广告代码替换未通过校验'); return; }
             appState.adPolicyCodeOverrides[site.id] = code;
             updateAdRestorationControls();
@@ -1189,7 +1314,8 @@ import { rewritePreviewCss } from './preview-css.js';
             if (!isAdPolicyWorkflow() || appState.currentStep !== 4 || event.source !== previewFrame.contentWindow || data.token !== adPolicyPreviewToken) return;
             var site = activeAdPolicySite(); if (!site) return;
             if (data.type === 'ad-policy-nav') {
-                var entry = adPolicyPreview.resolveNavigation(site.entries, data.href, appState.adPolicyPreviewPath, site.metadata.siteRoot, [site.metadata.detectedHost]);
+                var navigationSite = templateReuseSiteFor(site);
+                var entry = adPolicyPreview.resolveNavigation(navigationSite.entries, data.href, appState.adPolicyPreviewPath, site.metadata.siteRoot, [site.metadata.detectedHost, navigationSite.metadata.detectedHost]);
                 if (entry) { appState.adPolicyPreviewPath = entry.path; appState.adPolicyPlacingSlot = null; updateAdPolicyPreview(); }
                 return;
             }
@@ -1245,12 +1371,22 @@ import { rewritePreviewCss } from './preview-css.js';
                         ? await AdRestoration.readSiteDirectoryFiles(files, progressCallback, scanOptions)
                         : await AdRestoration.readSiteArchiveFiles(files, progressCallback, scanOptions);
                 appState.adPolicySites = scan.sites;
+                if (isTemplateReuseWorkflow()) {
+                    appState.adPolicySites.forEach(function(site) {
+                        site.templateEntries = (site.entries || []).map(function(entry) { return { path: entry.path, bytes: entry.bytes ? new Uint8Array(entry.bytes) : entry.bytes }; });
+                        inspectTemplate(site);
+                    });
+                }
                 appState.adQuickCodes = [];
                 appState.adPolicySourceMode = mode === 'archives' ? 'archives' : 'directory';
                 appState.adPolicyOverrides = {};
                 appState.adPolicyCodeOverrides = {};
                 // 重新导入策略副本时延续已保存的开关、映射和位置，仍可一键恢复默认。
                 scan.sites.forEach(function(site) {
+                    if (isTemplateReuseWorkflow()) {
+                        appState.adPolicyOverrides[site.id] = templateOriginalPolicy(site, AdRestoration);
+                        return;
+                    }
                     var entry = site.entries.find(function(item) { return item.path === site.metadata.siteRoot + 'ad-policy.json'; });
                     if (!entry) return;
                     try {
@@ -1264,7 +1400,7 @@ import { rewritePreviewCss } from './preview-css.js';
                 }
                 appState.adPolicyActiveSiteId = scan.sites[0] && scan.sites[0].id || '';
                 appState.adPolicyPreviewPath = '';
-                resetWorkflowStepProgress('ad-restoration');
+                resetWorkflowStepProgress(currentWorkflowProgressKey());
                 if (scanFill) scanFill.style.width = '100%';
                 if (scanText) scanText.textContent = '已识别 ' + scan.sites.length + ' 个站点、' + scan.fileCount + ' 个文件';
                 renderAdPolicySites();
@@ -1276,6 +1412,7 @@ import { rewritePreviewCss } from './preview-css.js';
             } finally {
                 adRestorationRunning = false;
                 updateAdRestorationControls();
+                updateTemplateReuseControls();
             }
         }
 
@@ -1314,6 +1451,22 @@ import { rewritePreviewCss } from './preview-css.js';
                 scanSource('archives', appState.adRestorationSiteFiles);
             }
         });
+        var templateContentButton = document.getElementById('template-reuse-content-button');
+        var templateContentInput = document.getElementById('template-reuse-content-input');
+        var templateSiteButton = document.getElementById('template-reuse-site-button');
+        var templateSiteInput = document.getElementById('template-reuse-site-input');
+        if (templateContentButton && templateContentInput) templateContentButton.addEventListener('click', function() { templateContentInput.value = ''; templateContentInput.click(); });
+        if (templateContentInput) templateContentInput.addEventListener('change', function() { var file = this.files && this.files[0]; if (file) handleTemplateReuseContent(file, 'content'); });
+        if (templateSiteButton && templateSiteInput) templateSiteButton.addEventListener('click', function() { templateSiteInput.value = ''; templateSiteInput.click(); });
+        if (templateSiteInput) templateSiteInput.addEventListener('change', function() { var file = this.files && this.files[0]; if (file) handleTemplateReuseContent(file, 'static'); });
+        var templateTheme = document.getElementById('template-reuse-theme');
+        if (templateTheme) templateTheme.addEventListener('change', function() {
+            var preset = typeof STYLE_PRESETS !== 'undefined' ? STYLE_PRESETS.find(function(item) { return item.id === templateTheme.value; }) : null;
+            appState.templateReuse.paletteId = templateTheme.value;
+            appState.templateReuse.palette = preset || null;
+            updateTemplateReuseControls();
+            if (appState.currentStep === 4) updateAdPolicyPreview();
+        });
         var globalEditor = document.getElementById('ad-policy-global-editor');
         if (globalEditor) globalEditor.addEventListener('change', function(event) {
             appState.adPolicyGlobal = readChangedPolicyEditor(globalEditor, event.target);
@@ -1348,6 +1501,10 @@ import { rewritePreviewCss } from './preview-css.js';
         }
         async function exportAdPolicy(useDirectory) {
             if (adRestorationRunning || typeof AdRestoration === 'undefined') return;
+            if (isTemplateReuseWorkflow() && (appState.templateReuse.loading || validateTemplateReuse())) {
+                showNotice(appState.templateReuse.error || '内容仍在读取中，请稍候。', '模板复用尚未通过校验');
+                return;
+            }
             var destinationHandle = null;
             if (useDirectory && typeof window.showDirectoryPicker === 'function') {
                 try {
@@ -1367,10 +1524,11 @@ import { rewritePreviewCss } from './preview-css.js';
                 var reportProgress = function(percent, message) {
                     updateWorkflowExportProgress('restoration-progress', Math.min(percent, 88), message);
                 };
+                var policySites = isTemplateReuseWorkflow() ? templateReuseSites() : appState.adPolicySites;
                 var output = isQuickAdUpdate()
-                    ? await applyQuickAdUpdate(appState.adPolicySites, appState.adQuickCodes, quickUpdateOptions(), AdRestoration, reportProgress)
+                    ? await applyQuickAdUpdate(policySites, appState.adQuickCodes, quickUpdateOptions(), AdRestoration, reportProgress)
                     : await AdRestoration.applyPolicyBatch(
-                    appState.adPolicySites,
+                    policySites,
                     appState.adPolicyGlobal,
                     appState.adPolicyOverrides,
                     reportProgress,
@@ -1430,6 +1588,7 @@ import { rewritePreviewCss } from './preview-css.js';
             }
         });
         updateAdRestorationControls();
+        updateTemplateReuseControls();
     }
 
     function renderAdInjectionMappings() {
@@ -4405,9 +4564,18 @@ import { rewritePreviewCss } from './preview-css.js';
     function validateStep(step) {
         switch(step) {
             case 1:
-                if (appState.siteBuildMode === 'ad-restoration') {
+                if (isAdPolicyWorkflow()) {
+                    if (isTemplateReuseWorkflow() && appState.templateReuse.loading) { showNotice('内容仍在读取中，请稍候。', '请等待读取完成'); return false; }
                     if (adRestorationRunning || !(appState.adPolicySites || []).some(function(site) { return site.metadata && site.metadata.valid && site.metadata.adJsVersion; })) {
                         showNotice('请上传可识别广告配置和 ad.js 版本的站点，并等待读取完成。', '还不能进入配置网站');
+                        return false;
+                    }
+                    if (isTemplateReuseWorkflow() && !appState.templateReuse.contentItems.length) {
+                        showNotice('模板复用模式还没有内容来源。请选择 JSON/内容 ZIP 或静态网站 ZIP。', '请先选择新内容');
+                        return false;
+                    }
+                    if (isTemplateReuseWorkflow() && validateTemplateReuse()) {
+                        showNotice(appState.templateReuse.error, '模板复用尚未通过校验');
                         return false;
                     }
                     return true;
@@ -7262,7 +7430,7 @@ import { rewritePreviewCss } from './preview-css.js';
             var quickSummary = isQuickAdUpdate();
             var quickSummaryPlan = quickSummary ? planQuickAdUpdate(appState.adPolicySites, appState.adQuickCodes, quickUpdateOptions()) : null;
             policySummary.innerHTML = renderExportConfiguration({
-                title: quickSummary ? '快速更新广告' : '批量广告策略', themeName: '广告策略更新',
+                title: isTemplateReuseWorkflow() ? '广告模板复用' : quickSummary ? '快速更新广告' : '批量广告策略', themeName: isTemplateReuseWorkflow() ? '保留模板，替换内容与广告' : '广告策略更新',
                 metrics: quickSummary
                     ? [['目标站点', quickSummaryPlan.mappings.length], ['匹配成功', quickSummaryPlan.validCount], ['新广告 TXT', appState.adQuickCodes.length]]
                     : [['站点数量', appState.adPolicySites.length], ['单站覆盖', Object.keys(appState.adPolicyOverrides).length], ['广告代码替换', Object.keys(appState.adPolicyCodeOverrides).length]],

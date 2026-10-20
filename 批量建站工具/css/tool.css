@@ -3507,6 +3507,14 @@ html:has(.domain-selection-panel.active) {
 .ad-restoration-intro code,
 .restoration-file-card code,
 .restoration-rule-note code { padding:1px 4px;border-radius:4px;background:#f0e9f8;color:#5e408d; }
+.template-reuse-source { margin:16px 0 0;padding:16px;border:1px solid #c9d7ed;border-radius:14px;background:linear-gradient(145deg,#f5f9ff,#fff 72%); }
+.template-reuse-source-head { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px; }
+.template-reuse-source-head h4 { margin:2px 0 0;color:#173a68;font-size:15px; }
+.template-reuse-source-actions { display:flex;flex-wrap:wrap;gap:10px;margin:12px 0; }
+.template-reuse-theme-row { display:flex;align-items:center;gap:12px;margin-top:10px;max-width:460px; }
+.template-reuse-theme-row label { color:#334155;font-size:12px;font-weight:700; }
+.template-reuse-theme-row select { flex:1;min-height:36px;border:1px solid #cbd5e1;border-radius:9px;padding:0 10px;background:#fff;color:#1e293b; }
+.build-mode-card-template-reuse .build-mode-icon { color:#245ea9;background:rgba(37,94,169,.1); }
 .restoration-file-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; }
 .restoration-file-card { position:relative;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:12px;align-items:center;min-height:128px;padding:16px;border:1px solid #e0d8ed;border-radius:12px;background:#fff; }
 .restoration-file-card-single { grid-column:1/-1; }
@@ -3521,6 +3529,11 @@ html:has(.domain-selection-panel.active) {
 .restoration-run-button:focus-visible { outline:3px solid rgba(115,81,174,.24);outline-offset:2px; }
 .restoration-file-status { grid-column:2/-1;min-width:0;overflow:hidden;color:#748096;font-size:11px;text-overflow:ellipsis;white-space:nowrap; }
 .restoration-file-status.is-ready { color:#277352;font-weight:700; }
+@media (max-width:680px) {
+    .template-reuse-source-head { align-items:flex-start;flex-direction:column; }
+    .template-reuse-theme-row { align-items:flex-start;flex-direction:column;gap:6px;max-width:none; }
+    .template-reuse-theme-row select { width:100%; }
+}
 .restoration-rule-note { display:flex;gap:10px;margin-top:12px;padding:11px 13px;border-left:3px solid #7351ae;background:#f7f3fc;color:#66748a;font-size:11px;line-height:1.55; }
 .restoration-rule-note strong { flex:0 0 auto;color:#4c3475; }
 .restoration-actions { display:flex;align-items:center;gap:16px;margin-top:16px; }

@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" sizes="any" href="assets/sitefoundry-icon.svg?v=20261013-brand-1">
     <link rel="apple-touch-icon" sizes="180x180" href="assets/sitefoundry-apple-touch.png?v=20261013-brand-1">
     <link rel="stylesheet" href="css/config-disclosures.css?v=20261012-reference-2">
-    <link rel="stylesheet" href="css/tool.css?v=sha256-b835dbe3c7e38117">
+    <link rel="stylesheet" href="css/tool.css?v=sha256-32099c3ebd450da6">
     <link rel="stylesheet" href="css/liquid-glass.css?v=sha256-d5b2595235a35205">
     <link rel="stylesheet" href="css/field-mapping.css?v=sha256-1219396f95248285">
     <link rel="stylesheet" href="css/export-page.css?v=sha256-3378432a641129e7">
@@ -98,6 +98,11 @@
                     <button type="button" class="build-mode-card build-mode-card-migration" data-build-mode="ad-migration" aria-pressed="false">
                         <span class="build-mode-icon" aria-hidden="true"><svg data-lucide-icon="file-input" viewBox="0 0 24 24"><path d="M4 11V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1M14 2v5a1 1 0 0 0 1 1h5M2 15h10m-3 3 3-3-3-3"/></svg></span>
                         <span class="build-mode-content"><span class="build-mode-title-line"><strong>广告移植建站</strong></span><small>新内容仍来自新数据源；仅提取旧站广告配置，并在导出前严格校验。</small><span class="build-mode-meta"><span>提取广告配置</span><span>严格校验</span></span></span>
+                        <span class="build-mode-selected-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3.2 3.2L17.5 8"/></svg></span>
+                    </button>
+                    <button type="button" class="build-mode-card build-mode-card-template-reuse" data-build-mode="ad-template-reuse" aria-pressed="false">
+                        <span class="build-mode-icon" aria-hidden="true"><svg data-lucide-icon="copy-check" viewBox="0 0 24 24"><rect width="13" height="13" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/><path d="m12 14 2 2 4-4"/></svg></span>
+                        <span class="build-mode-content"><span class="build-mode-title-line"><strong>广告模板复用</strong><span class="build-mode-badge">新功能</span></span><small>保留已加广告源码的布局和视觉，只替换内容、主题配色与广告单元。</small><span class="build-mode-meta"><span>静态源码包</span><span>模板不变</span><span>广告位置保留</span></span></span>
                         <span class="build-mode-selected-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3.2 3.2L17.5 8"/></svg></span>
                     </button>
                     <button type="button" class="build-mode-card build-mode-card-injection" data-build-mode="ad-injection" aria-pressed="false">
@@ -208,6 +213,17 @@
                         <span class="restoration-file-status" id="restoration-sites-status">尚未选择</span>
                     </article>
                 </div>
+                <section class="template-reuse-source" id="template-reuse-source" hidden aria-labelledby="template-reuse-source-title">
+                    <div class="template-reuse-source-head"><div><span class="section-kicker">模板复用 · 内容来源</span><h4 id="template-reuse-source-title">选择要替换进模板的新内容</h4></div><span class="restoration-local-badge">只读源码，不上传云端</span></div>
+                    <p class="group-hint">保留模板的导航、页脚、法律页和布局；详情页数量跟随新内容，移除多余旧内容页。支持 JSON/图片 ZIP 或另一份静态网站 ZIP。</p>
+                    <div class="template-reuse-source-actions">
+                        <button type="button" class="restoration-pick-button" id="template-reuse-content-button">选择 JSON 或内容 ZIP</button>
+                        <button type="button" class="restoration-pick-button" id="template-reuse-site-button">选择静态网站 ZIP</button>
+                        <input type="file" id="template-reuse-content-input" accept=".json,.zip,application/json,application/zip" hidden>
+                        <input type="file" id="template-reuse-site-input" accept=".zip,application/zip" hidden>
+                    </div>
+                    <div class="migration-result pending" id="template-reuse-result" role="status">尚未选择内容来源。</div>
+                </section>
                 <div class="restoration-progress" id="restoration-scan-progress" hidden><div><span id="restoration-scan-progress-fill"></span></div><p id="restoration-scan-progress-text">正在扫描…</p></div>
 
                 <div class="ad-policy-workspace" id="ad-policy-workspace" hidden>
@@ -397,6 +413,11 @@
                 <aside class="config-panel ad-policy-config-panel" id="ad-policy-config-panel" hidden aria-labelledby="ad-policy-config-title">
                     <h2 class="panel-title" id="ad-policy-config-title">配置广告策略</h2>
                     <p class="panel-desc">预览原站，分别调整首页、详情页和全部文章页的广告。</p>
+                    <section id="template-reuse-config" class="template-reuse-source" hidden aria-label="模板复用样式配置">
+                        <h3>样式配置</h3>
+                        <div class="template-reuse-theme-row"><label for="template-reuse-theme">主题配色</label><select id="template-reuse-theme"><option value="">保留模板原配色</option></select></div>
+                        <p class="group-hint" id="template-reuse-config-report" role="status"></p>
+                    </section>
                     <label class="injection-site-label" for="ad-policy-preview-site">当前站点</label>
                     <select id="ad-policy-preview-site" aria-label="选择广告策略预览站点"></select>
                     <section id="ad-quick-config" class="ad-quick-config" hidden aria-label="快速更新广告配置">
@@ -1553,7 +1574,7 @@
 <script src="js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
 <script src="js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
 <script src="js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-<script type="module" src="js/app.js?v=sha256-ca05e47338c554bc"></script>
+<script type="module" src="js/app.js?v=sha256-16340d720edc52e4"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
   <script src="js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
   <script src="js/config-disclosures.js?v=20261012-reference-2"></script>

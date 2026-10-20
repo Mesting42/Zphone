@@ -1,7 +1,7 @@
 {
   "name": "sitefoundry-desktop",
-  "version": "1.1.1",
-  "sitefoundryVersion": "1.1.1",
+  "version": "1.1.2",
+  "sitefoundryVersion": "1.1.2",
   "description": "SiteFoundry offline website workbench for Windows",
   "author": "SiteFoundry",
   "private": true,
@@ -73,7 +73,7 @@
         }
       ],
       "icon": "build/sitefoundry.ico",
-      "artifactName": "SiteFoundry-1.1.1-Windows-x64-Setup.${ext}"
+      "artifactName": "SiteFoundry-1.1.2-Windows-x64-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -86,6 +86,6 @@
       "installerIcon": "build/sitefoundry.ico",
       "uninstallerIcon": "build/sitefoundry.ico"
     },
-    "buildVersion": "1.1.1"
+    "buildVersion": "1.1.2"
   }
 }

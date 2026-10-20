@@ -6,6 +6,7 @@
         normal: '普通建站',
         'game-builder': '游戏建站',
         'ad-migration': '广告移植建站',
+        'ad-template-reuse': '广告模板复用',
         'ad-injection': '成品站加广告',
         'batch-ad-build': '批量建站加广告',
         'ad-restoration': '批量广告策略',

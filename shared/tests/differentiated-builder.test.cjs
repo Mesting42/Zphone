@@ -1,7 +1,12 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const JSZip = require(path.resolve(__dirname, '../../批量建站工具/node_modules/jszip'));
+const { createHash } = require('node:crypto');
+// Both maintained workbenches live in one application; the former sibling
+// game-tool directory is a historical copy and is not a test dependency.
+const workbenchRoot = path.resolve(__dirname, '../../批量建站工具');
+const gameWorkbenchRoot = path.join(workbenchRoot, 'game-builder');
+const JSZip = require(path.join(workbenchRoot, 'node_modules/jszip'));
 const Builder = require('../differentiated-builder.js');
 
 function words(prefix, count = 820) {
@@ -399,8 +404,7 @@ function testRichHtmlSanitizing() {
 }
 
 function testFullscreenPreviewContracts() {
-    ['批量建站工具', '游戏站批量工具'].forEach(folder => {
-        const root = path.resolve(__dirname, '../..', folder);
+    [workbenchRoot, gameWorkbenchRoot].forEach(root => {
         const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
         const css = fs.readFileSync(path.join(root, 'css/tool.css'), 'utf8');
         const app = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
@@ -457,7 +461,7 @@ function testFullscreenPreviewContracts() {
         assert.match(app, /navCategoryLimit/);
         assert.match(app, /contentDensity/);
         assert.match(css, /\.diff-config-tab\.active/);
-        if (folder === '批量建站工具') {
+        if (root === workbenchRoot) {
             assert.match(html, /id="diff-home-category-layout"/);
             assert.match(html, /id="diff-home-category-limit"/);
             assert.match(html, /id="diff-home-category-list"/);
@@ -469,12 +473,12 @@ function testFullscreenPreviewContracts() {
 
 async function main() {
     const canonical = fs.readFileSync(path.resolve(__dirname, '../differentiated-builder.js'), 'utf8');
-    const infoCopy = fs.readFileSync(path.resolve(__dirname, '../../批量建站工具/js/differentiated-builder.js'), 'utf8');
-    const gameCopy = fs.readFileSync(path.resolve(__dirname, '../../游戏站批量工具/js/differentiated-builder.js'), 'utf8');
-    const infoApp = fs.readFileSync(path.resolve(__dirname, '../../批量建站工具/js/app.js'), 'utf8');
-    const gameApp = fs.readFileSync(path.resolve(__dirname, '../../游戏站批量工具/js/app.js'), 'utf8');
-    const infoIndex = fs.readFileSync(path.resolve(__dirname, '../../批量建站工具/index.html'), 'utf8');
-    const gameIndex = fs.readFileSync(path.resolve(__dirname, '../../游戏站批量工具/index.html'), 'utf8');
+    const infoCopy = fs.readFileSync(path.join(workbenchRoot, 'js/differentiated-builder.js'), 'utf8');
+    const gameCopy = fs.readFileSync(path.join(gameWorkbenchRoot, 'js/differentiated-builder.js'), 'utf8');
+    const infoApp = fs.readFileSync(path.join(workbenchRoot, 'js/app.js'), 'utf8');
+    const gameApp = fs.readFileSync(path.join(gameWorkbenchRoot, 'js/app.js'), 'utf8');
+    const infoIndex = fs.readFileSync(path.join(workbenchRoot, 'index.html'), 'utf8');
+    const gameIndex = fs.readFileSync(path.join(gameWorkbenchRoot, 'index.html'), 'utf8');
     assert.equal(infoCopy, canonical, '资讯工具中的共享引擎副本需要同步');
     assert.equal(gameCopy, canonical, '游戏工具中的共享引擎副本需要同步');
     [infoApp, gameApp].forEach(app => {
@@ -483,7 +487,8 @@ async function main() {
         assert.match(app, /previewFrame\.srcdoc\s*=\s*html/);
     });
     assert.match(infoApp, /import '\.\/differentiated-builder\.js\?v=20260915-industrial-catalog-1';/);
-    assert.match(gameIndex, /differentiated-builder\.js\?v=20260915-industrial-catalog-1/);
+    const gameBuilderVersion = createHash('sha256').update(fs.readFileSync(path.join(gameWorkbenchRoot, 'js/differentiated-builder.js'))).digest('hex').slice(0, 16);
+    assert.match(gameIndex, new RegExp('differentiated-builder\\.js\\?v=sha256-' + gameBuilderVersion));
     assert.equal(Builder.countEnglishWords(words('Opening', 600)) >= 600, true);
     assert.equal(Object.keys(Builder.DESIGN_FAMILIES).length, 3);
     Object.values(Builder.DESIGN_FAMILIES).forEach(families => assert.equal(families.length, 12));

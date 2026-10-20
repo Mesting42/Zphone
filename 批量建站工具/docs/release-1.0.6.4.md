@@ -37,4 +37,4 @@
 
 差异化建站按用户要求排除工作流测试，仅做源码检查与共享界面同步。广告与分析网络在测试中隔离，因此本次结果不代表线上广告填充、收益或后台收数已验证，也不代表穷举所有模板配置组合。
 
-详细报告：[配置导航吸顶与配置有效性检查](configuration-controls-2026-10-13.md)、[完整回归记录](full-regression-2026-10-13.md)、[素材授权记录](regression-materials.md)。
+详细报告：[配置导航吸顶与配置有效性检查](configuration-controls-2026-10-13.md)、完整回归记录（本地历史材料：`full-regression-2026-10-13.md`）、素材授权记录（本地历史材料：`regression-materials.md`）。

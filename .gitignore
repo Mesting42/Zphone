@@ -23,3 +23,32 @@
 *.log
 .DS_Store
 Thumbs.db
+
+# Local research, historical process reports and retired duplicate source.
+# Keep version records, maintenance guides, runtime resources and licenses tracked.
+**/.firecrawl/
+**/.vscode/
+/.impeccable/
+/AGENTS.md
+/DESIGN.md
+/PRODUCT.md
+/docs/
+/游戏站批量工具/
+/批量建站工具/identity/
+**/*提示词*.md
+**/docs/screenshots/
+**/docs/coverage-cleanup*
+/批量建站工具/scripts/cleanup-coverage*.ps1
+/批量建站工具/apps/windows/docs/installer-verification-history.md
+/批量建站工具/docs/apps-adaptation-2026-10-13.md
+/批量建站工具/docs/apps-preview-1.0.1-2026-10-14.md
+/批量建站工具/docs/apps-regression-2026-10-14.md
+/批量建站工具/docs/full-regression-2026-10-13.md
+/批量建站工具/docs/navbar-spacing-2026-09-26.md
+/批量建站工具/docs/offline-fixes-verification-2026-10-13.md
+/批量建站工具/docs/offline-parity-acceptance-2026-10-13.md
+/批量建站工具/docs/performance-optimization-2026-10-13.md
+/批量建站工具/docs/reference-category-layout-2026-10-12.md
+/批量建站工具/docs/regression-materials.md
+/批量建站工具/docs/template-packages-phase1-2026-10-12.md
+/批量建站工具/docs/web-full-regression-2026-10-20.md

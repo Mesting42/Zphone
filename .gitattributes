@@ -1,0 +1,5 @@
+# These reviewed assets and source snapshots are verified by SHA-256.
+# Preserve their exact bytes when archiving or checking out on any platform.
+批量建站工具/motion/icons/*.svg -text
+批量建站工具/legacy-editorial-source/** -text
+批量建站工具/game-builder/legacy-source/** -text

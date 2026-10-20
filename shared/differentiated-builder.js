@@ -1136,14 +1136,14 @@
         var canonicalUrl = canonical(config, page.path);
         var image = page.image ? canonical(config, page.image) : '';
         var structured = page.structured ? '<script type="application/ld+json">' + JSON.stringify(page.structured).replace(/</g, '\\u003c') + '</script>' : '';
-        return '<!doctype html><html lang="en" data-layout="' + escapeHtml(config.design.layout) + '" data-direction="' + escapeHtml(config.design.direction || '') + '" data-domain-mode="' + escapeHtml(config.design.domainMode || 'reference') + '" data-tone="' + escapeHtml(config.design.tone) + '"><head>' +
+        var html = '<!doctype html><html lang="en" data-layout="' + escapeHtml(config.design.layout) + '" data-direction="' + escapeHtml(config.design.direction || '') + '" data-domain-mode="' + escapeHtml(config.design.domainMode || 'reference') + '" data-tone="' + escapeHtml(config.design.tone) + '"><head>' +
             '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
             '<title>' + escapeHtml(title) + '</title><meta name="description" content="' + escapeHtml(description) + '">' +
             (canonicalUrl ? '<link rel="canonical" href="' + escapeHtml(canonicalUrl) + '">' : '') +
             '<meta property="og:title" content="' + escapeHtml(title) + '"><meta property="og:description" content="' + escapeHtml(description) + '"><meta property="og:type" content="' + (page.kind === 'article' ? 'article' : 'website') + '">' +
             (image ? '<meta property="og:image" content="' + escapeHtml(image) + '">' : '') +
-            '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="' + escapeHtml(config.typography.url) + '">' +
             '<link rel="stylesheet" href="' + prefixFor(page.path) + 'assets/site.css">' + structured + '</head>';
+        return typeof globalThis.OfflineFonts !== 'undefined' ? globalThis.OfflineFonts.documentHTML(html, config, false) : html;
     }
 
     function nav(config, path) {
@@ -1962,6 +1962,7 @@
             'Automated checks do not guarantee factual accuracy, Search ranking, or AdSense approval.'
         ].join('\n'));
         onProgress(88, '正在写入质量与来源记录…');
+        if (typeof globalThis.OfflineFonts !== 'undefined') await globalThis.OfflineFonts.exportAssets(site, config);
         var blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, function (metadata) {
             onProgress(88 + Math.round(metadata.percent * .12), '正在压缩静态网站…');
         });
@@ -1984,6 +1985,7 @@
         html = html.replace(/<link rel="stylesheet" href="[^"]*assets\/site\.css">/, '<style>' + generateCss(config) + '</style>');
         html = html.replace(/<script src="[^"]*assets\/site\.js" defer><\/script>/, '<script>' + generateRuntimeJs(config).replace(/<\/script/gi, '<\\/script') + '<\/script>');
         html = html.replace('</body>', '<script>' + generatePreviewNavigationJs(config).replace(/<\/script/gi, '<\\/script') + '<\/script></body>');
+        if (typeof globalThis.OfflineFonts !== 'undefined') html = globalThis.OfflineFonts.documentHTML(html, config, true);
         if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
             Object.keys(config.outputAssets).forEach(function (path) {
                 var sourcePath = Object.keys(config.assetBySource || {}).find(function (candidate) { return config.assetBySource[candidate] === path; }) || '';

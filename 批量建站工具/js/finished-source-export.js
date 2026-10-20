@@ -3,6 +3,7 @@ import plannerSource from './finished-site-ads.js?raw';
 import runnerSource from './source-export-runner.cjs?raw';
 import domSource from './source-export-dom.cjs?raw';
 import domLicense from './source-export-dom.LICENSE.txt?raw';
+import { localizeNextFonts } from './next-offline-fonts.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -13,7 +14,7 @@ function normalized(value) { return String(value || '').replace(/\\/g, '/').repl
 function bytes(entry) { return entry.bytes || encoder.encode(entry.text || entry.content || ''); }
 function text(entry) { return decoder.decode(bytes(entry)); }
 
-export function createFinishedSourceExport({ sourceEntries, injectedEntries, deploymentRoot, config, policy, settings, siteName, project }) {
+export async function createFinishedSourceExport({ sourceEntries, injectedEntries, deploymentRoot, config, policy, settings, siteName, project }) {
   const originals = Array.from(sourceEntries || []);
   if (!originals.length) throw new Error('原源码文件不可用，请重新上传完整源码压缩包。');
   const root = normalized(deploymentRoot || '').replace(/\/?$/, '/').replace(/^\/$/, '');
@@ -24,6 +25,9 @@ export function createFinishedSourceExport({ sourceEntries, injectedEntries, dep
     const filename = (react ? '' : root) + normalized(entry.path);
     files.set(filename, { path: filename, bytes: bytes(entry) });
   }
+  // AST edits and local font I/O belong to an independent adapter; advertising
+  // injection and the original uploaded project stay unchanged.
+  const offlineFonts = react ? await localizeNextFonts(files) : [];
   let buildCommand = project && project.buildCommand || '';
   let buildHook = '';
   if (!react && !root && files.has('package.json')) {
@@ -73,7 +77,8 @@ export function createFinishedSourceExport({ sourceEntries, injectedEntries, dep
         : buildHook ? '运行 npm run build 后会自动向 ' + root + ' 重新加入广告；部署该输出目录中的内容。'
           : '本工程是直接编写 HTML 的静态站点，广告已加入页面和 js/ad.js，可继续修改页面并部署。',
       buildHook ? '广告路径和位置策略保存于 ' + directory + 'config.json；注入脚本已自带所需代码，无需新增 npm 依赖。' : '',
-      'ZIP 内的原工程文件均已保留；修改源码后请重新核验页面和广告位。'
+      'ZIP 内的原工程文件均已保留；修改源码后请重新核验页面和广告位。',
+      offlineFonts.length ? 'Google 字体已改为 next/font/local，字体、许可证和转换记录位于 .sitefoundry-fonts；断网构建前须已安装工程依赖。' : ''
     ].filter(Boolean).join('\r\n') + '\r\n';
     files.set(instructionPath, { path: instructionPath, bytes: encoder.encode(instructions) });
   }

@@ -3,21 +3,72 @@
  * 负责根据配置生成所有网站文件并打包导出
  */
 
+/** Pure asset adapters. Work only on export copies: uploaded records and the
+ * licensed game bundle remain unchanged. A reference is rewritten only when
+ * its matching file is actually going into the corresponding export folder. */
+const GameLocalAssets = (function() {
+    function filename(path) { return String(path || '').replace(/\\/g, '/').split('/').pop(); }
+    function relative(value) { return typeof value === 'string' && value && !/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(value); }
+    function exportData(data, imageField, images, games) {
+        const imageNames = new Set(Object.keys(images || {}).map(filename));
+        const gameNames = new Set(Object.keys(games || {}).map(filename));
+        const imageKeys = new Set([imageField, 'thumb', 'thumbnailUrl', 'thumbnail', 'image', 'imageUrl', 'cover', 'coverUrl', 'coverFile', 'cover_file']);
+        const gameKeys = new Set(['url', 'gameUrl', 'game_url', 'embedUrl', 'embed_url', 'local_entry', 'game_file', 'gameFile']);
+        return JSON.parse(JSON.stringify(data)).map(function(record) {
+            Object.keys(record).forEach(function(key) {
+                const value = record[key];
+                if (!relative(value)) return;
+                const name = filename(value);
+                if (imageKeys.has(key) && imageNames.has(name)) record[key] = 'images/' + name;
+                if (gameKeys.has(key) && gameNames.has(name)) record[key] = 'games/' + name;
+            });
+            return record;
+        });
+    }
+    function catalogLinks(html) {
+        // Three licensed games ship a link to their original catalog. After
+        // relocation into games/, the portal catalog is one directory above.
+        // Do not rewrite restart links or arbitrary occurrences in game code.
+        return String(html).replace(/<a\b[^>]*href=["'](?:\.\/)?index\.html["'][^>]*>[\s\S]*?<\/a>/gi, function(anchor) {
+            const label = anchor.replace(/<[^>]+>/g, '').trim();
+            if (!/^(?:游戏目录|game catalog)$/i.test(label)) return anchor;
+            return anchor.replace(/(\bhref=)["'](?:\.\/)?index\.html["']/i, '$1"../index.html"');
+        });
+    }
+    return { exportData: exportData, catalogLinks: catalogLinks };
+})();
+
 const Generator = (function() {
 
     // Same post-render integration as the editorial builder. Card links and the
     // actual game runtime are preserved; motion only decorates eligible content.
     function motionPage(html, config, preview) {
-        return typeof SiteMotion !== 'undefined' ? SiteMotion.documentHTML(html, config, preview) : html;
+        // The legacy renderer owns its original animations; current motion
+        // preferences must not override a randomly assembled legacy design.
+        html = config.templateVersion !== 'legacy' && typeof SiteMotion !== 'undefined' ? SiteMotion.documentHTML(html, config, preview) : html;
+        return typeof OfflineFonts !== 'undefined' ? OfflineFonts.documentHTML(html, config, preview) : html;
     }
-    function generateIndexHtml(config, data) { return motionPage(generateIndexHtmlBase(config, data), config); }
+    function legacyRender(name, args, config) {
+        const relative = name === 'generateDetailHtml' ? '../' : '';
+        const version = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
+        const adScripts = hasConfiguredAds(config)
+            ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n<script defer src="' + relative + 'js/ad.js?v=' + version + '"><\/script>' : '';
+        return GameTemplateVersions.render(name, args, config, { adTemplates: AD_TEMPLATES, adScripts: adScripts });
+    }
+    function generateCSS(config) { return config.templateVersion === 'legacy' ? legacyRender('generateCSS', [config], config) : generateCSSBase(config); }
+    function generateScriptJs(config) { return config.templateVersion === 'legacy' ? legacyRender('generateScriptJs', [config], config) : generateScriptJsBase(config); }
+    function generateIndexHtml(config, data) { return motionPage(config.templateVersion === 'legacy' ? legacyRender('generateIndexHtml', [config], config) : generateIndexHtmlBase(config, data), config); }
     function generateAllGamesHtml(config, data) { return motionPage(generateAllGamesHtmlBase(config, data), config); }
-    function generateDetailHtml(item, index, allItems, config) { return motionPage(generateDetailHtmlBase(item, index, allItems, config), config); }
-    function generateContactHtml(config) { return motionPage(generateContactHtmlBase(config), config); }
-    function generateAboutHtml(config) { return motionPage(generateAboutHtmlBase(config), config); }
-    function generatePrivacyHtml(config) { return motionPage(generatePrivacyHtmlBase(config), config); }
-    function generateTermsHtml(config) { return motionPage(generateTermsHtmlBase(config), config); }
+    function generateDetailHtml(item, index, allItems, config) { return motionPage(config.templateVersion === 'legacy' ? legacyRender('generateDetailHtml', [item, index, allItems, config], config) : generateDetailHtmlBase(item, index, allItems, config), config); }
+    function generateContactHtml(config) { return motionPage(config.templateVersion === 'legacy' ? legacyRender('generateContactHtml', [config], config) : generateContactHtmlBase(config), config); }
+    function generateAboutHtml(config) { return motionPage(config.templateVersion === 'legacy' ? legacyRender('generateAboutHtml', [config], config) : generateAboutHtmlBase(config), config); }
+    function generatePrivacyHtml(config) { return motionPage(config.templateVersion === 'legacy' ? legacyRender('generatePrivacyHtml', [config], config) : generatePrivacyHtmlBase(config), config); }
+    function generateTermsHtml(config) { return motionPage(config.templateVersion === 'legacy' ? legacyRender('generateTermsHtml', [config], config) : generateTermsHtmlBase(config), config); }
     function generatePreviewHtml(appState, pageType) {
+        if (appState.config.templateVersion === 'legacy') {
+            const config = buildConfig(appState, { previewManualAds: true });
+            return motionPage(GameTemplateVersions.preview(appState, pageType, config, { adTemplates: AD_TEMPLATES }), config, true);
+        }
         return motionPage(generatePreviewHtmlBase(appState, pageType), buildConfig(appState), true);
     }
 
@@ -30,9 +81,6 @@ const Generator = (function() {
         layoutRuntimeSource: function() { return ''; }
     };
 
-
-    // 模块级变量：Google Fonts链接（由generateCSS计算，供HTML生成使用）
-    var _googleFontLink = '';
 
     function escapeHtml(value) {
         return String(value == null ? '' : value)
@@ -704,7 +752,7 @@ if (gaMeasurementId) {
     }
 
     // ========== 生成CSS ==========
-    function generateCSS(config) {
+    function generateCSSBase(config) {
         const style = config.style;
         const preset = STYLE_PRESETS.find(s => s.id === style.selectedStyle) || STYLE_PRESETS[0];
         const vars = { ...preset.vars };
@@ -736,22 +784,7 @@ if (gaMeasurementId) {
             'display': '"Oswald", "Arial Narrow", sans-serif',
             'literary': '"Lora", Georgia, serif'
         };
-        const googleFontsMap = {
-            'elegant': 'Playfair+Display:wght@400;600;700',
-            'modern': 'Montserrat:wght@400;500;600;700',
-            'tech': 'Rajdhani:wght@400;500;600;700',
-            'handwrite': 'Caveat:wght@400;600;700',
-            'retro': 'Press+Start+2P',
-            'clean': 'Inter:wght@400;500;600;700',
-            'display': 'Oswald:wght@400;500;600;700',
-            'literary': 'Lora:wght@400;500;600;700',
-            'rounded': 'Nunito:wght@400;600;700'
-        };
         const fontFamily = fontMap[style.fontStyle] || fontMap['sans-serif'];
-        const googleFontLink = googleFontsMap[style.fontStyle]
-            ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=${googleFontsMap[style.fontStyle]}&display=swap" rel="stylesheet">`
-            : '';
-        _googleFontLink = googleFontLink;
         const transitionSpeed = style.transitionSpeed || '0.3s';
         const navbarHeight = style.navbarHeight || '60px';
 
@@ -2681,7 +2714,6 @@ ${adLayoutTools.layoutRuntimeSource()}
     <meta name="description" content="${theme.siteSubtitle}">
     <script defer src="js/script.js"></script>
     ${adScripts}
-    ${_googleFontLink}
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="${layoutClass}"${TemplateLayouts.bodyAttributes(config)}>
@@ -2726,7 +2758,6 @@ ${adLayoutTools.layoutRuntimeSource()}
     <meta name="description" content="Browse all ${data.length} games on ${siteName}.">
     <script defer src="js/script.js"></script>
     ${adScripts}
-    ${_googleFontLink}
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="${layoutClass}"${TemplateLayouts.bodyAttributes(config)}>
@@ -2748,7 +2779,7 @@ ${adLayoutTools.layoutRuntimeSource()}
     }
 
     // ========== 生成JS script.js ==========
-    function generateScriptJs(config) {
+    function generateScriptJsBase(config) {
         const theme = config.theme;
         const categories = config.structure.categories;
         const cardFields = config.structure.cardFields;
@@ -3173,7 +3204,6 @@ ${adLayoutTools.layoutRuntimeSource()}
     <meta name="keywords" content="${escapeHtml(keywords)}">
     <meta name="description" content="${escapeHtml(String(item[mapping.excerpt] || titleRaw).substring(0, 160))}">
     ${adScripts}
-    ${_googleFontLink}
     <link rel="stylesheet" href="../css/style.css">
 </head>
 <body class="${layoutClass}"${TemplateLayouts.bodyAttributes(config)}>
@@ -3378,7 +3408,12 @@ ${adLayoutTools.layoutRuntimeSource()}
     // ========== 主导出函数 ==========
     async function exportWebsite(appState, onProgress, exportOptions) {
         const config = buildConfig(appState);
-        const data = appState.data;
+        // The copied client renderer uses record.id for detail links. Give its
+        // export copy the same safe file IDs as the host ZIP writer, while
+        // leaving uploaded records and the current renderer untouched.
+        const data = config.templateVersion === 'legacy'
+            ? appState.data.map((item, index) => Object.assign({}, item, { id: getItemId(item, index) }))
+            : appState.data;
         const isLocalImages = appState.isLocalImages;
         const localImages = appState.localImages || {};
         const localGameFiles = appState.localGameFiles || {};
@@ -3433,17 +3468,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         }
 
         // data.json - 处理本地图片路径
-        let dataForJson = JSON.parse(JSON.stringify(data));
-        if (isLocalImages) {
-            const imageField = config.fieldMapping.image;
-            dataForJson = dataForJson.map(item => {
-                if (item[imageField] && !/^(?:https?:|data:|blob:|\/\/)/i.test(item[imageField])) {
-                    const filename = item[imageField].split('/').pop().split('\\').pop();
-                    item[imageField] = 'images/' + filename;
-                }
-                return item;
-            });
-        }
+        const dataForJson = GameLocalAssets.exportData(data, config.fieldMapping.image, isLocalImages ? localImages : {}, localGameFiles);
         siteFolder.file('data.json', JSON.stringify(dataForJson, null, 2));
 
         onProgress(35, '正在生成通用页面...');
@@ -3500,7 +3525,7 @@ ${adLayoutTools.layoutRuntimeSource()}
                 if (!/^[a-z0-9][a-z0-9._-]*\.html$/i.test(filename)) {
                     throw new Error('本地游戏文件名不安全：' + path);
                 }
-                gamesFolder.file(filename, contents);
+                gamesFolder.file(filename, GameLocalAssets.catalogLinks(contents));
             }
         }
 
@@ -3523,6 +3548,7 @@ ${adLayoutTools.layoutRuntimeSource()}
         onProgress(92, '正在校验网站文件...');
         onProgress(95, '正在打包ZIP...');
 
+        if (typeof OfflineFonts !== 'undefined') await OfflineFonts.exportAssets(siteFolder, config);
         const pack = typeof ArchiveExport !== 'undefined' ? ArchiveExport.generate : function(archive, options, progress) { return archive.generateAsync(options, progress); };
         const blob = await pack(zip, {
             type: 'blob',
@@ -3538,6 +3564,11 @@ ${adLayoutTools.layoutRuntimeSource()}
 
     // ========== 构建配置对象 ==========
     function buildConfig(appState, options) {
+        const current = buildConfigBase(appState, options);
+        return appState.config.templateVersion === 'legacy' ? GameTemplateVersions.buildConfig(appState, current) : current;
+    }
+
+    function buildConfigBase(appState, options) {
         const baseTheme = THEMES[appState.selectedTheme];
         const mapping = appState.fieldMapping;
         const siteTitle = String(appState.config.siteTitle || baseTheme.siteTitle).trim() || baseTheme.siteTitle;
@@ -3693,6 +3724,14 @@ ${adLayoutTools.layoutRuntimeSource()}
                 const blobUrl = URL.createObjectURL(blob);
                 localImageUrls[filename] = blobUrl;
                 appState._previewBlobUrls.push(blobUrl);
+            }
+        }
+        // Blob URL ownership stays with the cache, while opaque sandbox frames
+        // render embedded data URLs. Apply these after both cache/fallback paths
+        // so importing, switching and reloading saved catalogs behave equally.
+        if (isLocalImages) {
+            for (const [path, dataUrl] of Object.entries(appState.localImageDataUrls || {})) {
+                if (/^data:image\//i.test(dataUrl)) localImageUrls[path.replace(/\\/g, '/').split('/').pop()] = dataUrl;
             }
         }
 
@@ -4060,7 +4099,6 @@ ${adLayoutTools.layoutRuntimeSource()}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Preview</title>
-    ${_googleFontLink}
     <style>${css}</style>
 </head>
 <body class="layout-${escapeHtml(config.style.layoutTemplate || 'classic')}"${TemplateLayouts.bodyAttributes(config)}>${bodyContent}

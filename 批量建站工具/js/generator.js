@@ -9,17 +9,33 @@ const Generator = (function() {
     // card DOM stay owned by their original renderers; excluded modes are gated
     // by SiteMotion.normalize before the generator normalizes ad workflow names.
     function motionPage(html, config, preview) {
-        if (typeof TemplateRegistry !== 'undefined') html = TemplateRegistry.documentHTML(html, config);
-        return typeof SiteMotion !== 'undefined' ? SiteMotion.documentHTML(html, config, preview) : html;
+        if (config.editorialTemplateVersion !== 'legacy' && typeof TemplateRegistry !== 'undefined') html = TemplateRegistry.documentHTML(html, config);
+        html = config.editorialTemplateVersion !== 'legacy' && typeof SiteMotion !== 'undefined' ? SiteMotion.documentHTML(html, config, preview) : html;
+        return typeof OfflineFonts !== 'undefined' ? OfflineFonts.documentHTML(html, config, preview) : html;
     }
-    function generateIndexHtml(config, data) { return motionPage(generateIndexHtmlBase(config, data), config); }
+    // Version routing is kept above the existing renderer. Its implementation
+    // and the selected advertising core remain unchanged for current templates.
+    function legacyRender(name, args, config) {
+        const relative = name === 'generateDetailHtml' ? '../' : '';
+        const version = getAdRuntimeVersion(config.adPaths, config.adJsVersion);
+        const adScripts = hasAdRuntime(config)
+            ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"><\/script>\n<script defer src="' + relative + 'js/ad.js?v=' + version + '"><\/script>' : '';
+        return EditorialTemplateVersions.render(name, args, config, { adTemplates: AD_TEMPLATES, adScripts });
+    }
+    function generateCSS(config) { return config.editorialTemplateVersion === 'legacy' ? legacyRender('generateCSS', [config], config) : generateCSSBase(config); }
+    function generateScriptJs(config) { return config.editorialTemplateVersion === 'legacy' ? legacyRender('generateScriptJs', [config], config) : generateScriptJsBase(config); }
+    function generateIndexHtml(config, data) { return motionPage(config.editorialTemplateVersion === 'legacy' ? legacyRender('generateIndexHtml', [config], config) : generateIndexHtmlBase(config, data), config); }
     function generateAllArticlesHtml(config, data) { return motionPage(generateAllArticlesHtmlBase(config, data), config); }
-    function generateDetailHtml(item, index, allItems, config) { return motionPage(generateDetailHtmlBase(item, index, allItems, config), config); }
-    function generateContactHtml(config) { return motionPage(generateContactHtmlBase(config), config); }
-    function generateAboutHtml(config) { return motionPage(generateAboutHtmlBase(config), config); }
-    function generatePrivacyHtml(config) { return motionPage(generatePrivacyHtmlBase(config), config); }
-    function generateTermsHtml(config) { return motionPage(generateTermsHtmlBase(config), config); }
+    function generateDetailHtml(item, index, allItems, config) { return motionPage(config.editorialTemplateVersion === 'legacy' ? legacyRender('generateDetailHtml', [item, index, allItems, config], config) : generateDetailHtmlBase(item, index, allItems, config), config); }
+    function generateContactHtml(config) { return motionPage(config.editorialTemplateVersion === 'legacy' ? legacyRender('generateContactHtml', [config], config) : generateContactHtmlBase(config), config); }
+    function generateAboutHtml(config) { return motionPage(config.editorialTemplateVersion === 'legacy' ? legacyRender('generateAboutHtml', [config], config) : generateAboutHtmlBase(config), config); }
+    function generatePrivacyHtml(config) { return motionPage(config.editorialTemplateVersion === 'legacy' ? legacyRender('generatePrivacyHtml', [config], config) : generatePrivacyHtmlBase(config), config); }
+    function generateTermsHtml(config) { return motionPage(config.editorialTemplateVersion === 'legacy' ? legacyRender('generateTermsHtml', [config], config) : generateTermsHtmlBase(config), config); }
     function generatePreviewHtml(appState, pageType, detailIndex) {
+        if (typeof EditorialTemplateVersions !== 'undefined' && EditorialTemplateVersions.eligible(appState) && EditorialTemplateVersions.isLegacy(appState.config)) {
+            const config = buildConfig(appState, { previewManualAds: true });
+            return motionPage(EditorialTemplateVersions.preview(appState, pageType, detailIndex, config, { adTemplates: AD_TEMPLATES }), config, true);
+        }
         return motionPage(generatePreviewHtmlBase(appState, pageType, detailIndex), buildConfig(appState), true);
     }
 
@@ -32,9 +48,6 @@ const Generator = (function() {
         layoutRuntimeSource: function() { return ''; }
     };
 
-
-    // 模块级变量：Google Fonts链接（由generateCSS计算，供HTML生成使用）
-    var _googleFontLink = '';
 
     function serializeForScript(value) {
         return JSON.stringify(String(value == null ? '' : value))
@@ -88,6 +101,11 @@ const Generator = (function() {
             adJsVersion: config.adJsVersion,
             data: data || []
         };
+        if (config.editorialTemplateVersion === 'legacy') {
+            payload.templateVersion = 'legacy';
+            payload.legacyThemeId = config.legacyThemeId;
+            payload.legacyTheme = config.theme;
+        }
         return hashBuildText(stableSerialize(payload));
     }
 
@@ -112,8 +130,7 @@ const Generator = (function() {
         const generatedHref = resolveGeneratedAssetHref(config, stylesheetHref, 'style');
         // 外链样式先加载，当前构建的内联样式最后覆盖。即使部署环境错误缓存了
         // 外部文件，页面也不会被旧主题、旧字体或旧布局反向覆盖。
-        return `${_googleFontLink || ''}
-    <link rel="stylesheet" href="${generatedHref}">
+        return `<link rel="stylesheet" href="${generatedHref}">
     ${inlineFallback}`;
     }
 
@@ -639,7 +656,7 @@ if (gaMeasurementId) {
     }
 
     // ========== 生成CSS ==========
-    function generateCSS(config) {
+    function generateCSSBase(config) {
         const style = config.style;
         const preset = STYLE_PRESETS.find(s => s.id === style.selectedStyle) || STYLE_PRESETS[0];
         const vars = { ...preset.vars };
@@ -662,10 +679,6 @@ if (gaMeasurementId) {
         const fontPreset = FONT_PRESETS.find(function(font) { return font.id === style.fontStyle; }) || FONT_PRESETS[0];
         const fontFamily = fontPreset.family;
         const fontStyleRule = fontPreset.style === 'italic' ? 'font-style: italic;' : '';
-        const googleFontLink = fontPreset.google
-            ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=${fontPreset.google}&display=swap" rel="stylesheet">`
-            : '';
-        _googleFontLink = googleFontLink;
         const transitionSpeed = style.transitionSpeed || '0.3s';
         const requestedNavbarHeight = style.navbarHeight || '60px';
         const requestedNavbarPixels = /^\d+(?:\.\d+)?px$/i.test(requestedNavbarHeight)
@@ -2698,7 +2711,7 @@ ${adLayoutTools.layoutRuntimeSource()}`;
     }
 
     // ========== 生成JS script.js ==========
-    function generateScriptJs(config) {
+    function generateScriptJsBase(config) {
         const theme = config.theme;
         const categories = config.structure.categories;
         const cardFields = config.structure.cardFields;
@@ -3351,6 +3364,7 @@ ${adLayoutTools.layoutRuntimeSource()}`;
             templateDomain: config.templateDomain,
             templateId: config.templateId,
             selectedStyle: config.style.selectedStyle,
+            ...(config.editorialTemplateVersion === 'legacy' ? { templateVersion: 'legacy', legacyThemeId: config.legacyThemeId } : {}),
             fontStyle: config.style.fontStyle,
             categories: config.structure.categories.map(function(category) {
                 const layout = typeof TemplateRegistry !== 'undefined' && TemplateRegistry.categoryAttributes(config, category, category.count)
@@ -3412,6 +3426,7 @@ ${adLayoutTools.layoutRuntimeSource()}`;
 
         // Batch export inspects this exact uncompressed archive and applies all
         // preflight/ad checks before its only compression pass.
+        if (typeof OfflineFonts !== 'undefined') await OfflineFonts.exportAssets(siteFolder, config);
         if (exportOptions && exportOptions.returnArchive) return zip;
 
         onProgress(95, '正在打包ZIP...');
@@ -3431,6 +3446,16 @@ ${adLayoutTools.layoutRuntimeSource()}`;
 
     // ========== 构建配置对象 ==========
     function buildConfig(appState, options) {
+        const current = buildConfigBase(appState, options);
+        if (typeof EditorialTemplateVersions !== 'undefined' && EditorialTemplateVersions.eligible(appState) && EditorialTemplateVersions.isLegacy(appState.config)) {
+            const legacy = EditorialTemplateVersions.buildConfig(appState, current);
+            legacy.renderSignature = createRenderSignature(legacy, appState.data || []);
+            return legacy;
+        }
+        return current;
+    }
+
+    function buildConfigBase(appState, options) {
         const baseTheme = THEMES[appState.selectedTheme];
         const profile = typeof DOMAIN_CATALOG !== 'undefined' ? DOMAIN_CATALOG[appState.selectedTheme] : null;
         const selectedCategories = clonePlain(appState.config.categories || baseTheme.categories || [], []);
@@ -3925,8 +3950,7 @@ ${adLayoutTools.layoutRuntimeSource()}`;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Preview</title>
-    <script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"></script>
-    ${_googleFontLink}
+    ${hasValidatedAdConfig(config) ? '<script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" crossorigin="anonymous"></script>' : ''}
     <style>${css}</style>
 </head>
 <body${TemplateLayouts.bodyAttributes(config)}>${bodyContent}

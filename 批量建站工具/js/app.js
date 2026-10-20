@@ -12,6 +12,8 @@ import { mapWithConcurrency, yieldToBrowser } from './async-work.js?v=20261013-p
 import { renderExportConfiguration, renderDifferentiatedExportConfiguration } from './export-summary-view.js?v=sha256-3f2b9900e822a4dc';
 import { updateWorkflowExportProgress, setWorkflowExportButtonLabel } from './export-progress-view.js?v=sha256-cd8cc888fe9e8d8a';
 import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066db4b8e1535';
+import { collectDataDirectory, directoryFileEntries, readDataDirectory } from './data-directory-import.js';
+import { rewritePreviewCss } from './preview-css.js';
 
 /**
  * 主应用逻辑
@@ -402,7 +404,19 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
     });
     document.addEventListener('keydown', function(event) {
         if (!noticeOverlay || noticeOverlay.hidden) return;
-        if (event.key === 'Escape') {
+        if (event.key === 'Tab') {
+            // Keep JSON selection/error confirmation inside its modal surface;
+            // keyboard users must not change the workflow behind an import.
+            var focusable = Array.from(noticeDialog.querySelectorAll('button, select, input, a[href], [tabindex="0"]')).filter(function(control) {
+                return !control.disabled && !control.hidden && control.getClientRects().length > 0;
+            });
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+            if (first && (!noticeDialog.contains(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last))) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            }
+        } else if (event.key === 'Escape') {
             event.preventDefault();
             closeNotice(false);
         } else if (event.key === 'Enter' && event.target === noticeConfirm) {
@@ -434,6 +448,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
     function syncAllArticlesUI() {
         // All generated-content workflows export the same listing page.
         var normalMode = ['normal', 'ad-migration', 'batch-ad-build'].indexOf(appState.siteBuildMode) !== -1;
+        normalMode = normalMode && !EditorialTemplateVersions.isLegacy(appState.config);
         var enabled = normalMode && appState.config && appState.config.allArticlesEnabled !== false && !!(appState.data && appState.data.length);
         var settings = document.getElementById('all-articles-settings');
         var input = document.getElementById('all-articles-enabled');
@@ -480,6 +495,8 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         var batchSection = document.getElementById('batch-ad-setup');
         if (batchSection) batchSection.hidden = !isBatchAdBuild;
         if (uploadArea) uploadArea.hidden = isRestoration || isInjection || isBatchAdBuild;
+        var directoryActions = document.getElementById('data-directory-actions');
+        if (directoryActions) directoryActions.hidden = isRestoration || isInjection || isBatchAdBuild || isDifferentiated;
         if (dataOverview) dataOverview.hidden = isRestoration || isInjection || isBatchAdBuild;
         var stepProgress = document.querySelector('.step-progress');
         if (stepProgress) stepProgress.hidden = isStandaloneTool;
@@ -575,6 +592,9 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         if (nextMode !== appState.siteBuildMode) {
             markWorkflowModeTransition();
             if (typeof PreviewImageCache !== 'undefined') PreviewImageCache.acquire({});
+        }
+        if (!['normal', 'batch-ad-build'].includes(nextMode) && EditorialTemplateVersions.isLegacy(appState.config)) {
+            appState.config = EditorialTemplateVersions.switchVersion(appState.config, 'current', appState.selectedTheme, createThemeConfig);
         }
         appState.siteBuildMode = nextMode;
         appState.adPlacementMode = null;
@@ -1019,7 +1039,9 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         target.innerHTML = html;
     }
 
-    function saveRestorationBlob(blob, fileName) {
+    async function saveRestorationBlob(blob, fileName) {
+        // Native exports resolve after the actual file writer finishes.
+        if (window.ArchiveExport && window.ArchiveExport.save) return await window.ArchiveExport.save(blob, fileName);
         if (typeof saveAs === 'function') {
             saveAs(blob, fileName);
             return;
@@ -1365,7 +1387,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                     updateWorkflowExportProgress('restoration-progress', 88, '正在生成批量 ZIP…');
                     var blob = await AdRestoration.zipPolicyBatch(output);
                     var fileName = output.folderName + '.zip';
-                    saveRestorationBlob(blob, fileName);
+                    await saveRestorationBlob(blob, fileName);
                     renderAdRestorationResult(output.results, fileName, '', false);
                 }
                 // 部分站点失败时显示结果提示，避免将整个批次标成全部成功。
@@ -1395,7 +1417,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                     var code = appState.adPolicyCodeOverrides[site.id];
                     return code ? Object.assign({}, site, { metadata: Object.assign({}, site.metadata, { embeddedConfig: code.config, detectedHost: code.detectedHost }) }) : site;
                 }));
-                saveRestorationBlob(output.blob, output.fileName);
+                await saveRestorationBlob(output.blob, output.fileName);
                 var codeHasFailures = output.results.some(function(result) { return !result.valid; });
                 updateWorkflowExportProgress('restoration-progress', 100, codeHasFailures ? '处理结束，部分站点未通过识别，请查看结果。' : '广告代码导出完成，请查看识别结果。', codeHasFailures ? 'error' : 'success');
                 renderRecognizedCodeResult(output.results, output.fileName, '');
@@ -1701,9 +1723,9 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
     }
 
     function rewriteAdInjectionPreviewCss(css, fromPath, root, entryByPath, assetUrls) {
-        return String(css || '').replace(/url\(\s*(['"]?)([^)'"\s]+)\1\s*\)/gi, function(match, quote, reference) {
-            var resolved = resolveAdInjectionPreviewAsset(reference, fromPath, root, entryByPath);
-            return resolved && assetUrls[resolved.toLowerCase()] ? 'url("' + assetUrls[resolved.toLowerCase()] + '")' : match;
+        return rewritePreviewCss(css, fromPath, function(reference, ownerPath) {
+            var resolved = resolveAdInjectionPreviewAsset(reference, ownerPath, root, entryByPath);
+            return resolved && assetUrls[resolved.toLowerCase()] || '';
         });
     }
 
@@ -1768,14 +1790,17 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
             'function requestStyle(node,value){String(value||"").replace(/url\\(\\s*([\'\"]?)([^)\'\"\\s]+)\\1\\s*\\)/gi,function(match,quote,url){request(node,"style:"+url,url);return match;});}' +
             'function apply(node){if(!node||node.nodeType!==1)return;["src","href","poster"].forEach(function(name){if(node.hasAttribute(name))request(node,name,node.getAttribute(name));});if(node.hasAttribute("srcset"))requestSrcset(node,node.getAttribute("srcset"));if(node.hasAttribute("style"))requestStyle(node,node.getAttribute("style"));node.querySelectorAll&&node.querySelectorAll("[src],[href],[poster],[srcset],[style]").forEach(apply);}' +
             'addEventListener("message",function(event){var data=event.data||{};if(event.source!==parent||data.type!=="sitefoundry-preview-asset-response"||data.token!==config.token||!data.path||!data.url)return;(waiting[data.path]||[]).forEach(function(item){if(!item.node||!item.node.isConnected)return;if(item.name.indexOf("srcset:")===0){var descriptor=item.name.slice(7);nativeSetAttribute.call(item.node,"srcset",data.url+(descriptor?" "+descriptor:""));}else if(item.name.indexOf("style:")===0){var original=item.name.slice(6);nativeSetAttribute.call(item.node,"style",String(item.node.getAttribute("style")||"").split(original).join(data.url));}else nativeSetAttribute.call(item.node,item.name,data.url);});(urlWaiting[data.path]||[]).forEach(function(done){done(data.url);});delete waiting[data.path];delete urlWaiting[data.path];});' +
-            'if(config.effectsEnabled&&window.fetch){var nativeFetch=window.fetch.bind(window);window.fetch=function(input,init){var value=typeof input==="string"?input:input&&input.url||"";var path=resolve(value);return path?requestUrl(path).then(function(url){return nativeFetch(url,init);}):nativeFetch(input,init);};}' +
+            // Local data belongs to ordinary site rendering, including when 3D
+            // effects are off. Computed fetch paths cannot be rewritten as JS
+            // literals; resolve them against the uploaded HTML at runtime.
+            'if(window.fetch){var nativeFetch=window.fetch.bind(window);window.fetch=function(input,init){var value=typeof input==="string"?input:input&&input.url||"";var path=resolve(value);return path?requestUrl(path).then(function(url){return nativeFetch(url,init);}):nativeFetch(input,init);};}' +
             'new MutationObserver(function(records){records.forEach(function(record){apply(record.target);record.addedNodes&&record.addedNodes.forEach(apply);});}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:["src","href","poster","srcset","style"]});' +
             'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",function(){apply(document.documentElement);},{once:true});else apply(document.documentElement);' +
             '})();';
     }
 
     function adInjectionPreviewCsp(effectsEnabled) {
-        if (!effectsEnabled) return "default-src 'none'; img-src data:; style-src data: 'unsafe-inline'; font-src data:; media-src data:; script-src 'unsafe-inline' data:";
+        if (!effectsEnabled) return "default-src 'none'; img-src data:; style-src data: 'unsafe-inline'; font-src data:; media-src data:; script-src 'unsafe-inline' data:; connect-src data:";
         return "default-src 'none'; img-src data: blob: https: http:; style-src data: blob: https: http: 'unsafe-inline'; font-src data: blob: https: http:; media-src data: blob: https: http:; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob: https: http:; connect-src data: blob: https: http: ws: wss:; worker-src data: blob:; child-src data: blob:; frame-src data: blob: https: http:";
     }
 
@@ -2212,10 +2237,25 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
             var path = normalizeAdInjectionPreviewPath(item.path);
             assetUrls[path.toLowerCase()] = adInjectionPreviewDataUrl(item.bytes || new Uint8Array(), adInjectionPreviewMime(path));
         });
+        // Build imports before their owners, independent of ZIP entry order.
+        // A cycle is retained as an unresolved reference and blocked by the
+        // frame policy, rather than recursing indefinitely or reading host files.
+        var buildingStylesheets = new Set();
+        function stylesheetUrl(path) {
+            var key = path.toLowerCase();
+            if (assetUrls[key]) return assetUrls[key];
+            if (buildingStylesheets.has(key) || !entryByPath[key]) return '';
+            buildingStylesheets.add(key);
+            var css = rewritePreviewCss(entryTextForPreview(entryByPath[key]), path, function(reference, ownerPath) {
+                var resolved = resolveAdInjectionPreviewAsset(reference, ownerPath, root, entryByPath);
+                if (!resolved) return '';
+                return /\.css$/i.test(resolved) ? stylesheetUrl(resolved) : assetUrls[resolved.toLowerCase()] || '';
+            });
+            buildingStylesheets.delete(key);
+            return assetUrls[key] = adInjectionPreviewDataUrl(css, 'text/css;charset=utf-8');
+        }
         entries.filter(function(item) { return /\.css$/i.test(item.path || ''); }).forEach(function(item) {
-            var path = normalizeAdInjectionPreviewPath(item.path);
-            var css = rewriteAdInjectionPreviewCss(entryTextForPreview(item), path, root, entryByPath, assetUrls);
-            assetUrls[path.toLowerCase()] = adInjectionPreviewDataUrl(css, 'text/css;charset=utf-8');
+            stylesheetUrl(normalizeAdInjectionPreviewPath(item.path));
         });
         var executeSiteScripts = effectsEnabled || shouldExecuteAdInjectionPreviewScripts(site, entry);
         var moduleImports = {};
@@ -2273,7 +2313,9 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                     });
                     if (htmlMatches.length === 1) resolved = normalizeAdInjectionPreviewPath(htmlMatches[0].path);
                 }
-                var previewableAsset = /\.(?:css|[cm]?js|jsx|tsx)$/i.test(resolved) || (effectsEnabled && String(node.tagName || '').toLowerCase() === 'iframe' && /\.html?$/i.test(resolved));
+                // Resolve images and font preload links before the document is
+                // parsed, avoiding a first request against the workbench origin.
+                var previewableAsset = !/\.html?$/i.test(resolved) || (effectsEnabled && String(node.tagName || '').toLowerCase() === 'iframe');
                 if (resolved && previewableAsset && assetUrls[resolved.toLowerCase()]) node.setAttribute(attribute, assetUrls[resolved.toLowerCase()]);
             });
         });
@@ -2900,7 +2942,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                     updateWorkflowExportProgress('injection-progress', 88, '正在生成成品站广告注入 ZIP…');
                     var blob = await AdRestoration.zipPolicyBatch(output);
                     var fileName = output.folderName + '.zip';
-                    saveRestorationBlob(blob, fileName);
+                    await saveRestorationBlob(blob, fileName);
                     renderAdInjectionResult(output.results, fileName, '', false);
                 }
                 var injectionHasFailures = output.results.some(function(result) { return !result.valid; });
@@ -3380,6 +3422,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
     function initUploadControls() {
         if (!uploadArea || !fileInput || uploadArea.dataset.uploadReady === 'true') return;
         uploadArea.dataset.uploadReady = 'true';
+        initDataDirectoryControls();
 
         // 原生文件输入框覆盖整个上传区域；这里保留非输入框区域的点击回退。
         uploadArea.addEventListener('click', function(event) {
@@ -3404,6 +3447,94 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         });
         fileInput.addEventListener('change', function() {
             if (this.files.length > 0) handleFile(this.files[0]);
+        });
+    }
+
+    // Folder selection uses the existing native directory boundary on Windows
+    // and Android. Browser fallback carries the same relative paths via Files.
+    // Commit generated state only after all required JSON/image reads succeed.
+    var directoryImportRunning = false;
+    function chooseDirectoryJson(candidates) {
+        return new Promise(function(resolve) {
+            var select = document.createElement('select');
+            select.id = 'data-directory-json-choice';
+            select.setAttribute('aria-label', '选择要导入的 JSON 数据源');
+            candidates.forEach(function(item) {
+                var option = document.createElement('option');
+                option.value = item.path;
+                option.textContent = item.path + '（' + item.data.length + ' 条）';
+                select.appendChild(option);
+            });
+            showConfirm('文件夹中发现多份有效 JSON，请选择本次要导入的数据源。', '选择 JSON 数据源', '导入所选数据源', function(confirmed) {
+                resolve(confirmed ? select.value : null);
+            });
+            noticeMessage.appendChild(select);
+            window.requestAnimationFrame(function() { select.focus(); });
+        });
+    }
+
+    async function importDataDirectory(entries, batch, trigger) {
+        if (directoryImportRunning) return;
+        directoryImportRunning = true;
+        var controls = ['data-directory-button', 'batch-directory-button', 'data-directory-input', 'batch-directory-input', 'file-input', 'batch-data-input', 'batch-data-button'];
+        controls.forEach(function(id) { var control = document.getElementById(id); if (control) control.disabled = true; });
+        var sourceName = entries[0] && entries[0].path.split('/')[0] || '数据源文件夹';
+        try {
+            var result = await readDataDirectory(entries, {
+                parseJson: parseUploadedJson, normalizeData: BatchAdBuilder.normalizeData,
+                chooseJson: chooseDirectoryJson,
+                onProgress: function(progress, message) {
+                    if (batch) setBatchDataImportProgress(Math.round(progress * 85), message, 'loading');
+                    else setSingleImportProgress(Math.round(progress * 95), message, 'loading');
+                }
+            });
+            if (batch) {
+                await importBatchDataFiles([{ name: sourceName, directoryData: result }], { append: true });
+            } else {
+                processData(result.data, Object.keys(result.localImages).length > 0, result.localImages, false, { fileName: sourceName, entryPath: result.entryPath });
+                finishSingleDataImport({ name: sourceName + '（文件夹）' });
+            }
+        } catch (error) {
+            var cancelled = error.name === 'AbortError';
+            if (batch) setBatchDataImportProgress(100, error.message, cancelled ? 'cancelled' : 'error');
+            else setSingleImportProgress(100, error.message, cancelled ? 'cancelled' : 'error');
+            if (!cancelled) showNotice(error.message, '无法读取数据源文件夹');
+        } finally {
+            directoryImportRunning = false;
+            controls.forEach(function(id) { var control = document.getElementById(id); if (control) control.disabled = false; });
+            // The trigger is disabled while files are read, so the generic
+            // notice closer cannot restore focus until this cleanup completes.
+            if (trigger && typeof trigger.focus === 'function') {
+                if (noticeOverlay && !noticeOverlay.hidden) noticeLastFocus = trigger;
+                else trigger.focus();
+            }
+        }
+    }
+
+    function initDataDirectoryControls() {
+        ['data', 'batch'].forEach(function(kind) {
+            var button = document.getElementById(kind === 'data' ? 'data-directory-button' : 'batch-directory-button');
+            var input = document.getElementById(kind === 'data' ? 'data-directory-input' : 'batch-directory-input');
+            if (!button || !input || button.dataset.ready) return;
+            button.dataset.ready = 'true';
+            button.addEventListener('click', async function() {
+                if (directoryImportRunning) return;
+                if (typeof window.showDirectoryPicker !== 'function') { input.value = ''; input.click(); return; }
+                button.disabled = true;
+                try {
+                    var handle = await window.showDirectoryPicker({ mode: 'read' });
+                    await importDataDirectory(await collectDataDirectory(handle), kind === 'batch', button);
+                } catch (error) {
+                    if (error.name !== 'AbortError') showNotice(error.message, '无法选择数据源文件夹');
+                } finally {
+                    button.disabled = false;
+                    if (noticeOverlay && !noticeOverlay.hidden) noticeLastFocus = button;
+                    else button.focus();
+                }
+            });
+            input.addEventListener('change', function() {
+                if (input.files.length) importDataDirectory(directoryFileEntries(input.files), kind === 'batch', button);
+            });
         });
     }
 
@@ -3438,6 +3569,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         if (batch.codePlacementDefaults.adPlacements !== null && (!batch.codePlacementDefaults.adPlacements || typeof batch.codePlacementDefaults.adPlacements !== 'object' || Array.isArray(batch.codePlacementDefaults.adPlacements))) {
             batch.codePlacementDefaults.adPlacements = null;
         }
+        if (!batch.editorialTemplateDefaults) batch.editorialTemplateDefaults = { version: 'current', legacyThemeId: null };
         return batch;
     }
 
@@ -3470,6 +3602,13 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         if (!Number.isInteger(index) || index < 0 || index >= sites.length) index = 0;
         batch.activeSiteIndex = index;
         return sites[index];
+    }
+
+    // An intentional shared-setting edit makes inactive previews stale too.
+    // Only discard their old certification; the next actual preview records a
+    // fresh signature and the generator still checks preview/export equality.
+    function invalidateBatchSitePreviews(sites) {
+        (sites || []).forEach(function(site) { site.previewSignature = ''; });
     }
 
     // 批量流程仍复用单站预览与配置面板；切换时必须把当前站的图片、字段与配置完整带入，
@@ -3516,17 +3655,19 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                 if (appState.adCodeMigration.detectedHost) appState.config.contactEmail = 'contact@' + String(appState.adCodeMigration.detectedHost).toLowerCase();
             }
         }
+        if (appState.currentStep === 4) initStyleGrid();
         return site;
     }
 
     function getBatchTemplateOwner(templateId, exceptSite) {
         if (!isBatchAdBuild() || !templateId) return null;
-        return findTemplateOwner(appState.batchAdBuild.sites, templateId, exceptSite,
+        return findTemplateOwner(appState.batchAdBuild.sites.filter(function(site) { return !EditorialTemplateVersions.isLegacy(site.config); }), templateId, exceptSite,
             exceptSite && exceptSite.themeId || appState.selectedTheme);
     }
 
     function getBatchTemplateIssue(site) {
         if (!site || !THEMES[site.themeId]) return '尚未确认领域';
+        if (EditorialTemplateVersions.isLegacy(site.config)) return '';
         if (!site || !site.config || !site.config.templateId) return '尚未分配独立模板';
         var owner = getBatchTemplateOwner(site.config.templateId, site);
         return owner ? '与“' + (owner.fileName || '另一个站点') + '”重复使用模板' : '';
@@ -3658,6 +3799,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         });
         if (template) applyTemplateToConfig(site.config, template);
         else site.config.templateId = '';
+        applyBatchEditorialVersion(site);
         return true;
     }
 
@@ -3743,15 +3885,22 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         if (card) card.classList.toggle('is-importing', isLoading);
         if (button) button.disabled = isLoading;
         if (input) input.disabled = isLoading;
+        ['batch-directory-button', 'batch-directory-input'].forEach(function(id) {
+            var control = document.getElementById(id);
+            if (control) control.disabled = isLoading || directoryImportRunning;
+        });
     }
 
-    async function importBatchDataFiles(files) {
+    async function importBatchDataFiles(files, options) {
         if (typeof BatchAdBuilder === 'undefined') {
             showNotice('批量建站组件未加载。请刷新页面后重试。', '无法读取数据源');
             return;
         }
         var list = Array.from(files || []);
-        if (list.length < 2) {
+        var append = options && options.append === true;
+        var previous = ensureBatchAdBuildState();
+        var previousSites = append ? previous.sites.slice() : [];
+        if (list.length < (append ? 1 : 2)) {
             showNotice('批量建站至少需要选择两份 JSON、ZIP、RAR 或 7Z 数据源。', '数据源数量不足');
             return;
         }
@@ -3775,11 +3924,11 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                 });
             });
             appState.batchAdBuild = {
-                sites: loaded,
-                codes: [],
-                activeSiteIndex: 0,
-                adMode: 'code',
-                reserveDefaults: defaultBatchReserveSettings()
+                sites: previousSites.concat(loaded),
+                codes: append ? previous.codes : [],
+                activeSiteIndex: previousSites.length,
+                adMode: append ? previous.adMode : 'code',
+                reserveDefaults: append ? previous.reserveDefaults : defaultBatchReserveSettings()
             };
             resetWorkflowStepProgress('batch-ad-build');
             appState.adCodeMigration = null;
@@ -3799,7 +3948,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
             renderDomainDetection();
             renderBatchDataList();
             renderBatchPreviewSiteTabs();
-            setBatchDataImportProgress(100, '已完成解析 ' + loaded.length + ' 份数据源，可继续逐站确认领域。', 'success');
+            setBatchDataImportProgress(100, '已完成解析 ' + loaded.length + ' 份数据源，当前共 ' + appState.batchAdBuild.sites.length + ' 站，可继续逐站确认领域。', 'success');
         } catch (error) {
             setBatchDataImportProgress(100, '解析失败：' + (error && error.message ? error.message : '请检查数据源后重试。'), 'error');
             showNotice(error.message, '无法读取批量数据源');
@@ -3871,7 +4020,11 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         var ext = String(file && file.name || '').split('.').pop().toLowerCase();
         var data;
         var localImages = {};
-        if (ext === 'json') {
+        if (file.directoryData) {
+            data = file.directoryData.data;
+            localImages = file.directoryData.localImages;
+            report(0.82, '正在分析文件夹数据');
+        } else if (ext === 'json') {
             report(0.08, '正在读取 JSON 文件');
             data = BatchAdBuilder.normalizeData(parseUploadedJson(await file.text()));
             report(0.82, '正在分析 JSON 数据');
@@ -4011,7 +4164,10 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                     });
                     input.addEventListener('change', function() {
                         var site = batch.sites.find(function(candidate) { return candidate.id === input.dataset.batchDomainSite; });
-                        if (site) site.adDomain = input.value.trim().toLowerCase();
+                        if (site) {
+                            site.adDomain = input.value.trim().toLowerCase();
+                            invalidateBatchSitePreviews([site]);
+                        }
                         if (site === getActiveBatchSite()) {
                             syncBatchActiveSiteToApp();
                             var contactEmailInput = document.getElementById('contact-email');
@@ -4115,6 +4271,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                 if (!input.checked) return;
                 var batch = ensureBatchAdBuildState();
                 batch.adMode = input.value === 'reserve' ? 'reserve' : 'code';
+                invalidateBatchSitePreviews(batch.sites);
                 appState.adPlacementMode = null;
                 syncBatchActiveSiteToApp();
                 renderBatchAdCodeWorkspace();
@@ -4185,6 +4342,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
 
     // ========== 步骤导航 ==========
     function goToStep(step) {
+        if (window.OfflineStatus) window.OfflineStatus.trackState(appState);
         var steps = currentWorkflowSteps();
         var targetIndex = window.WorkflowStepNavigation.getStepIndex(steps, step);
         if (targetIndex === -1) return;
@@ -4426,6 +4584,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         var theme = THEMES[themeId];
         var defaultTemplate = getBlueprintsForTheme(themeId)[0];
         return {
+                editorialTemplateVersion: 'current',
                 brandId: themeId + '-brand-01',
                 siteTitle: theme.siteTitle,
                 logoText: theme.logoText,
@@ -4614,6 +4773,8 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
             uploadArea.setAttribute('aria-busy', isLoading ? 'true' : 'false');
         }
         if (fileInput) fileInput.disabled = isLoading;
+        var directoryButton = document.getElementById('data-directory-button');
+        if (directoryButton) directoryButton.disabled = isLoading || directoryImportRunning;
     }
 
     function beginSingleDataImport(file) {
@@ -5043,7 +5204,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
 
     // ========== Step 4: 配置面板 ==========
     function initConfigPanel() {
-        var theme = THEMES[appState.selectedTheme];
+        var theme = EditorialTemplateVersions.theme(appState);
         if (!theme) return;
 
         // Hero开关
@@ -5086,7 +5247,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         });
 
         // 初始化分类配置
-        updateCategoryConfig(theme.categories.length);
+        updateCategoryConfig(EditorialTemplateVersions.isLegacy(appState.config) ? appState.config.categories.length : theme.categories.length);
 
         // 其他配置事件
         initFontOptions();
@@ -5096,6 +5257,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         initIconSetControls();
         initStyleGrid();
         bindConfigEvents();
+        initEditorialTemplateVersionControls();
         initConfigTabs();
         initPreviewControls();
         initAdConfig();
@@ -5330,6 +5492,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
     function initTemplateGrid() {
         var grid = document.getElementById('template-grid');
         if (!grid) return;
+        if (EditorialTemplateVersions.isLegacy(appState.config)) { grid.innerHTML = ''; return; }
 
         var html = '';
         var profile = DOMAIN_CATALOG[appState.selectedTheme];
@@ -5875,7 +6038,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
     }
 
     function updateCategoryConfig(count) {
-        var theme = THEMES[appState.selectedTheme];
+        var theme = EditorialTemplateVersions.theme(appState);
         var container = document.getElementById('categories-config');
         closeCategoryIconPickers();
         var currentCats = appState.config.categories || theme.categories;
@@ -6116,7 +6279,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
     }
 
     function updateCardFieldsConfig() {
-        var theme = THEMES[appState.selectedTheme];
+        var theme = EditorialTemplateVersions.theme(appState);
         var container = document.getElementById('card-fields-config');
         var html = '';
         theme.fields.forEach(function(f) {
@@ -6129,7 +6292,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
     }
 
     function updateRelatedCardFieldsConfig() {
-        var theme = THEMES[appState.selectedTheme];
+        var theme = EditorialTemplateVersions.theme(appState);
         var container = document.getElementById('related-card-fields-config');
         var html = '';
         theme.fields.forEach(function(f) {
@@ -6214,7 +6377,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
 
     function setInitialConfigValues() {
         var c = appState.config;
-        var theme = THEMES[appState.selectedTheme];
+        var theme = EditorialTemplateVersions.theme(appState);
 
         // 设置select的初始值
         if (c.navbarLayout) document.getElementById('navbar-layout').value = c.navbarLayout;
@@ -6270,8 +6433,9 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
         var grid = document.getElementById('style-grid');
         var count = document.getElementById('style-preset-count');
         var html = '';
-        if (count) count.textContent = STYLE_PRESETS.length + ' 套';
-        STYLE_PRESETS.forEach(function(preset) {
+        var presets = EditorialTemplateVersions.isLegacy(appState.config) && EditorialTemplateVersions.eligible(appState) ? LegacyEditorialTemplateSource.presets : STYLE_PRESETS;
+        if (count) count.textContent = presets.length + ' 套';
+        presets.forEach(function(preset) {
             var selected = appState.config.selectedStyle === preset.id ? ' selected' : '';
             html += '<div class="style-card' + selected + '" data-style-id="' + preset.id + '">';
             html += '<div class="style-preview" style="background:' + preset.previewBg + '"></div>';
@@ -6288,6 +6452,100 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                 updatePreview();
             });
         });
+    }
+
+    // Template defaults belong to the batch; snapshots belong to each site.
+    // Advertising defaults/overrides use their existing, independent path.
+    function applyBatchEditorialVersion(site) {
+        if (!site || !site.config || site.editorialTemplateOverrideEnabled) return;
+        var previousConfig = site.config;
+        var defaults = ensureBatchAdBuildState().editorialTemplateDefaults;
+        site.config = EditorialTemplateVersions.switchVersion(site.config, defaults.version, site.themeId, createThemeConfig);
+        if (defaults.version === 'legacy' && defaults.legacyThemeId && site.config.legacyThemeId !== defaults.legacyThemeId) {
+            site.config = EditorialTemplateVersions.changeTheme(site.config, defaults.legacyThemeId);
+        }
+        if (site.config !== previousConfig) invalidateBatchSitePreviews([site]);
+    }
+
+    function syncEditorialTemplateScope() {
+        var batch = isBatchAdBuild();
+        var scope = document.getElementById('batch-editorial-template-scope');
+        if (!scope) return;
+        scope.hidden = !batch;
+        var site = batch ? getActiveBatchSite() : null;
+        document.getElementById('batch-editorial-template-override').checked = !!(site && site.editorialTemplateOverrideEnabled);
+        document.getElementById('batch-editorial-template-scope-hint').textContent = site && site.editorialTemplateOverrideEnabled
+            ? '正在编辑当前站点，其他站点的版本选择不变。' : '正在编辑整批默认版本；已开启单站覆盖的站点不受影响。';
+    }
+
+    function refreshEditorialTemplateUI() {
+        if (isBatchAdBuild()) syncBatchActiveSiteToApp();
+        initStyleGrid();
+        initTemplateGrid();
+        applyConfigToUI();
+        setInitialConfigValues();
+        document.querySelectorAll('#footer-links-config input').forEach(function(input) {
+            input.checked = (appState.config.footerLinks || []).includes(input.value);
+        });
+        document.getElementById('related-count').value = appState.config.relatedCount || 4;
+        document.getElementById('related-count-value').textContent = appState.config.relatedCount || 4;
+        document.querySelectorAll('#contact-fields-config input').forEach(function(input) {
+            input.checked = (appState.config.contactFields || []).includes(input.value);
+        });
+        syncStyledSelects();
+        if (isBatchAdBuild()) renderBatchDataList();
+        updatePreview();
+    }
+
+    function initEditorialTemplateVersionControls() {
+        var picker = document.getElementById('editorial-template-version');
+        var oldTheme = document.getElementById('editorial-legacy-theme');
+        if (!picker.dataset.versionBound) {
+            picker.dataset.versionBound = 'true';
+            oldTheme.innerHTML = Object.keys(LegacyEditorialTemplateSource.themes).map(function(id) {
+                return '<option value="' + id + '">' + LegacyEditorialTemplateSource.themes[id].name + '</option>';
+            }).join('');
+            picker.addEventListener('change', function() {
+                var site = isBatchAdBuild() ? getActiveBatchSite() : null;
+                if (site && !site.editorialTemplateOverrideEnabled) {
+                    var batch = ensureBatchAdBuildState();
+                    batch.editorialTemplateDefaults.version = this.value;
+                    batch.sites.forEach(applyBatchEditorialVersion);
+                } else {
+                    appState.config = EditorialTemplateVersions.switchVersion(appState.config, this.value, appState.selectedTheme, createThemeConfig);
+                    if (site) site.config = appState.config;
+                }
+                refreshEditorialTemplateUI();
+            });
+            oldTheme.addEventListener('change', function() {
+                var site = isBatchAdBuild() ? getActiveBatchSite() : null;
+                if (site && !site.editorialTemplateOverrideEnabled) {
+                    var batch = ensureBatchAdBuildState();
+                    batch.editorialTemplateDefaults.legacyThemeId = this.value;
+                    batch.sites.forEach(applyBatchEditorialVersion);
+                } else {
+                    appState.config = EditorialTemplateVersions.changeTheme(appState.config, this.value);
+                    if (site) site.config = appState.config;
+                }
+                refreshEditorialTemplateUI();
+            });
+            document.getElementById('batch-editorial-template-override').addEventListener('change', function() {
+                var site = getActiveBatchSite();
+                if (!site) return;
+                site.editorialTemplateOverrideEnabled = this.checked;
+                if (!this.checked) applyBatchEditorialVersion(site);
+                refreshEditorialTemplateUI();
+            });
+            document.querySelectorAll('#editorial-legacy-nav-links input').forEach(function(input) {
+                input.addEventListener('change', function() {
+                    if (!EditorialTemplateVersions.isLegacy(appState.config)) return;
+                    appState.config.navLinks = Array.from(document.querySelectorAll('#editorial-legacy-nav-links input:checked')).map(function(e) { return e.value; });
+                    updatePreview();
+                });
+            });
+        }
+        EditorialTemplateVersions.syncControls(document, appState);
+        syncEditorialTemplateScope();
     }
 
     // ========== 配置标签页 ==========
@@ -6551,17 +6809,25 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
 
     function persistBatchReserveUiState() {
         if (!isBatchAdBuild() || ensureBatchAdBuildState().adMode !== 'reserve') return;
-        var target = getBatchReserveEditingTarget(getActiveBatchSite());
+        var activeSite = getActiveBatchSite();
+        var target = getBatchReserveEditingTarget(activeSite);
         target.placementMode = appState.reservePlacementMode === 'fixed' ? 'fixed' : 'manual';
         target.adJsVersion = appState.adJsVersion || 'v1.0.2.1';
         target.adPlacements = appState.config.adPlacements || {};
+        invalidateBatchSitePreviews(ensureBatchAdBuildState().sites.filter(function(site) {
+            return activeSite && activeSite.reserveOverrideEnabled ? site === activeSite : !site.reserveOverrideEnabled;
+        }));
     }
 
     function persistBatchCodePlacementUiState() {
         if (!isBatchAdBuild() || ensureBatchAdBuildState().adMode !== 'code') return;
-        var target = getBatchCodePlacementEditingTarget(getActiveBatchSite());
+        var activeSite = getActiveBatchSite();
+        var target = getBatchCodePlacementEditingTarget(activeSite);
         target.placementMode = appState.directAdPlacementMode === 'manual' ? 'manual' : 'fixed';
         target.adPlacements = appState.config.adCodePlacements || target.adPlacements || null;
+        invalidateBatchSitePreviews(ensureBatchAdBuildState().sites.filter(function(site) {
+            return activeSite && activeSite.codePlacementOverrideEnabled ? site === activeSite : !site.codePlacementOverrideEnabled;
+        }));
     }
 
     function reservedAdPlacementCount() {
@@ -6939,18 +7205,28 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                     appState._previewBlobUrls.forEach(function(u) { URL.revokeObjectURL(u); });
                     appState._previewBlobUrls = [];
                 }
+                // Resolve the active batch site's derived email, ads and page
+                // flags through the same seam as export. A domain edit on an
+                // inactive site must not leave the UI's cached state in charge.
+                var renderState = appState;
+                if (isBatchAdBuild()) {
+                    var previewBatch = ensureBatchAdBuildState();
+                    var renderingSite = getActiveBatchSite();
+                    var renderingCode = previewBatch.codes.find(function(code) { return code.id === renderingSite.codeId; });
+                    renderState = BatchAdBuilder.createSiteState(appState, renderingSite, renderingCode, previewBatch);
+                }
                 var html = appState.siteBuildMode === 'differentiated' && typeof DifferentiatedBuilder !== 'undefined'
                     ? DifferentiatedBuilder.generatePreviewHtml(appState, pageType, {
                         siteType: appState.differentiated.siteType,
                         itemIndex: appState.previewDetailIndex,
                         categorySlug: appState.previewSectionSlug
                     })
-                    : Generator.generatePreviewHtml(appState, pageType, appState.previewDetailIndex);
+                    : Generator.generatePreviewHtml(renderState, pageType, appState.previewDetailIndex);
                 if (appState.siteBuildMode !== 'differentiated') appState.previewHomeAnchor = '';
                 // 记录这次真正写入 iframe 的配置签名。普通与批量导出会核对该值，
                 // 防止界面显示一套配置、ZIP 却从另一个站点或旧状态读取配置。
                 if (appState.siteBuildMode !== 'differentiated' && typeof Generator.getBuildSignature === 'function') {
-                    var previewSignature = Generator.getBuildSignature(appState);
+                    var previewSignature = Generator.getBuildSignature(renderState);
                     if (isBatchAdBuild()) {
                         var previewSite = getActiveBatchSite();
                         if (previewSite) previewSite.previewSignature = previewSignature;
@@ -7062,14 +7338,16 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
             });
             return;
         }
-        var theme = THEMES[appState.selectedTheme];
+        var theme = EditorialTemplateVersions.theme(appState);
         var config = appState.config;
+        var legacyEditorial = EditorialTemplateVersions.eligible(appState) && EditorialTemplateVersions.isLegacy(config);
         var mapping = appState.fieldMapping;
         var mappedCount = Object.keys(mapping).length;
         var unmappedCount = theme.fields.length - mappedCount;
 
         var selectedStyleName = '';
-        STYLE_PRESETS.forEach(function(s) {
+        // The export summary describes the selected generation's own palette.
+        (legacyEditorial ? LegacyEditorialTemplateSource.presets : STYLE_PRESETS).forEach(function(s) {
             if (s.id === config.selectedStyle) selectedStyleName = s.name;
         });
         var template = getTemplateById(config.templateId);
@@ -7104,8 +7382,8 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
                     ['相关推荐', config.relatedCount + '条']
                 ] },
                 { title: '外观与功能', items: [
-                    ['页面模板', template.name],
-                    ['图标组合', iconSet ? iconSet.name : '自定义组合'],
+                    ['页面模板', legacyEditorial ? '旧版本 · 随机搭配' : template.name],
+                    ['图标组合', legacyEditorial ? '旧版原始分类图标' : (iconSet ? iconSet.name : '自定义组合')],
                     ['视觉风格', selectedStyleName],
                     ['Hero区域', config.heroEnabled ? '开启' : '关闭'],
                     ['操作按钮', config.actionButtonEnabled ? config.actionButtonText : '关闭']
@@ -7169,11 +7447,11 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
             var batchPreflightReport = null;
             BatchAdBuilder.exportBatch(appState, function(percent, text) {
                 updateExportProgress(percent, text, 'loading');
-            }, window.JSZip).then(function(result) {
+            }, window.JSZip).then(async function(result) {
                 batchPreflightReport = result.preflightReport || null;
                 var downloads = result.downloads || [];
                 if (!downloads.length) throw new Error('批量导出没有生成可下载的站点 ZIP。');
-                downloads.forEach(function(file) { saveAs(file.blob, file.fileName); });
+                for (var download of downloads) await ArchiveExport.save(download.blob, download.fileName);
                 updateExportProgress(100, result.reports.length + ' 个站点已完成运行时广告检查，并分别下载域名 ZIP。若浏览器拦截，请允许多个文件下载。', 'success');
             }).catch(function(error) {
                 batchPreflightReport = error.preflightReport || null;
@@ -7212,7 +7490,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
             updateExportProgress(96, '正在进行导出前全站体检…', 'loading');
             var preflightReport = await inspectExportBlob(blob, exportTitle || '普通建站');
             renderExportPreflight(preflightReport, 'export-summary');
-            saveAs(blob, archiveDescriptor.fileName);
+            await ArchiveExport.save(blob, archiveDescriptor.fileName);
             updateExportProgress(100, '导出成功，ZIP 文件已开始下载。', 'success');
             btn.disabled = false;
             btn.removeAttribute('aria-busy');
@@ -7236,7 +7514,7 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
             var config = DifferentiatedBuilder.buildConfig(appState, { variant: variant, siteType: appState.differentiated.siteType });
             updateExportProgress(96, '正在进行导出前全站体检…', 'loading');
             var preflightReport = await inspectExportBlob(blob, config.siteTitle || '差异化站点');
-            saveAs(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'static-site') + '-' + variant + '.zip');
+            await ArchiveExport.save(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'static-site') + '-' + variant + '.zip');
             updateExportProgress(100, '差异化静态站导出成功，ZIP 已开始下载。', 'success');
             generateExportSummary(function() { renderExportPreflight(preflightReport, 'export-summary'); });
         }).catch(function(error) {
@@ -7298,6 +7576,10 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
 
     function generateRandomConfig() {
         var c = appState.config;
+        if (EditorialTemplateVersions.isLegacy(c) && EditorialTemplateVersions.eligible(appState)) {
+            LegacyEditorialTemplateSource.randomize(c);
+            return;
+        }
 
         // 先换页面蓝图，确保每次随机都有结构级变化；最近三次不重复。
         var domainTemplates = getBlueprintsForTheme(appState.selectedTheme);
@@ -7327,6 +7609,8 @@ import { createFieldMappingView } from './field-mapping-view.js?v=sha256-59b066d
 
     function applyConfigToUI() {
         if (typeof SiteMotion !== 'undefined') SiteMotion.syncControls(appState.config);
+        EditorialTemplateVersions.syncControls(document, appState);
+        syncEditorialTemplateScope();
         var c = appState.config;
         document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
         document.getElementById('category-numbers-enabled').checked = c.categoryNumbersEnabled === true;

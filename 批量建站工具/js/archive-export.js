@@ -25,5 +25,16 @@
         return new Uint8Array(value || []);
     }
 
-    global.ArchiveExport = { generate: generate, bytes: bytes };
+    /** Resolve only after the native writer has finished. Callers can therefore
+     * keep their progress/error state accurate when a user cancels the picker. */
+    async function save(blob, fileName) {
+        var result;
+        if (global.SiteFoundryPlatform) result = await global.SiteFoundryPlatform.saveExport(blob, fileName);
+        else if (typeof global.saveAs === 'function') { global.saveAs(blob, fileName); result = { browser: true }; }
+        else throw new Error('文件保存组件尚未加载。');
+        if (result && result.cancelled) throw Object.assign(new Error('已取消保存，文件尚未导出。'), { name: 'AbortError' });
+        return result;
+    }
+
+    global.ArchiveExport = { generate: generate, bytes: bytes, save: save };
 })(typeof globalThis === 'object' ? globalThis : this);

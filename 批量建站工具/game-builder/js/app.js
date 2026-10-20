@@ -663,6 +663,7 @@
 
     // ========== 步骤导航 ==========
     function goToStep(step) {
+        if (window.OfflineStatus) window.OfflineStatus.trackState(appState);
         var steps = [1, 2];
         var targetIndex = window.WorkflowStepNavigation.getStepIndex(steps, step);
         if (targetIndex === -1) return;
@@ -765,6 +766,7 @@
     function initDefaultConfig() {
         var theme = THEMES.game;
         appState.config = {
+            templateVersion: 'current',
             siteTitle: theme.siteTitle,
             siteSubtitle: theme.siteSubtitle,
             contactEmail: theme.pages.contact.email,
@@ -869,7 +871,10 @@
                 source: sourceId
             });
             var allowsLocalFiles = sourceId === 'opensource-local' || sourceId === 'json-zip' || sourceId === 'differentiated-zip' || sourceId === 'saved-local' || /^builtin-source-\d+$/.test(sourceId);
-            var allowsLocalImages = allowsLocalFiles;
+            // Extended archives extract JSON and images, but deliberately do
+            // not import executable HTML. Accept their local covers separately
+            // from the existing ZIP/local-game permission for game entry files.
+            var allowsLocalImages = allowsLocalFiles || sourceId === 'json-archive';
             var validGameUrl = /^https?:\/\//i.test(normalized.url) || (allowsLocalFiles && isSafeRelativeAsset(normalized.url));
             var validThumb = /^https?:\/\//i.test(normalized.thumb) || (allowsLocalImages && isSafeRelativeAsset(normalized.thumb));
             if (!normalized.title || !validGameUrl || !validThumb) return null;
@@ -1945,6 +1950,7 @@
         initIconSetControls();
         initStyleGrid();
         initLayoutTemplateGrid();
+        initTemplateVersionControls();
         initConfigTabs();
         initPreviewControls();
         initAdConfig();
@@ -1966,7 +1972,8 @@
 
         var html = '';
         appState.config.categories.forEach(function(cat, i) {
-            cat.count = i === 0 ? 2 : 6;
+            var legacy = GameTemplateVersions.isLegacy(appState.config);
+            if (!legacy) cat.count = i === 0 ? 2 : 6;
             html += '<div class="category-config-item">';
             html += '<div class="cat-icon-picker">';
             html += '<button type="button" class="cat-icon-trigger" data-cat-idx="' + i + '" aria-label="选择第 ' + (i + 1) + ' 个分类图标" aria-expanded="false">' + escapeHtml(cat.icon || '🎮') + '</button>';
@@ -1976,7 +1983,7 @@
             });
             html += '</div></div>';
             html += '<input type="text" class="cat-name-input" value="' + escapeHtml(cat.name) + '" data-cat-idx="' + i + '" data-cat-field="name" aria-label="分类名称">';
-            html += '<input type="number" class="cat-count-input" value="' + cat.count + '" readonly title="版式固定：首组2个，其余每组6个" data-cat-idx="' + i + '" data-cat-field="count">';
+            html += '<input type="number" class="cat-count-input" value="' + cat.count + '" ' + (legacy ? 'min="1" max="100"' : 'readonly title="版式固定：首组2个，其余每组6个"') + ' data-cat-idx="' + i + '" data-cat-field="count">';
             html += '</div>';
         });
         container.innerHTML = html;
@@ -1988,6 +1995,8 @@
                 var field = this.dataset.catField;
                 if (field !== 'count') {
                     appState.config.categories[idx][field] = this.value;
+                } else if (GameTemplateVersions.isLegacy(appState.config)) {
+                    appState.config.categories[idx].count = Math.max(1, Math.min(100, parseInt(this.value, 10) || 1));
                 }
                 updatePreview();
             });
@@ -2072,6 +2081,7 @@
             'hero-style': 'heroStyle',
             'detail-layout': 'detailLayout',
             'card-view-mode': 'cardViewMode',
+            'legacy-card-desc-lines': 'cardDescLines',
             'privacy-length': 'privacyLength',
             'terms-length': 'termsLength'
         };
@@ -2256,7 +2266,7 @@
 
     function syncAllGamesNavControl() {
         var allGamesPreviewTab = document.querySelector('.preview-tab[data-page="all"]');
-        var enabled = appState.config.allGamesEnabled !== false;
+        var enabled = !GameTemplateVersions.isLegacy(appState.config) && appState.config.allGamesEnabled !== false;
         if (!allGamesPreviewTab) return false;
         allGamesPreviewTab.hidden = !enabled;
         if (!enabled && allGamesPreviewTab.classList.contains('active')) {
@@ -2283,7 +2293,7 @@
         if (c.cardColumns) document.getElementById('card-columns').value = c.cardColumns;
         if (c.metaLayout) document.getElementById('meta-layout').value = c.metaLayout;
         if (c.contentRender) document.getElementById('content-render').value = c.contentRender;
-        if (c.navbarStyle === 'bottom-fixed') c.navbarStyle = 'glass-sticky';
+        if (!GameTemplateVersions.isLegacy(c) && c.navbarStyle === 'bottom-fixed') c.navbarStyle = 'glass-sticky';
         if (c.navbarStyle) document.getElementById('navbar-style').value = c.navbarStyle;
         if (c.navbarHeight) document.getElementById('navbar-height').value = c.navbarHeight;
         if (c.logoStyle) document.getElementById('logo-style').value = c.logoStyle;
@@ -2294,7 +2304,7 @@
         if (c.cardRadius) document.getElementById('card-radius').value = c.cardRadius;
         if (c.cardSpacing) document.getElementById('card-spacing').value = c.cardSpacing;
         var legacyButtonStyles = { gradient: 'solid', rounded: 'pill', '3d': 'solid', ghost: 'text' };
-        if (legacyButtonStyles[c.btnStyle]) c.btnStyle = legacyButtonStyles[c.btnStyle];
+        if (!GameTemplateVersions.isLegacy(c) && legacyButtonStyles[c.btnStyle]) c.btnStyle = legacyButtonStyles[c.btnStyle];
         if (c.btnStyle) document.getElementById('btn-style').value = c.btnStyle;
         if (c.btnSize) document.getElementById('btn-size').value = c.btnSize;
         if (c.gridGap) document.getElementById('grid-gap').value = c.gridGap;
@@ -2337,7 +2347,8 @@
     function initStyleGrid() {
         var grid = document.getElementById('style-grid');
         var html = '';
-        STYLE_PRESETS.forEach(function(preset) {
+        var presets = GameTemplateVersions.isLegacy(appState.config) ? LegacyGameTemplateSource.presets : STYLE_PRESETS;
+        presets.forEach(function(preset) {
             var selected = appState.config.selectedStyle === preset.id ? ' selected' : '';
             html += '<div class="style-card' + selected + '" data-style-id="' + preset.id + '">';
             html += '<div class="style-preview" style="background:' + preset.previewBg + '"></div>';
@@ -2380,6 +2391,33 @@
                 applyConfigToUI();
                 appState.config.detailLayout = 'single';
                 document.getElementById('detail-layout').value = 'single';
+                updatePreview();
+            });
+        });
+    }
+
+    // Switching only replaces version-owned config; imported data and the
+    // existing advertising workflow remain outside the template renderer.
+    function initTemplateVersionControls() {
+        document.getElementById('game-template-version').addEventListener('change', function() {
+            appState.config = GameTemplateVersions.switchVersion(appState.config, this.value);
+            GameTemplateVersions.syncControls(document, appState.config);
+            initStyleGrid();
+            applyConfigToUI();
+            setInitialConfigValues();
+            updateCardFieldsConfig();
+            updateRelatedCardFieldsConfig();
+            document.querySelectorAll('#footer-links-config input').forEach(function(input) {
+                input.checked = (appState.config.footerLinks || []).includes(input.value);
+            });
+            syncAllGamesNavControl();
+            updateAdPlacementUI();
+            updatePreview();
+        });
+        document.querySelectorAll('#legacy-nav-links-config input').forEach(function(input) {
+            input.addEventListener('change', function() {
+                if (!GameTemplateVersions.isLegacy(appState.config)) return;
+                appState.config.navLinks = Array.from(document.querySelectorAll('#legacy-nav-links-config input:checked')).map(function(item) { return item.value; });
                 updatePreview();
             });
         });
@@ -2919,6 +2957,7 @@
 
     var previewTimeout = null;
     function updatePreview(pageType) {
+        if (window.OfflineStatus) window.OfflineStatus.trackState(appState);
         ConfigurationControls.sync(appState.config, appState);
         if (appState.currentStep !== 1) return;
         if (appState.siteBuildMode === 'differentiated' && (typeof DifferentiatedBuilder === 'undefined' || DifferentiatedBuilder.BUILD_VERSION !== REQUIRED_DIFFERENTIATED_BUILDER_VERSION)) {
@@ -2986,12 +3025,13 @@
 
         var selectedStyleName = '';
         var selectedLayoutName = '';
-        STYLE_PRESETS.forEach(function(s) {
+        (GameTemplateVersions.isLegacy(config) ? LegacyGameTemplateSource.presets : STYLE_PRESETS).forEach(function(s) {
             if (s.id === config.selectedStyle) selectedStyleName = s.name;
         });
         LAYOUT_PRESETS.forEach(function(layout) {
             if (layout.id === config.layoutTemplate) selectedLayoutName = layout.name;
         });
+        if (GameTemplateVersions.isLegacy(config)) selectedLayoutName = '旧版本 · 随机搭配';
 
         var ambientNames = {
             none: '静态', aurora: '极光流动', stardust: '星尘漂移', 'grid-scan': '网格扫描', prism: '棱镜光晕',
@@ -3102,7 +3142,7 @@
             updateGameExportProgress(null, '正在进行导出前全站体检…', 'loading');
             var preflightReport = await inspectExportBlob(blob, appState.config.siteTitle || '游戏建站');
             renderExportPreflight(preflightReport);
-            saveAs(blob, archiveDescriptor.fileName);
+            await ArchiveExport.save(blob, archiveDescriptor.fileName);
             updateGameExportProgress(100, '导出成功！文件已开始下载。', 'success');
             btn.disabled = false;
             btn.removeAttribute('aria-busy');
@@ -3126,7 +3166,7 @@
             var config = DifferentiatedBuilder.buildConfig(appState, { variant: variant, siteType: 'games' });
             updateGameExportProgress(null, '正在进行导出前全站体检…', 'loading');
             var preflightReport = await inspectExportBlob(blob, config.siteTitle || '差异化游戏站');
-            saveAs(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'game-site') + '-' + variant + '.zip');
+            await ArchiveExport.save(blob, DifferentiatedBuilder.slugify(config.siteTitle, 'game-site') + '-' + variant + '.zip');
             updateGameExportProgress(100, '差异化游戏静态站导出成功；ZIP 已开始下载。', 'success');
             generateExportSummary(function() { renderExportPreflight(preflightReport); });
         }).catch(function(error) {
@@ -3151,6 +3191,10 @@
     }
 
     function generateRandomConfig() {
+        if (GameTemplateVersions.isLegacy(appState.config)) {
+            LegacyGameTemplateSource.randomize(appState.config);
+            return;
+        }
         appState.config.controlOverrides = {};
         var c = appState.config;
 
@@ -3203,6 +3247,7 @@
 
     function applyConfigToUI() {
         if (typeof SiteMotion !== 'undefined') SiteMotion.syncControls(appState.config);
+        GameTemplateVersions.syncControls(document, appState.config);
         var c = appState.config;
         document.getElementById('category-icons-enabled').checked = c.categoryIconsEnabled !== false;
 
@@ -3214,7 +3259,7 @@
             'transition-speed', 'meta-bg', 'detail-img-style', 'privacy-length',
             'terms-length', 'category-title-style', 'category-title-align',
             'card-image-height', 'content-max-width', 'hero-style', 'detail-layout',
-            'card-view-mode'
+            'card-view-mode', 'legacy-card-desc-lines'
         ];
         var selectToConfig = {
             'navbar-layout': 'navbarLayout', 'footer-style': 'footerStyle',
@@ -3231,7 +3276,7 @@
             'terms-length': 'termsLength', 'category-title-style': 'categoryTitleStyle',
             'category-title-align': 'categoryTitleAlign', 'card-image-height': 'cardImageHeight',
             'content-max-width': 'contentMaxWidth', 'hero-style': 'heroStyle',
-            'detail-layout': 'detailLayout', 'card-view-mode': 'cardViewMode'
+            'detail-layout': 'detailLayout', 'card-view-mode': 'cardViewMode', 'legacy-card-desc-lines': 'cardDescLines'
         };
 
         selectIds.forEach(function(id) {
@@ -3257,7 +3302,15 @@
         syncCardDescriptionMode();
         var iconSetSelect = document.getElementById('icon-set-select');
         if (iconSetSelect) iconSetSelect.value = c.iconSetId || 'custom';
+        document.getElementById('hero-title').value = c.heroTitle || '';
+        document.getElementById('hero-subtitle').value = c.heroSubtitle || '';
+        document.getElementById('related-count').value = c.relatedCount || 4;
+        document.getElementById('related-count-value').textContent = c.relatedCount || 4;
+        document.querySelectorAll('#contact-fields-config input').forEach(function(input) {
+            input.checked = (c.contactFields || []).includes(input.value);
+        });
         updateCategoryConfig((c.categories || []).length);
+        syncAllGamesNavControl();
         refreshCustomConfigSelects();
     }
 

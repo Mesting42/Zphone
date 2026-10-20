@@ -1,4 +1,5 @@
 import { normalizePreviewPath, resolvePreviewHtmlEntry } from './ad-injection-preview-router.js';
+import { rewritePreviewCss } from './preview-css.js';
 
 /** 原站预览适配器。只把资源地址改为本机 Blob，并停用广告请求；导出由策略核心处理。 */
 export function createPolicyPreview() {
@@ -40,10 +41,9 @@ export function createPolicyPreview() {
             return assetUrls[path] = blob(source, mime(path));
         }
         function css(source, from) {
-            return source.replace(/url\(\s*(["']?)([^)"']+)\1\s*\)/gi, (match, quote, ref) => {
-                const path = resolve(ref.trim(), from); return path ? 'url("' + asset(path) + '")' : match;
-            }).replace(/@import\s+(["'])([^"']+)\1/gi, (match, quote, ref) => {
-                const path = resolve(ref, from); return path ? '@import "' + asset(path) + '"' : match;
+            return rewritePreviewCss(source, from, (reference, ownerPath) => {
+                const path = resolve(reference, ownerPath);
+                return path ? asset(path) : '';
             });
         }
         byPath.forEach((entry, path) => { if (/\.(?:css|js)$/i.test(path) && path !== metadata.adPath.toLowerCase()) asset(path); });

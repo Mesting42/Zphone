@@ -91,6 +91,8 @@ export function isPreviewDetailEntry(entryPath, rootPath) {
     var path = normalizePreviewPath(entryPath);
     var root = previewRootPath(rootPath);
     var route = root && path.toLowerCase().indexOf(root.toLowerCase()) === 0 ? path.slice(root.length) : path;
-    return /^(?:details?|articles?|news|posts?|stories?|guides?|blog|tools|games?)\/[^/]+\/index\.html?$/i.test(route)
+    // 静态导出既可用 details/article1.html，也可用 articles/slug/index.html。
+    // 内容目录自己的 index 仍是列表页，不能作为详情标签的默认页面。
+    return /^(?:details?|articles?|news|posts?|stories?|guides?|blog|tools|games?)\/(?!index\.html?$)[^/]+(?:\/index)?\.html?$/i.test(route)
         || /^(?:detail|article|post|story|news)[^/]*\.html?$/i.test(route);
 }

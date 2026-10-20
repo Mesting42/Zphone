@@ -1,0 +1,17 @@
+/* In-flow status avoids obscuring controls at desktop and mobile widths. */
+.offline-resource-notice {
+    box-sizing: border-box;
+    max-width: 1440px;
+    margin: 12px auto;
+    padding: 12px 16px;
+    border: 1px solid #bd982f;
+    border-radius: 10px;
+    background: #fff8df;
+    color: #59430b;
+    font: 14px/1.65 system-ui, sans-serif;
+    overflow-wrap: anywhere;
+}
+.offline-resource-notice[hidden] { display: none !important; }
+@media (max-width: 600px) {
+    .offline-resource-notice { margin: 10px 12px; padding: 10px 12px; }
+}

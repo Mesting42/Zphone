@@ -1,0 +1,91 @@
+{
+  "name": "sitefoundry-desktop",
+  "version": "1.1.1",
+  "sitefoundryVersion": "1.1.1",
+  "description": "SiteFoundry offline website workbench for Windows",
+  "author": "SiteFoundry",
+  "private": true,
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "stage": "node scripts/stage.mjs",
+    "start": "electron .",
+    "pack": "npm run stage && electron-builder --win --x64 --dir",
+    "dist": "npm run stage && electron-builder --win nsis --x64",
+    "test": "node --test tests/native-files.test.mjs tests/template-migration.test.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.sitefoundry.workbench",
+    "productName": "SiteFoundry",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/offline-server.mjs",
+      "build/ad-template-analysis.mjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/workbench",
+        "to": "workbench",
+        "filter": [
+          "**/*",
+          "!sitefoundry-server.mjs",
+          "!start-sitefoundry.cmd"
+        ]
+      },
+      {
+        "from": "build/workbench/node_modules/jszip/dist/jszip.min.js",
+        "to": "workbench/node_modules/jszip/dist/jszip.min.js"
+      },
+      {
+        "from": "build/source-runtime",
+        "to": "source-runtime",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "build/node-runtime",
+        "to": "node-runtime",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/sitefoundry.ico",
+      "artifactName": "SiteFoundry-1.1.1-Windows-x64-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SiteFoundry",
+      "installerIcon": "build/sitefoundry.ico",
+      "uninstallerIcon": "build/sitefoundry.ico"
+    },
+    "buildVersion": "1.1.1"
+  }
+}

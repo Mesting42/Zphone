@@ -3879,8 +3879,8 @@ html:has(.domain-selection-panel.active) {
     color: #556c87 !important;
     text-shadow: none;
 }
-.jelly-toolbar-button .jelly-explore-goo { inset: -24px; }
-.jelly-toolbar-button .jelly-explore-body { inset: 24px; opacity: 0; transition: transform 220ms cubic-bezier(.34,1.56,.64,1), opacity 150ms ease; }
+.jelly-toolbar-button .jelly-explore-goo { inset: -24px 0; }
+.jelly-toolbar-button .jelly-explore-body { inset: 24px 0; opacity: 0; transition: transform 220ms cubic-bezier(.34,1.56,.64,1), opacity 150ms ease; }
 .jelly-toolbar-button .jelly-explore-blob { width: 44px; height: 44px; }
 .jelly-toolbar-button .jelly-explore-shadow { opacity: 0; transform: translateY(4px); }
 .jelly-toolbar-button.is-jelly-active:not(.active):not(.is-active) { color: #fff !important; border-color: transparent !important; }
@@ -3923,10 +3923,13 @@ html:has(.domain-selection-panel.active) {
 .jelly-explore-button.is-jelly-pressed { transform: translateY(0) scale(.94); }
 .jelly-explore-shadow { position: absolute; z-index: -1; inset: 6px 9%; border-radius: 999px; background: rgba(7,32,72,.58); filter: blur(13px); opacity: .48; transform: translateY(8px); pointer-events: none; transition: opacity 180ms ease, transform 220ms cubic-bezier(.34,1.56,.64,1); }
 .jelly-explore-button.is-jelly-active .jelly-explore-shadow { opacity: .66; transform: translateY(10px) scale(1.02); }
-.jelly-explore-goo { position: absolute; z-index: -1; inset: -38px; pointer-events: none; filter: url(#sitefoundry-jelly-goo); }
+/* Decorative padding must not enlarge the document's horizontal scroll area.
+ * Matching horizontal insets on the wrapper/fill keep the visible button and
+ * centered liquid blob in their original positions, including toolbar buttons. */
+.jelly-explore-goo { position: absolute; z-index: -1; inset: -38px 0; pointer-events: none; filter: url(#sitefoundry-jelly-goo); }
 .jelly-explore-body,
 .jelly-explore-blob { position: absolute; display: block; border-radius: 999px; background: var(--jelly-color); }
-.jelly-explore-body { inset: 38px; transform: translate(var(--jelly-body-x), var(--jelly-body-y)) scale(1); transition: transform 220ms cubic-bezier(.34,1.56,.64,1), background 160ms ease; }
+.jelly-explore-body { inset: 38px 0; transform: translate(var(--jelly-body-x), var(--jelly-body-y)) scale(1); transition: transform 220ms cubic-bezier(.34,1.56,.64,1), background 160ms ease; }
 .jelly-explore-blob { left: calc(50% + var(--jelly-blob-x)); top: calc(50% + var(--jelly-blob-y)); width: 58px; height: 58px; opacity: 0; transform: translate(-50%, -50%) scale(.15); transition: opacity 130ms ease, transform 260ms cubic-bezier(.34,1.56,.64,1); }
 .jelly-explore-button.is-jelly-active .jelly-explore-body { transform: translate(var(--jelly-body-x), var(--jelly-body-y)) scale(1.02); }
 .jelly-explore-button.is-jelly-active .jelly-explore-blob { opacity: 1; transform: translate(-50%, -50%) scale(1); }
@@ -4253,3 +4256,6 @@ body.has-config-transition .diff-config-section.active:not([hidden]) {
 .ad-quick-match dt { font-size: 13px; font-weight: 600; }
 .ad-quick-match dd { margin: 4px 0 0; font-size: 12px; }
 .ad-quick-match dd span { display: block; margin: 4px 0; }
+
+/* Author display rules must not reveal controls for the other generation. */
+[data-editorial-template-only][hidden], #editorial-template-version-controls[hidden], #batch-editorial-template-scope[hidden] { display: none !important; }

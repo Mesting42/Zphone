@@ -500,7 +500,8 @@ body::after {
     box-shadow 180ms ease !important;
 }
 .btn-next.jelly-explore-button.jelly-hover-only .jelly-explore-body {
-    inset: 38px;
+    /* Match the goo layer's horizontal origin without shrinking the fill. */
+    inset: 38px 0;
     border-radius: 999px !important;
     opacity: 0;
     background: #2379e5 !important;
@@ -555,7 +556,7 @@ body::after {
 }
 .btn-prev.jelly-explore-button.jelly-workflow-secondary .jelly-explore-body,
 .btn-reupload.jelly-explore-button.jelly-workflow-secondary .jelly-explore-body {
-    inset: 38px;
+    inset: 38px 0;
     border-radius: 999px !important;
     opacity: 0;
     background: #2379e5 !important;

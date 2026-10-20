@@ -2429,8 +2429,8 @@ input[type="range"], .checkbox-label input { accent-color: #2377d8; }
     color: #556c87 !important;
     text-shadow: none;
 }
-.jelly-toolbar-button .jelly-explore-goo { inset: -24px; }
-.jelly-toolbar-button .jelly-explore-body { inset: 24px; opacity: 0; transition: transform 220ms cubic-bezier(.34,1.56,.64,1), opacity 150ms ease; }
+.jelly-toolbar-button .jelly-explore-goo { inset: -24px 0; }
+.jelly-toolbar-button .jelly-explore-body { inset: 24px 0; opacity: 0; transition: transform 220ms cubic-bezier(.34,1.56,.64,1), opacity 150ms ease; }
 .jelly-toolbar-button .jelly-explore-blob { width: 44px; height: 44px; }
 .jelly-toolbar-button .jelly-explore-shadow { opacity: 0; transform: translateY(4px); }
 .jelly-toolbar-button.is-jelly-active:not(.active):not(.is-active) { color: #fff !important; border-color: transparent !important; }
@@ -2515,10 +2515,12 @@ input[type="range"], .checkbox-label input { accent-color: #2377d8; }
 .jelly-explore-button.is-jelly-pressed { transform: translateY(0) scale(.94); }
 .jelly-explore-shadow { position: absolute; z-index: -1; inset: 6px 9%; border-radius: 999px; background: rgba(7,32,72,.58); filter: blur(13px); opacity: .48; transform: translateY(8px); pointer-events: none; transition: opacity 180ms ease, transform 220ms cubic-bezier(.34,1.56,.64,1); }
 .jelly-explore-button.is-jelly-active .jelly-explore-shadow { opacity: .66; transform: translateY(10px) scale(1.02); }
-.jelly-explore-goo { position: absolute; z-index: -1; inset: -38px; pointer-events: none; filter: url(#sitefoundry-jelly-goo); }
+/* Keep decorative horizontal padding out of the page's scroll geometry;
+ * the matching fill inset preserves the original visible button bounds. */
+.jelly-explore-goo { position: absolute; z-index: -1; inset: -38px 0; pointer-events: none; filter: url(#sitefoundry-jelly-goo); }
 .jelly-explore-body,
 .jelly-explore-blob { position: absolute; display: block; border-radius: 999px; background: var(--jelly-color); }
-.jelly-explore-body { inset: 38px; transform: translate(var(--jelly-body-x), var(--jelly-body-y)) scale(1); transition: transform 220ms cubic-bezier(.34,1.56,.64,1), background 160ms ease; }
+.jelly-explore-body { inset: 38px 0; transform: translate(var(--jelly-body-x), var(--jelly-body-y)) scale(1); transition: transform 220ms cubic-bezier(.34,1.56,.64,1), background 160ms ease; }
 .jelly-explore-blob { left: calc(50% + var(--jelly-blob-x)); top: calc(50% + var(--jelly-blob-y)); width: 58px; height: 58px; opacity: 0; transform: translate(-50%, -50%) scale(.15); transition: opacity 130ms ease, transform 260ms cubic-bezier(.34,1.56,.64,1); }
 .jelly-explore-button.is-jelly-active .jelly-explore-body { transform: translate(var(--jelly-body-x), var(--jelly-body-y)) scale(1.02); }
 .jelly-explore-button.is-jelly-active .jelly-explore-blob { opacity: 1; transform: translate(-50%, -50%) scale(1); }
@@ -2579,3 +2581,6 @@ input[type="range"], .checkbox-label input { accent-color: #2377d8; }
 .template-card:has(.template-wireframe) .template-wireframe { max-height: 72px; margin-inline: auto; }
 .template-card .template-domain, .layout-template-card small { overflow-wrap: anywhere; white-space: normal; }
 .layout-template-card > .template-wireframe { height: 84px; margin-inline: auto; }
+
+/* Version controls stay hidden even when an author layout rule uses flex. */
+[data-game-template-only][hidden] { display: none !important; }

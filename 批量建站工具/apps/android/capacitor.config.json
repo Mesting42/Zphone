@@ -1,0 +1,16 @@
+{
+  "appId": "com.sitefoundry.workbench",
+  "appName": "SiteFoundry",
+  "webDir": "../../dist",
+  "android": {
+    "path": "project",
+    "allowMixedContent": false,
+    "backgroundColor": "#f6f5f1",
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https"
+  }
+}

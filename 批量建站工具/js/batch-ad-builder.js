@@ -226,6 +226,8 @@ const BatchAdBuilder = (function() {
         const templateUsage = {};
         const errors = [];
         sourceSites.forEach(function(site) {
+            // Legacy sites assemble options rather than occupying a blueprint.
+            if (site && site.config && site.config.editorialTemplateVersion === 'legacy') return;
             const templateId = String(site && site.config && site.config.templateId || '').trim();
             if (templateId) (templateUsage[templateId] = templateUsage[templateId] || []).push(site);
         });

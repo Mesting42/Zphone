@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>批量资讯站建站工具</title>
+    <link rel="stylesheet" href="css/tool.css">
+    <!-- 外部依赖 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+</head>
+<body>
+    <!-- 顶部标题栏 -->
+    <header class="tool-header">
+        <div class="header-content">
+            <h1 class="header-title">🏗️ 批量资讯站建站工具</h1>
+            <p class="header-desc">5步快速生成可部署的资讯类静态网站</p>
+        </div>
+    </header>
+
+    <!-- 步骤进度条 -->
+    <div class="step-progress">
+        <div class="step-item active" data-step="1">
+            <div class="step-circle">1</div>
+            <span class="step-label">选择主题</span>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item" data-step="2">
+            <div class="step-circle">2</div>
+            <span class="step-label">上传数据</span>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item" data-step="3">
+            <div class="step-circle">3</div>
+            <span class="step-label">字段匹配</span>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item" data-step="4">
+            <div class="step-circle">4</div>
+            <span class="step-label">配置网站</span>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item" data-step="5">
+            <div class="step-circle">5</div>
+            <span class="step-label">导出网站</span>
+        </div>
+    </div>
+
+    <!-- 主内容区域 -->
+    <div class="main-wrapper">
+
+        <!-- ========== Step 1: 选择主题 ========== -->
+        <div class="step-panel active" id="step-1">
+            <h2 class="panel-title">选择网站主题</h2>
+            <p class="panel-desc">选择一个主题，工具将根据主题预设网站标题、字段、分类等内容</p>
+            <div class="theme-grid">
+                <div class="theme-card" data-theme="tech">
+                    <div class="theme-icon">💻</div>
+                    <h3>科技资讯</h3>
+                    <p class="theme-name-en">Technology News</p>
+                    <p class="theme-desc">科技新闻、AI、网络安全、软件开发等资讯站点</p>
+                    <ul class="theme-fields-preview">
+                        <li>标题、正文、头图、摘要、ID</li>
+                    </ul>
+                </div>
+                <div class="theme-card" data-theme="game">
+                    <div class="theme-icon">🎮</div>
+                    <h3>游戏资讯</h3>
+                    <p class="theme-name-en">GamesInfo</p>
+                    <p class="theme-desc">游戏介绍、评测、商店链接等游戏资讯站点</p>
+                    <ul class="theme-fields-preview">
+                        <li>标题、正文、头图、开发商、发行商、类型、价格、平台、日期、商店链接</li>
+                    </ul>
+                </div>
+                <div class="theme-card" data-theme="food">
+                    <div class="theme-icon">🍳</div>
+                    <h3>美食资讯</h3>
+                    <p class="theme-name-en">FoodHub</p>
+                    <p class="theme-desc">食谱、烹饪技巧、美食文化等美食资讯站点</p>
+                    <ul class="theme-fields-preview">
+                        <li>标题、正文、头图、食材、烹饪时间、难度、菜系、份量、卡路里、食谱链接</li>
+                    </ul>
+                </div>
+                <div class="theme-card" data-theme="anime">
+                    <div class="theme-icon">🎬</div>
+                    <h3>动漫资讯</h3>
+                    <p class="theme-name-en">AnimeInfo</p>
+                    <p class="theme-desc">动漫介绍、评分、播出信息等动漫资讯站点</p>
+                    <ul class="theme-fields-preview">
+                        <li>标题、正文、头图、制作公司、类型、评分、集数、季度、播出日期、官方链接</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== Step 2: 上传数据 ========== -->
+        <div class="step-panel" id="step-2">
+            <h2 class="panel-title">上传数据文件</h2>
+            <p class="panel-desc">上传JSON数据文件，或包含JSON和图片的ZIP压缩包</p>
+
+            <div class="upload-area" id="upload-area">
+                <div class="upload-icon">📁</div>
+                <p class="upload-text">拖拽文件到此处，或点击选择文件</p>
+                <p class="upload-hint">支持 .json 文件 或压缩包（.zip/.rar/.7z，含JSON+图片）</p>
+                <input type="file" id="file-input" accept=".json,.zip,.rar,.7z" hidden>
+            </div>
+
+            <!-- 上传成功后显示数据概览 -->
+            <div class="data-overview" id="data-overview" style="display:none;">
+                <h3>📊 数据概览</h3>
+                <div class="overview-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">数据条数</span>
+                        <span class="stat-value" id="data-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">字段数量</span>
+                        <span class="stat-value" id="field-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">图片类型</span>
+                        <span class="stat-value" id="image-type">-</span>
+                    </div>
+                </div>
+                <div class="field-list" id="field-list"></div>
+                <div class="data-preview">
+                    <h4>数据预览（前3条）</h4>
+                    <div class="preview-table-wrapper">
+                        <table id="preview-table"></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== Step 3: 字段匹配 ========== -->
+        <div class="step-panel" id="step-3">
+            <h2 class="panel-title">字段匹配</h2>
+            <p class="panel-desc">将JSON数据中的字段映射到网站模板所需的字段（必填字段标有 * ）</p>
+
+            <div class="mapping-container" id="mapping-container">
+                <!-- 由JS动态生成 -->
+            </div>
+
+            <div class="mapping-summary" id="mapping-summary" style="display:none;">
+                <h4>匹配结果摘要</h4>
+                <p id="mapping-summary-text"></p>
+            </div>
+        </div>
+
+        <!-- ========== Step 4: 配置网站 ========== -->
+        <div class="step-panel" id="step-4">
+            <div class="config-layout">
+                <!-- 左侧：配置面板 -->
+                <div class="config-panel">
+                    <h2 class="panel-title">配置网站</h2>
+
+                    <!-- 配置标签页 -->
+                    <div class="config-tabs">
+                        <button class="config-tab active" data-tab="structure">结构配置</button>
+                        <button class="config-tab" data-tab="style">样式配置</button>
+                        <button class="config-tab" data-tab="ads">广告配置</button>
+                        <button id="random-assemble-btn" style="margin-left:auto;padding:6px 16px;border-radius:6px;border:1px solid #ff9800;background:transparent;color:#ff9800;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:all 0.2s;">🎲 随机组装</button>
+                    </div>
+
+                    <!-- 结构配置 -->
+                    <div class="config-section active" id="tab-structure">
+                        <!-- 全局结构 -->
+                        <div class="config-group">
+                            <h4 class="group-title">🌐 全局结构</h4>
+                            <div class="config-item">
+                                <label>导航栏链接</label>
+                                <div class="checkbox-group" id="nav-links-config">
+                                    <label class="checkbox-label"><input type="checkbox" value="home" checked> Home</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="privacy" checked> Privacy Policy</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="terms" checked> Terms of Service</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="contact" checked> Contact Us</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="about" checked> About Us</label>
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>导航栏布局</label>
+                                <select id="navbar-layout">
+                                    <option value="normal">常规</option>
+                                    <option value="centered">居中</option>
+                                    <option value="left">左对齐</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>页脚内容</label>
+                                <select id="footer-style">
+                                    <option value="simple">简约（版权+链接）</option>
+                                    <option value="detailed">详细（版权+链接+描述+联系信息）</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>返回首页样式</label>
+                                <select id="back-link-style">
+                                    <option value="text">文字链接</option>
+                                    <option value="breadcrumb">面包屑</option>
+                                    <option value="button">按钮</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 首页结构 -->
+                        <div class="config-group">
+                            <h4 class="group-title">🏠 首页结构</h4>
+                            <div class="config-item">
+                                <label>Hero区域</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="hero-enabled">
+                                    <span class="toggle-slider"></span>
+                                </div>
+                            </div>
+                            <div id="hero-config" style="display:none;">
+                                <div class="config-item">
+                                    <label>Hero标题</label>
+                                    <input type="text" id="hero-title" class="text-input">
+                                </div>
+                                <div class="config-item">
+                                    <label>Hero副标题</label>
+                                    <input type="text" id="hero-subtitle" class="text-input">
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>分类数量 <span class="range-value" id="cat-count-value">5</span></label>
+                                <input type="range" id="category-count" min="3" max="8" value="5">
+                            </div>
+                            <div id="categories-config">
+                                <!-- 由JS动态生成 -->
+                            </div>
+                            <div class="config-item">
+                                <label>卡片排列列数</label>
+                                <select id="card-columns">
+                                    <option value="auto">自适应(auto-fill)</option>
+                                    <option value="1">固定1列</option>
+                                    <option value="2">固定2列</option>
+                                    <option value="3">固定3列</option>
+                                    <option value="4">固定4列</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片展示字段</label>
+                                <div class="checkbox-group" id="card-fields-config">
+                                    <!-- 由JS动态生成 -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 详情页结构 -->
+                        <div class="config-group">
+                            <h4 class="group-title">📄 详情页结构</h4>
+                            <div class="config-item">
+                                <label>元信息布局</label>
+                                <select id="meta-layout">
+                                    <option value="grid">网格(grid)</option>
+                                    <option value="list">列表(list)</option>
+                                    <option value="tags">标签(tags)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>内容渲染方式</label>
+                                <select id="content-render">
+                                    <option value="markdown">Markdown转HTML</option>
+                                    <option value="text">纯文本</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>操作按钮</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="action-btn-enabled">
+                                    <span class="toggle-slider"></span>
+                                </div>
+                            </div>
+                            <div id="action-btn-config" style="display:none;">
+                                <div class="config-item">
+                                    <label>按钮文字</label>
+                                    <input type="text" id="action-btn-text" class="text-input">
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>相关推荐数量 <span class="range-value" id="related-count-value">4</span></label>
+                                <input type="range" id="related-count" min="2" max="8" value="4">
+                            </div>
+                            <div class="config-item">
+                                <label>推荐卡片展示字段</label>
+                                <div class="checkbox-group" id="related-card-fields-config">
+                                    <!-- 由JS动态生成 -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 通用页面 -->
+                        <div class="config-group">
+                            <h4 class="group-title">📑 通用页面</h4>
+                            <div class="config-item">
+                                <label>包含关于我们页面</label>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="about-enabled" checked>
+                                    <span class="toggle-slider"></span>
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>联系表单字段</label>
+                                <div class="checkbox-group" id="contact-fields-config">
+                                    <label class="checkbox-label"><input type="checkbox" value="name" checked> Name</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="email" checked> Email</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="subject" checked> Subject</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="message" checked> Message</label>
+                                </div>
+                            </div>
+                            <div class="config-item">
+                                <label>隐私政策内容长度</label>
+                                <select id="privacy-length">
+                                    <option value="brief">简版</option>
+                                    <option value="full" selected>详版</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>服务条款内容长度</label>
+                                <select id="terms-length">
+                                    <option value="brief">简版</option>
+                                    <option value="full" selected>详版</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 样式配置 -->
+                    <div class="config-section" id="tab-style">
+                        <!-- 整体视觉风格 -->
+                        <div class="config-group">
+                            <h4 class="group-title">🎨 整体视觉风格</h4>
+                            <div class="style-grid" id="style-grid">
+                                <!-- 由JS动态生成 -->
+                            </div>
+                        </div>
+
+                        <!-- 组件级样式 -->
+                        <div class="config-group">
+                            <h4 class="group-title">🔧 组件级样式微调</h4>
+
+                            <div class="config-item">
+                                <label>导航栏样式</label>
+                                <select id="navbar-style">
+                                    <option value="glass-sticky">毛玻璃+sticky</option>
+                                    <option value="normal">常规</option>
+                                    <option value="transparent">透明</option>
+                                    <option value="dark-fixed">深色固定</option>
+                                    <option value="side-drawer">侧边抽屉</option>
+                                    <option value="bottom-fixed">底部固定</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>导航栏高度</label>
+                                <select id="navbar-height">
+                                    <option value="40px">极小(40px)</option>
+                                    <option value="50px">小(50px)</option>
+                                    <option value="60px" selected>中(60px)</option>
+                                    <option value="70px">大(70px)</option>
+                                    <option value="80px">超大(80px)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>Logo样式</label>
+                                <select id="logo-style">
+                                    <option value="text">文字</option>
+                                    <option value="text-icon">文字+图标</option>
+                                    <option value="icon">纯图标</option>
+                                    <option value="gradient-text">渐变文字</option>
+                                    <option value="boxed">带框文字</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>卡片hover效果</label>
+                                <select id="card-hover">
+                                    <option value="float">上浮(scale+shadow)</option>
+                                    <option value="scale">缩放(scale)</option>
+                                    <option value="flip">翻转(rotateY)</option>
+                                    <option value="glow">发光(glow)</option>
+                                    <option value="bounce">弹性(bounce)</option>
+                                    <option value="tilt">倾斜(rotateX)</option>
+                                    <option value="border-glow">边框发光</option>
+                                    <option value="slide-up">平滑上滑</option>
+                                    <option value="none">无</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片边框样式</label>
+                                <select id="card-border">
+                                    <option value="rounded">圆角卡片(带阴影)</option>
+                                    <option value="shadow">阴影卡片(无边框)</option>
+                                    <option value="thin">细线(1px solid)</option>
+                                    <option value="double">双线(double)</option>
+                                    <option value="dashed">虚线(dashed)</option>
+                                    <option value="thick">粗边框(3px solid)</option>
+                                    <option value="none">无边框</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片圆角大小</label>
+                                <select id="card-radius">
+                                    <option value="0">无(0)</option>
+                                    <option value="2px">极小(2px)</option>
+                                    <option value="4px">小(4px)</option>
+                                    <option value="8px" selected>中(8px)</option>
+                                    <option value="12px">中大(12px)</option>
+                                    <option value="16px">大(16px)</option>
+                                    <option value="24px">胶囊(24px)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片间距</label>
+                                <select id="card-spacing">
+                                    <option value="8px">极紧凑(8px)</option>
+                                    <option value="12px">紧凑(12px)</option>
+                                    <option value="20px" selected>标准(20px)</option>
+                                    <option value="30px">宽松(30px)</option>
+                                    <option value="40px">超宽松(40px)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>按钮样式</label>
+                                <select id="btn-style">
+                                    <option value="gradient">渐变</option>
+                                    <option value="solid">纯色</option>
+                                    <option value="rounded">圆角</option>
+                                    <option value="square">方形</option>
+                                    <option value="3d">3D立体</option>
+                                    <option value="outline">描边</option>
+                                    <option value="pill">药丸</option>
+                                    <option value="ghost">幽灵</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>按钮大小</label>
+                                <select id="btn-size">
+                                    <option value="xsmall">极小</option>
+                                    <option value="small">小</option>
+                                    <option value="medium" selected>中</option>
+                                    <option value="large">大</option>
+                                    <option value="xlarge">超大</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>网格间距</label>
+                                <select id="grid-gap">
+                                    <option value="5px">极紧凑(5px)</option>
+                                    <option value="10px">紧凑(10px)</option>
+                                    <option value="20px" selected>标准(20px)</option>
+                                    <option value="30px">宽松(30px)</option>
+                                    <option value="40px">超宽松(40px)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>字体风格</label>
+                                <select id="font-style">
+                                    <option value="sans-serif" selected>无衬线(sans-serif)</option>
+                                    <option value="serif">衬线(serif)</option>
+                                    <option value="monospace">等宽(monospace)</option>
+                                    <option value="cursive">手写(cursive)</option>
+                                    <option value="condensed">紧凑(condensed)</option>
+                                    <option value="rounded">圆润(Nunito)</option>
+                                    <option value="elegant">优雅(Playfair Display)</option>
+                                    <option value="modern">现代(Montserrat)</option>
+                                    <option value="tech">科技(Rajdhani)</option>
+                                    <option value="handwrite">手写体(Caveat)</option>
+                                    <option value="retro">复古像素(Press Start 2P)</option>
+                                    <option value="clean">简约(Inter)</option>
+                                    <option value="display">展示(Oswald)</option>
+                                    <option value="literary">文艺(Lora)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>入场动画</label>
+                                <select id="animation-enter">
+                                    <option value="fadeIn">淡入(fadeIn)</option>
+                                    <option value="slideUp">滑入(slideUp)</option>
+                                    <option value="zoomIn">缩放(zoomIn)</option>
+                                    <option value="slideLeft">左滑入(slideLeft)</option>
+                                    <option value="slideRight">右滑入(slideRight)</option>
+                                    <option value="rotateIn">旋转入(rotateIn)</option>
+                                    <option value="flipIn">翻转入(flipIn)</option>
+                                    <option value="none">无</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>过渡时间</label>
+                                <select id="transition-speed">
+                                    <option value="0.1s">极快(0.1s)</option>
+                                    <option value="0.2s">快(0.2s)</option>
+                                    <option value="0.3s" selected>中(0.3s)</option>
+                                    <option value="0.5s">慢(0.5s)</option>
+                                    <option value="0.8s">极慢(0.8s)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-item">
+                                <label>详情页元信息卡片背景</label>
+                                <select id="meta-bg">
+                                    <option value="dark">深色背景卡片</option>
+                                    <option value="light">浅色背景卡片</option>
+                                    <option value="transparent">透明</option>
+                                    <option value="primary">主色调背景</option>
+                                    <option value="bordered">带边框</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>详情页图片展示</label>
+                                <select id="detail-img-style">
+                                    <option value="fullwidth">全宽</option>
+                                    <option value="centered">居中带边距</option>
+                                    <option value="float-left">左浮动文绕图</option>
+                                    <option value="float-right">右浮动文绕图</option>
+                                    <option value="banner">横幅缩略</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>分类标题样式</label>
+                                <select id="category-title-style">
+                                    <option value="single">单横线</option>
+                                    <option value="none">无横线</option>
+                                    <option value="double">双横线</option>
+                                    <option value="dotted">虚线</option>
+                                    <option value="gradient">渐变线</option>
+                                    <option value="left-accent">左侧竖线</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>分类标题对齐</label>
+                                <select id="category-title-align">
+                                    <option value="left">左对齐</option>
+                                    <option value="center">居中</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片图片高度</label>
+                                <select id="card-image-height">
+                                    <option value="120px">矮(120px)</option>
+                                    <option value="150px">较矮(150px)</option>
+                                    <option value="180px" selected>标准(180px)</option>
+                                    <option value="220px">较高(220px)</option>
+                                    <option value="260px">高(260px)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>卡片视图模式</label>
+                                <select id="card-view-mode">
+                                    <option value="card">卡片(网格)</option>
+                                    <option value="list">列表(横向)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>内容区最大宽度</label>
+                                <select id="content-max-width">
+                                    <option value="900px">窄(900px)</option>
+                                    <option value="1000px">较窄(1000px)</option>
+                                    <option value="1100px">适中(1100px)</option>
+                                    <option value="1200px" selected>标准(1200px)</option>
+                                    <option value="1400px">宽(1400px)</option>
+                                    <option value="full">全宽</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>Hero区域样式</label>
+                                <select id="hero-style">
+                                    <option value="gradient">渐变背景</option>
+                                    <option value="solid">纯色背景</option>
+                                    <option value="minimal">简约(透明)</option>
+                                    <option value="pattern">条纹图案</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>详情页布局</label>
+                                <select id="detail-layout">
+                                    <option value="single">单栏</option>
+                                    <option value="sidebar">双栏(侧边栏)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 广告配置 -->
+                    <div class="config-section" id="tab-ads">
+                        <div class="config-group">
+                            <h4 class="group-title">📢 广告代码配置</h4>
+                            <div style="margin-bottom:12px;">
+                                <label style="display:block;font-size:13px;margin-bottom:6px;">广告代码文件（可选）</label>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <button id="ad-code-btn" style="padding:6px 14px;border-radius:4px;border:1px solid var(--color-primary,#4a9eff);background:transparent;color:var(--color-primary,#4a9eff);cursor:pointer;font-size:12px;white-space:nowrap;">选择文件</button>
+                                    <span id="ad-code-status" style="font-size:11px;color:#888;">未上传</span>
+                                    <input type="file" id="ad-code-upload" accept=".txt" style="display:none;">
+                                </div>
+                                <p style="font-size:11px;color:#888;margin-top:4px;">上传 Google AdSense 生成的广告代码文件，自动提取广告位路径和 GA ID</p>
+                                <div id="ad-code-preview" style="display:none;margin-top:8px;font-size:11px;background:var(--bg-secondary,#1e1e1e);border-radius:6px;padding:10px;line-height:2;word-break:break-all;"></div>
+                            </div>
+                        </div>
+                        <div class="config-group">
+                            <h4 class="group-title">📢 广告容器</h4>
+                            <p class="group-desc" style="font-size:12px;color:#888;margin-bottom:12px;">选择广告容器后，点击预览区中的虚线标记即可放置广告。广告仅添加到首页和详情页。</p>
+
+                            <!-- 广告1 -->
+                            <div class="ad-container-config" style="background:var(--bg-secondary,#1e1e1e);border-radius:8px;padding:12px;margin-bottom:10px;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                                    <span style="font-weight:600;font-size:13px;">广告1</span>
+                                    <div>
+                                        <button class="ad-select-btn" data-ad="adv1" style="padding:4px 12px;border-radius:4px;border:1px solid var(--color-primary,#4a9eff);background:transparent;color:var(--color-primary,#4a9eff);cursor:pointer;font-size:12px;">选择放置</button>
+                                        <button class="ad-remove-btn" data-ad="adv1" style="padding:4px 8px;border-radius:4px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;cursor:pointer;font-size:12px;display:none;">移除</button>
+                                    </div>
+                                </div>
+                                <div style="font-size:11px;color:#888;">ID: div-gpt-ad-banner1 | 位置: <span class="ad-position-label" data-ad="adv1">未放置</span></div>
+                            </div>
+
+                            <!-- 广告2 -->
+                            <div class="ad-container-config" style="background:var(--bg-secondary,#1e1e1e);border-radius:8px;padding:12px;margin-bottom:10px;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                                    <span style="font-weight:600;font-size:13px;">广告2</span>
+                                    <div>
+                                        <button class="ad-select-btn" data-ad="adv2" style="padding:4px 12px;border-radius:4px;border:1px solid var(--color-primary,#4a9eff);background:transparent;color:var(--color-primary,#4a9eff);cursor:pointer;font-size:12px;">选择放置</button>
+                                        <button class="ad-remove-btn" data-ad="adv2" style="padding:4px 8px;border-radius:4px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;cursor:pointer;font-size:12px;display:none;">移除</button>
+                                    </div>
+                                </div>
+                                <div style="font-size:11px;color:#888;">ID: div-gpt-ad-banner2 | 位置: <span class="ad-position-label" data-ad="adv2">未放置</span></div>
+                            </div>
+
+                            <!-- 广告3 -->
+                            <div class="ad-container-config" style="background:var(--bg-secondary,#1e1e1e);border-radius:8px;padding:12px;margin-bottom:10px;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                                    <span style="font-weight:600;font-size:13px;">广告3</span>
+                                    <div>
+                                        <button class="ad-select-btn" data-ad="adv3" style="padding:4px 12px;border-radius:4px;border:1px solid var(--color-primary,#4a9eff);background:transparent;color:var(--color-primary,#4a9eff);cursor:pointer;font-size:12px;">选择放置</button>
+                                        <button class="ad-remove-btn" data-ad="adv3" style="padding:4px 8px;border-radius:4px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;cursor:pointer;font-size:12px;display:none;">移除</button>
+                                    </div>
+                                </div>
+                                <div style="font-size:11px;color:#888;">ID: div-gpt-ad-banner3 | 位置: <span class="ad-position-label" data-ad="adv3">未放置</span></div>
+                            </div>
+
+                            <div class="ad-placement-hint" id="ad-placement-hint" style="display:none;background:rgba(74,158,255,0.1);border:1px dashed var(--color-primary,#4a9eff);border-radius:6px;padding:10px;margin-top:8px;font-size:12px;color:var(--color-primary,#4a9eff);text-align:center;">
+                                已选择广告，请点击预览区中的虚线标记进行放置
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧：实时预览 -->
+                <div class="preview-panel">
+                    <div class="preview-toolbar">
+                        <h3>实时预览</h3>
+                        <div class="preview-tabs">
+                            <button class="preview-tab active" data-page="home">首页</button>
+                            <button class="preview-tab" data-page="detail">详情页</button>
+                            <button class="preview-tab" data-page="about">关于</button>
+                            <button class="preview-tab" data-page="contact">联系</button>
+                            <button class="preview-tab" data-page="privacy">隐私</button>
+                            <button class="preview-tab" data-page="terms">条款</button>
+                        </div>
+                        <div class="preview-sizes">
+                            <button class="size-btn active" data-size="desktop" title="桌面">🖥️</button>
+                            <button class="size-btn" data-size="tablet" title="平板">📱</button>
+                            <button class="size-btn" data-size="mobile" title="手机">📲</button>
+                        </div>
+                    </div>
+                    <div class="preview-frame-wrapper">
+                        <iframe id="preview-frame" class="preview-frame desktop"></iframe>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== Step 5: 导出网站 ========== -->
+        <div class="step-panel" id="step-5">
+            <h2 class="panel-title">导出网站</h2>
+            <p class="panel-desc">确认配置后导出完整的静态网站文件</p>
+
+            <div class="export-summary" id="export-summary">
+                <!-- 由JS动态生成配置摘要 -->
+            </div>
+
+            <div class="export-options">
+                <h4>导出方式</h4>
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="export-mode" value="browser" checked>
+                        浏览器端生成（无需Python，一键导出）
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="export-mode" value="python">
+                        生成Python脚本（适合大量数据，需Python环境）
+                    </label>
+                </div>
+            </div>
+
+            <div class="export-actions">
+                <button class="btn-export" id="btn-export" disabled>
+                    📦 导出网站ZIP
+                </button>
+                <div class="export-progress" id="export-progress" style="display:none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p class="progress-text" id="progress-text">准备中...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部导航按钮 -->
+        <div class="step-nav">
+            <button class="btn-prev" id="btn-prev" style="display:none;">← 上一步</button>
+            <button class="btn-next" id="btn-next">下一步 →</button>
+        </div>
+    </div>
+
+    <!-- JS脚本（顺序加载） -->
+    <script src="js/data.js"></script>
+    <script src="js/generator.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

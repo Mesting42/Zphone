@@ -1,8 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">站点模块标识</title>
-  <desc id="desc">A modular page grid that represents building a website from structured content.</desc>
-  <rect x="3" y="3" width="58" height="58" rx="16" fill="#EEF4FF" stroke="#BCD3F3" stroke-width="2"/>
-  <path d="M18 14h21l9 9v27H18z" fill="#246CD3"/>
-  <path d="M39 14v9h9" fill="#9FC4F4"/>
-  <path d="M25 30h16M25 37h16M25 44h10" fill="none" stroke="#FFF" stroke-linecap="round" stroke-width="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="sf-title sf-description">
+  <title id="sf-title">SiteFoundry</title>
+  <desc id="sf-description">叠合的网页与三块布局模块，代表批量构建网站。</desc>
+  <defs>
+    <linearGradient id="sf-blue" x1="8" y1="0" x2="58" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#368DF5"/>
+      <stop offset="1" stop-color="#1657CB"/>
+    </linearGradient>
+  </defs>
+  <!-- 64px 网格；8px 内安全区。层叠页只保留可见边缘，减少图形噪声。 -->
+  <rect width="64" height="64" rx="16" fill="url(#sf-blue)"/>
+  <g fill="none" stroke="#FFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 38V12a4 4 0 0 1 4-4h28" opacity=".48"/>
+    <path d="M12 44V16a4 4 0 0 1 4-4h30" opacity=".75"/>
+    <rect x="16" y="18" width="40" height="38" rx="5"/>
+    <path d="M17 28h38"/>
+  </g>
+  <!-- 纵向内容区与两个右侧模块共同构成网页布局，不依赖文字表达。 -->
+  <rect x="22" y="34" width="12" height="16" rx="2" fill="#FFF"/>
+  <rect x="38" y="34" width="12" height="6" rx="1.5" fill="#FFF"/>
+  <rect x="38" y="44" width="12" height="6" rx="1.5" fill="#B9DEFF"/>
 </svg>

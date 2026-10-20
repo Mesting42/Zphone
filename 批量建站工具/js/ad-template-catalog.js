@@ -34,6 +34,10 @@
     }
 
     function requestJson(url, options) {
+        if (window.SiteFoundryPlatform && window.SiteFoundryPlatform.kind === 'android'
+            && new URL(url, window.location.href).pathname.indexOf(API_URL) === 0) {
+            return window.SiteFoundryPlatform.requestTemplate(url, options);
+        }
         return window.fetch(url, options).then(function (response) {
             return response.json().catch(function () { return {}; }).then(function (body) {
                 if (!response.ok) throw new Error(body.error || '模板请求失败（HTTP ' + response.status + '）。');

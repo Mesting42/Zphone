@@ -1,8 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">站点模块图标</title>
-  <desc id="desc">A modular page grid.</desc>
-  <rect width="64" height="64" rx="18" fill="#246CD3"/>
-  <path d="M18 13h21l9 9v29H18z" fill="#FFF"/>
-  <path d="M39 13v9h9" fill="#BFD8F8"/>
-  <path d="M25 31h16M25 38h16M25 45h10" fill="none" stroke="#246CD3" stroke-linecap="round" stroke-width="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img" aria-label="SiteFoundry">
+  <!-- 16px 专用像素网格：1px 页框，移除渐变和模块内圆角。 -->
+  <rect width="16" height="16" rx="4" fill="#246FDF"/>
+  <g fill="none" stroke="#FFF" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 9.5v-6a1 1 0 0 1 1-1h6" opacity=".55"/>
+    <path d="M3.5 10.5v-6a1 1 0 0 1 1-1h7" opacity=".8"/>
+    <rect x="4.5" y="4.5" width="9" height="9" rx="1"/>
+    <path d="M4.5 7.5h9"/>
+  </g>
+  <path d="M6 9h3v3H6zM10 9h2v1h-2zM10 11h2v1h-2z" fill="#FFF"/>
 </svg>

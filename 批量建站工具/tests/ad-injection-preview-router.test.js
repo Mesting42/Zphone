@@ -19,6 +19,13 @@ const entries = [
 ].map((path) => ({ path }));
 
 describe('finished-site preview routing', () => {
+  it('recognizes flat detail files inside content folders without selecting list indexes', () => {
+    expect(isPreviewDetailEntry('upload/details/article1.html', 'upload/')).toBe(true);
+    expect(isPreviewDetailEntry('upload/articles/field-record.htm', 'upload/')).toBe(true);
+    expect(isPreviewDetailEntry('upload/games/space-runner.html', 'upload/')).toBe(true);
+    expect(isPreviewDetailEntry('upload/details/index.html', 'upload/')).toBe(false);
+    expect(isPreviewDetailEntry('upload/articles/index.htm', 'upload/')).toBe(false);
+  });
   it.each([
     ['/tools', 'dist/client/index.html', 'dist/client/tools/index.html'],
     ['/tools/swr?unit=metric#result', 'dist/client/index.html', 'dist/client/tools/swr/index.html'],

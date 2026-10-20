@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "nodeVersion": "24.21.0",
+  "mobileVersion": "24.21.0-0",
+  "distributionPrerelease": true,
+  "sourceURL": "https://github.com/fogtape/nodejs-mobile/releases/download/v24.21.0-0/nodejs-mobile-android-24.21.0-0.zip",
+  "archiveSha256": "e3cd29a1be03405f11dd5c857af8cd3ad13f84f1409ea648f5328f0bada5bd76",
+  "licenseURL": "https://raw.githubusercontent.com/fogtape/nodejs-mobile/v24.21.0-0/LICENSE",
+  "licenseSha256": "c373dabed995013e091b1908996a69a1647ef19d400e6c1fd4b7fb06d8bc0f66",
+  "ndk": "28.2.13676358",
+  "cmake": "3.22.1",
+  "androidMinAPI": 29,
+  "built": [
+    {
+      "abi": "arm64-v8a",
+      "name": "libsitefoundrynode.so",
+      "bytes": 7636680,
+      "sha256": "e7f4d68ba19542eb43db629314a783c54e80df2ed7dee8aa5dd88819048f1553"
+    },
+    {
+      "abi": "arm64-v8a",
+      "name": "libsitefoundryshell.so",
+      "bytes": 5331416,
+      "sha256": "96fddcb839c39f402d70be46f38ef4d9c56460a33ec46bfff34169cf53147d05"
+    },
+    {
+      "abi": "arm64-v8a",
+      "name": "libnode.so",
+      "bytes": 87657320,
+      "sha256": "955b308b1dfdf7662e8fe5ee4eb8c0c7d0a313f2d306387f2307529993c4bc32"
+    },
+    {
+      "abi": "x86_64",
+      "name": "libsitefoundrynode.so",
+      "bytes": 7300160,
+      "sha256": "8672edb0d90fbb3cf1bc284724b419050e5707c11b33887578c7d5935ba92323"
+    },
+    {
+      "abi": "x86_64",
+      "name": "libsitefoundryshell.so",
+      "bytes": 4999872,
+      "sha256": "2b9ddde5548f392169cac8f907f7d4bb95435c942947b1e76c587ccdce346293"
+    },
+    {
+      "abi": "x86_64",
+      "name": "libnode.so",
+      "bytes": 86065656,
+      "sha256": "3d57865f3f474fa0f55c0495d386c17d46c292c95df8f26b3856e56ab8314acd"
+    }
+  ]
+}

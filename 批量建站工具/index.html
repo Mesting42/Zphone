@@ -2,21 +2,40 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>批量资讯站建站工具</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>SiteFoundry</title>
+    <script src="js/native-platform.js?v=sha256-f14f05bf442daecc"></script>
+    <script type="module" src="js/native-app-init.js?v=sha256-e3c888d90d8cbca0"></script>
+    <!-- 工作台品牌资源；导出网站的 Logo 配置仍由各自生成器负责。 -->
+    <link rel="shortcut icon" href="assets/sitefoundry.ico?v=20261013-brand-1">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/sitefoundry-icon-32.png?v=20261013-brand-1">
+    <link rel="icon" type="image/svg+xml" sizes="any" href="assets/sitefoundry-icon.svg?v=20261013-brand-1">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/sitefoundry-apple-touch.png?v=20261013-brand-1">
     <link rel="stylesheet" href="css/config-disclosures.css?v=20261012-reference-2">
-    <link rel="stylesheet" href="css/tool.css?v=sha256-98ad260148e70d29">
+    <link rel="stylesheet" href="css/tool.css?v=sha256-b835dbe3c7e38117">
     <link rel="stylesheet" href="css/liquid-glass.css?v=sha256-d5b2595235a35205">
     <link rel="stylesheet" href="css/field-mapping.css?v=sha256-1219396f95248285">
     <link rel="stylesheet" href="css/export-page.css?v=sha256-3378432a641129e7">
+    <link rel="stylesheet" href="css/workbench-brand.css?v=20261013-brand-1">
+    <link rel="stylesheet" href="css/native-app.css?v=sha256-fbfe6930b3de695d">
     <!-- 压缩包解析优先使用项目本地依赖，CDN 仅作旧环境回退。 -->
     <script src="node_modules/jszip/dist/jszip.min.js"></script>
-    <script>if (!window.JSZip) document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');</script>
+    <script src="js/offline-font-catalog.js?v=sha256-99a4d9dbfb4ef1a4"></script>
+    <script src="js/offline-fonts.js?v=sha256-b65a07d08c53ae0c"></script>
+    <script defer src="js/offline-status.js?v=sha256-c470a68660389e1f"></script>
+    <link rel="stylesheet" href="css/offline-status.css?v=sha256-b49a35c253ee30a2">
     <script src="js/vendor/file-saver-2.0.5.min.js"></script>
 </head>
 <body>
     <!-- 步骤导航与当前工作流共用一张玻璃控制卡片。 -->
     <div class="workflow-command-bar liquid-glass-surface">
+    <div class="workbench-brand" role="img" aria-label="SiteFoundry 批量建站工具">
+        <img class="workbench-brand-mark" src="assets/sitefoundry-logo.svg?v=20261013-brand-1" width="40" height="40" alt="" decoding="async">
+        <span class="workbench-brand-copy" aria-hidden="true">
+            <strong class="workbench-brand-name">SiteFoundry</strong>
+            <span class="workbench-brand-description">批量建站工具</span>
+        </span>
+    </div>
     <nav class="step-progress liquid-command-progress" aria-label="建站步骤">
         <button type="button" class="step-item active" data-step="1" aria-current="step">
             <div class="step-circle">1</div>
@@ -113,7 +132,11 @@
                 <div class="batch-ad-file-card">
                     <span class="batch-ad-step" aria-hidden="true">1</span>
                     <div><h4>选择全部数据源</h4><p>每个 JSON、ZIP、RAR 或 7Z 数据包生成一个独立站点。系统会逐站检查各自领域的必填字段，并要求同领域站点使用不同模板。</p></div>
-                    <button type="button" class="batch-ad-pick-button" id="batch-data-button">选择多个数据源</button>
+                    <div class="batch-source-actions">
+                        <button type="button" class="batch-ad-pick-button" id="batch-data-button">选择多个数据源</button>
+                        <button type="button" class="batch-ad-pick-button" id="batch-directory-button">添加数据源文件夹</button>
+                    </div>
+                    <input type="file" id="batch-directory-input" webkitdirectory directory multiple hidden>
                     <input type="file" id="batch-data-input" accept=".json,.zip,.rar,.7z,application/json,application/zip,application/vnd.rar,application/x-rar-compressed" multiple hidden>
                     <span class="batch-ad-file-status" id="batch-data-status">尚未选择数据源</span>
                     <div class="batch-ad-import-progress" id="batch-data-progress" role="status" aria-live="polite" hidden>
@@ -258,7 +281,7 @@
                 <div class="upload-icon">📁</div>
                 <p class="upload-text">拖拽文件到此处，或点击选择文件</p>
                 <p class="upload-hint" id="upload-hint">支持 .json 文件 或压缩包（.zip/.rar/.7z，含JSON+图片）</p>
-                <input class="upload-file-input" type="file" id="file-input" accept=".json,.zip,.rar,.7z" aria-label="选择资讯数据文件" aria-describedby="upload-hint">
+                <input class="upload-file-input" type="file" id="file-input" accept=".json,.zip,.rar,.7z,application/json,application/zip,application/vnd.rar,application/x-rar-compressed,application/x-7z-compressed" aria-label="选择资讯数据文件" aria-describedby="upload-hint">
                 <div class="export-progress upload-import-progress" id="upload-import-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
                     <div class="export-progress-heading">
                         <span>解析进度</span>
@@ -269,6 +292,11 @@
                     </div>
                     <p class="progress-text" id="upload-import-progress-text">准备读取数据源...</p>
                 </div>
+            </div>
+            <div class="data-directory-actions" id="data-directory-actions">
+                <button type="button" class="batch-ad-pick-button" id="data-directory-button">选择解压后的数据源文件夹</button>
+                <span>读取文件夹中的 JSON 和配套图片</span>
+                <input type="file" id="data-directory-input" webkitdirectory directory multiple hidden>
             </div>
 
             <!-- 上传成功后显示数据概览 -->
@@ -551,7 +579,7 @@
                                 </div>
                             </div>
                             <p class="group-hint" id="hero-enabled-help">开启后会显示首页标题与副标题；关闭后，实时预览和导出站点都会直接从内容区开始。</p>
-                            <div id="all-articles-settings">
+                            <div id="all-articles-settings" data-editorial-template-only="current">
                                 <div class="config-item">
                                     <label for="all-articles-enabled">全部文章页面</label>
                                     <div class="toggle-switch">
@@ -571,13 +599,23 @@
                                     <input type="text" id="hero-subtitle" class="text-input">
                                 </div>
                             </div>
-                            <div class="config-item">
+                            <div class="config-item" data-editorial-template-only="current">
                                 <label>页眉导航</label>
                                 <div class="checkbox-group">
                                     <label class="checkbox-label is-disabled"><input type="checkbox" checked disabled> Home + 数据源自动识别分类（最多 4 个）</label>
                                 </div>
                             </div>
-                            <div class="config-item">
+                            <div class="config-item" data-editorial-template-only="legacy" hidden>
+                                <label>旧版本导航栏链接</label>
+                                <div class="checkbox-group" id="editorial-legacy-nav-links">
+                                    <label class="checkbox-label"><input type="checkbox" value="home" checked> Home</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="privacy" checked> Privacy Policy</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="terms" checked> Terms of Service</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="contact" checked> Contact Us</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="about" checked> About Us</label>
+                                </div>
+                            </div>
+                            <div class="config-item" data-editorial-template-only="current">
                                 <label>页脚链接</label>
                                 <div class="checkbox-group" id="footer-links-config">
                                     <label class="checkbox-label"><input type="checkbox" value="privacy" checked> Privacy Policy</label>
@@ -753,8 +791,24 @@
 
                     <!-- 样式配置 -->
                     <div class="config-section" id="tab-style">
+                        <div class="config-group" id="editorial-template-version-controls">
+                            <h4 class="group-title">模板版本</h4>
+                            <div class="config-item"><label for="editorial-template-version">选择模板版本</label>
+                                <select id="editorial-template-version"><option value="current">新版本</option><option value="legacy">旧版本</option></select>
+                            </div>
+                            <div id="batch-editorial-template-scope" hidden>
+                                <label class="checkbox-label"><input type="checkbox" id="batch-editorial-template-override"> 当前站点单独选择模板版本</label>
+                                <p class="group-hint" id="batch-editorial-template-scope-hint">未开启单站覆盖时，版本选择应用于整批未覆盖的站点。</p>
+                            </div>
+                            <p class="group-hint">新旧版本分别保存自己的配置和随机搭配规则。</p>
+                        </div>
+                        <div class="config-group" data-editorial-template-only="legacy" hidden>
+                            <h4 class="group-title">旧版本 · 随机搭配</h4>
+                            <div class="config-item"><label for="editorial-legacy-theme">旧版本主题</label><select id="editorial-legacy-theme"></select></div>
+                            <p class="group-hint">保留旧工具原有页面、导航与选项，点击“随机搭配”后仍可手动调整。</p>
+                        </div>
                         <!-- 页面模板蓝图 -->
-                        <div class="config-group">
+                        <div class="config-group" data-editorial-template-only="current">
                             <h4 class="group-title">🧱 领域专属模板蓝图（30 种）</h4>
                             <p class="group-hint">显示当前领域的专属蓝图与全领域通用视觉模板；选择后会改变首页、详情页、导航和组件组合，配色可另行切换。</p>
                             <div class="template-grid" id="template-grid">
@@ -1482,22 +1536,24 @@
     <script src="js/archive-naming.js?v=20260926-domain-folder-1"></script>
     <script src="js/ad-migration.js?v=20261009-page-ad-isolation-1"></script>
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
-    <script src="js/ad-template-catalog.js?v=20260929-ad-template-default-1"></script>
+    <script src="js/ad-template-catalog.js?v=sha256-cf6d3c581fac227f"></script>
     <script src="js/export-preflight.js?v=20261008-ad-core-4"></script>
     <script src="js/finished-site-ads.js?v=sha256-f58cf1502aab58bf"></script>
     <script type="module" src="js/rar-import.js?v=20260928-rar-timeout-fallback-2"></script>
     <script src="js/site-motion.js?v=sha256-33f78618c8f736db"></script>
-    <script src="js/archive-export.js?v=sha256-784bb59d7feb4eea"></script>
+    <script src="js/archive-export.js?v=sha256-fe937497e58f8e9f"></script>
     <script src="js/preview-image-cache.js?v=sha256-bd9f82e91188612d"></script>
     <script src="js/configuration-controls.js?v=sha256-ec06e879668c9a66"></script>
-    <script src="js/generator.js?v=sha256-e68c76ef486c6188"></script>
+    <script src="js/legacy-editorial-template-source.js?v=sha256-3c9b0650110bf984"></script>
+    <script src="js/editorial-template-versions.js?v=sha256-1285053290dbb209"></script>
+    <script src="js/generator.js?v=sha256-8226b515e49fc73e"></script>
     <script src="js/zip-archive-worker-client.js?v=20260928-zip-worker-progress-1"></script>
     <script src="js/ad-restoration.js?v=sha256-7d095054ca4f7871"></script>
-    <script src="js/batch-ad-builder.js?v=sha256-b9f9f82f528122c3"></script>
+    <script src="js/batch-ad-builder.js?v=sha256-7225292915893648"></script>
 <script src="js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
 <script src="js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
 <script src="js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-<script type="module" src="js/app.js?v=sha256-bbef5aa6038c9a16"></script>
+<script type="module" src="js/app.js?v=sha256-ca05e47338c554bc"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
   <script src="js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
   <script src="js/config-disclosures.js?v=20261012-reference-2"></script>

@@ -2,15 +2,27 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>游戏建站工具 · 批量建站工具</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>SiteFoundry</title>
+    <script src="../js/native-platform.js?v=sha256-f14f05bf442daecc"></script>
+    <script type="module" src="../js/native-app-init.js?v=sha256-e3c888d90d8cbca0"></script>
+    <!-- 游戏工作流沿用 SiteFoundry 工作台品牌，使用同一套本地图标。 -->
+    <link rel="shortcut icon" href="../assets/sitefoundry.ico?v=20261013-brand-1">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/sitefoundry-icon-32.png?v=20261013-brand-1">
+    <link rel="icon" type="image/svg+xml" sizes="any" href="../assets/sitefoundry-icon.svg?v=20261013-brand-1">
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/sitefoundry-apple-touch.png?v=20261013-brand-1">
     <link rel="stylesheet" href="../css/config-disclosures.css?v=20261012-reference-2">
-    <link rel="stylesheet" href="css/tool.css?v=20260929-ad-template-default-1">
+    <link rel="stylesheet" href="css/tool.css?v=sha256-cdcd902c8047a6ae">
   <link rel="stylesheet" href="../css/liquid-glass.css?v=sha256-d5b2595235a35205">
     <link rel="stylesheet" href="../css/export-page.css?v=sha256-3378432a641129e7">
+    <link rel="stylesheet" href="../css/workbench-brand.css?v=20261013-brand-1">
+    <link rel="stylesheet" href="../css/native-app.css?v=sha256-fbfe6930b3de695d">
     <!-- 压缩包解析优先使用当前发布包的本地依赖，CDN 仅作旧环境回退。 -->
     <script src="../node_modules/jszip/dist/jszip.min.js"></script>
-    <script>if (!window.JSZip) document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\\/script>');</script>
+    <script src="../js/offline-font-catalog.js?v=sha256-99a4d9dbfb4ef1a4"></script>
+    <script src="../js/offline-fonts.js?v=sha256-b65a07d08c53ae0c"></script>
+    <script defer src="../js/offline-status.js?v=sha256-c470a68660389e1f"></script>
+    <link rel="stylesheet" href="../css/offline-status.css?v=sha256-b49a35c253ee30a2">
     <script src="../js/vendor/file-saver-2.0.5.min.js"></script>
 </head>
 <body>
@@ -18,6 +30,13 @@
     <div class="game-workbench-command">
         <a class="tool-return-link" href="../index.html">← 返回批量建站工具</a>
         <div class="workflow-command-bar game-workflow-command-bar liquid-glass-surface">
+            <div class="workbench-brand" role="img" aria-label="SiteFoundry 批量建站工具">
+                <img class="workbench-brand-mark" src="../assets/sitefoundry-logo.svg?v=20261013-brand-1" width="40" height="40" alt="" decoding="async">
+                <span class="workbench-brand-copy" aria-hidden="true">
+                    <strong class="workbench-brand-name">SiteFoundry</strong>
+                    <span class="workbench-brand-description">批量建站工具</span>
+                </span>
+            </div>
             <nav class="step-progress liquid-command-progress game-command-progress" aria-label="游戏建站步骤">
                 <button type="button" class="step-item active" data-step="1" aria-current="step">
                     <span class="step-circle">1</span>
@@ -179,7 +198,7 @@
                                 <input type="email" id="contact-email" class="text-input" value="contact@gamehub.com" maxlength="120">
                                 <p class="contact-email-help">上传并识别广告代码 TXT 后，会自动同步为 contact@对应子域名；仍可手动改为可收信的同域邮箱。</p>
                             </div>
-                            <div class="config-item header-nav-config">
+                            <div class="config-item header-nav-config" data-game-template-only="current">
                                 <label>页眉导航</label>
                                 <div class="checkbox-group">
                                     <label class="checkbox-label is-disabled"><input type="checkbox" checked disabled> Home + 数据源自动识别分类（最多 4 个）</label>
@@ -187,7 +206,18 @@
                                 </div>
                                 <p class="config-help-block">关闭后将不显示导航栏和首页的“全部游戏”入口，也不会导出 <code>all-games.html</code>。</p>
                             </div>
-                            <div class="config-item">
+                            <div class="config-item" data-game-template-only="legacy" hidden>
+                                <label>旧版本导航栏链接</label>
+                                <div class="checkbox-group" id="legacy-nav-links-config">
+                                    <label class="checkbox-label"><input type="checkbox" value="home" checked> Home</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="privacy" checked> Privacy Policy</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="terms" checked> Terms of Service</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="contact" checked> Contact Us</label>
+                                    <label class="checkbox-label"><input type="checkbox" value="about" checked> About Us</label>
+                                </div>
+                                <p class="config-help-block">保留旧版导航项目及顺序，不自动加入游戏分类。</p>
+                            </div>
+                            <div class="config-item" data-game-template-only="current">
                                 <label>页脚链接</label>
                                 <div class="checkbox-group" id="footer-links-config">
                                     <label class="checkbox-label"><input type="checkbox" value="privacy" checked> Privacy Policy</label>
@@ -399,6 +429,27 @@
                     <!-- 样式配置 -->
                     <div class="config-section" id="tab-style">
                         <div class="config-group">
+                            <h4 class="group-title">模板版本</h4>
+                            <div class="config-item">
+                                <label for="game-template-version">选择模板版本</label>
+                                <select id="game-template-version">
+                                    <option value="current">新版本</option>
+                                    <option value="legacy">旧版本</option>
+                                </select>
+                            </div>
+                            <p class="config-help-block">两个版本分别保留自己的样式设置和随机搭配规则。</p>
+                        </div>
+                        <div class="config-group" data-game-template-only="legacy" hidden>
+                            <h4 class="group-title">旧版本 · 随机搭配</h4>
+                            <p class="config-help-block">使用旧工具原有页面结构。点击“随机组装”搭配配色、导航、卡片和详情页，也可继续手动调整。</p>
+                            <div class="config-item">
+                                <label for="legacy-card-desc-lines">旧版本卡片描述行数</label>
+                                <select id="legacy-card-desc-lines">
+                                    <option value="1">1 行</option><option value="2">2 行</option><option value="3">3 行</option><option value="4">4 行</option><option value="0">完整显示</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="config-group" data-game-template-only="current">
                             <p class="group-eyebrow">LAYOUT SYSTEM</p>
                             <h4 class="group-title">页面布局模板</h4>
                             <p class="group-desc template-rule">固定首组 2 个大游戏，后续分组每组 6 个；模板只改变视觉组织与卡片表现。</p>
@@ -1029,22 +1080,24 @@
     <script src="../js/archive-naming.js?v=20260926-domain-folder-1"></script>
     <script src="js/ad-migration.js?v=20261008-ad-core-4"></script>
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
-    <script src="../js/ad-template-catalog.js?v=20260929-ad-template-default-1"></script>
+    <script src="../js/ad-template-catalog.js?v=sha256-cf6d3c581fac227f"></script>
     <script src="../js/export-preflight.js?v=20261008-ad-core-4"></script>
-    <script type="module" src="js/game-archive-runtime.js?v=20260926-module-import-1"></script>
+    <script type="module" src="js/game-archive-runtime.js?v=sha256-1b3fefb9c1a10766"></script>
     <script src="js/game-zip-import.js?v=20260912-1"></script>
     <script src="js/built-in-game-sources.js?v=20260912-1"></script>
     <script src="js/saved-game-catalogs.js?v=20260912-content-identity-1"></script>
     <script src="../js/site-motion.js?v=sha256-33f78618c8f736db"></script>
-    <script src="../js/archive-export.js?v=sha256-784bb59d7feb4eea"></script>
+    <script src="../js/archive-export.js?v=sha256-fe937497e58f8e9f"></script>
     <script src="../js/preview-image-cache.js?v=sha256-bd9f82e91188612d"></script>
     <script src="../js/configuration-controls.js?v=sha256-ec06e879668c9a66"></script>
-    <script src="js/generator.js?v=sha256-b079670ff94e2565"></script>
-  <script src="js/differentiated-builder.js?v=20260914-v101-48"></script>
+    <script src="js/legacy-template-source.js?v=sha256-28ada5dede152f2f"></script>
+    <script src="js/game-template-versions.js?v=sha256-61711527a633832c"></script>
+    <script src="js/generator.js?v=sha256-ccc10366cfa4c04f"></script>
+  <script src="js/differentiated-builder.js?v=sha256-683cd72732e06818"></script>
   <script src="../js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
   <script src="../js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
   <script src="../js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-  <script src="js/app.js?v=sha256-52b729f29a8b3cd7"></script>
+  <script src="js/app.js?v=sha256-13f31f0f59ca608c"></script>
   <script src="../js/jelly-button.js?v=20260918-9"></script>
   <script src="../js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
   <script src="../js/config-disclosures.js?v=20261012-reference-2"></script>

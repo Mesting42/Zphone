@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SiteFoundry</string>
+    <string name="title_activity_main">SiteFoundry</string>
+    <string name="package_name">com.sitefoundry.workbench</string>
+    <string name="custom_url_scheme">com.sitefoundry.workbench</string>
+</resources>

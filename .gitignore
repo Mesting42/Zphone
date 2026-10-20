@@ -11,12 +11,13 @@
 **/.env.*
 !**/.env.example
 
-# Local Codex session handoff notes
-/CURRENT_SESSION_HANDOFF.md
-/当前会话交接文档.md
-**/HANDOFF.md
-**/SESSION_HANDOFF.md
-**/CURRENT_SESSION_HANDOFF.md
+# Local Codex session handoff notes stay on disk, including dated variants.
+**/CURRENT_SESSION_HANDOFF*.md
+**/SESSION_HANDOFF*.md
+**/SESSION-HANDOFF*.md
+**/HANDOFF*.md
+**/当前会话交接*.md
+**/会话交接*.md
 
 # Logs and operating-system clutter
 *.log

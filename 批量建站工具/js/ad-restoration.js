@@ -17,7 +17,9 @@ const AdRestoration = (function() {
     const BANNER_UNITS = ['off', 'banner1', 'banner2', 'banner3'];
     const ALL_PLACEMENTS = ['off', 'after-navbar', 'content-top', 'content-middle', 'content-bottom', 'footer-top'];
     const BATCH_AD_JS_VERSIONS = ['v1.0.0', 'v1.0.1', 'v1.0.2', 'v1.0.2.1'];
-    const CUSTOM_PLACEMENT_PATTERN = /^custom-after-(?:\d{1,3})(?:-\d{1,3}){0,7}$/;
+    // New finished-site policies store a semantic progress ratio. Legacy
+    // child-index paths remain readable so existing saved work is not lost.
+    const CUSTOM_PLACEMENT_PATTERN = /^(?:content-ratio-\d{1,4}|custom-after-(?:\d{1,3})(?:-\d{1,3}){0,7})$/;
     const ORIGINAL_PLACEMENT_PATTERN = /^original-banner([123])$/;
     const DEFAULT_POLICY = {
         version: 1,
@@ -68,8 +70,12 @@ const AdRestoration = (function() {
         return policy;
     }
 
-    // 旧调用保留两类页面；新工作台显式启用独立列表页，不改变成品站流程。
-    function policyPages(policy) { return policy && policy.slots && policy.slots.all ? ['home', 'detail', 'all'] : ['home', 'detail']; }
+    // Keep a deterministic order in manifests and the editor while allowing
+    // finished sites to own independent article, tool and game detail rules.
+    function policyPages(policy) {
+        const order = ['home', 'detail', 'article', 'tool', 'game', 'all'];
+        return order.filter(function(page) { return !!(policy && policy.slots && policy.slots[page]); });
+    }
 
     function createPolicy(preset, options) {
         const policy = clone(DEFAULT_POLICY);
@@ -82,6 +88,14 @@ const AdRestoration = (function() {
             ];
             policy.outOfPage.interstitial.all = false;
             policy.outOfPage.anchor.all = true;
+        }
+        if (options && options.contentTypeIsolation) {
+            policy.version = 3;
+            ['article', 'tool', 'game'].forEach(function(page) {
+                policy.slots[page] = clone(policy.slots.detail);
+                policy.outOfPage.interstitial[page] = policy.outOfPage.interstitial.detail;
+                policy.outOfPage.anchor[page] = policy.outOfPage.anchor.detail;
+            });
         }
         if (preset === 'restore-original') {
             policyPages(policy).forEach(function(page) {
@@ -126,13 +140,18 @@ const AdRestoration = (function() {
 
     function normalizePolicy(input) {
         const source = input || {};
-        const policy = createPolicy(undefined, { pageIsolation: !!(source.slots && source.slots.all) || source.version >= 2 });
+        const hasContentScopes = !!(source.slots && (source.slots.article || source.slots.tool || source.slots.game)) || source.version >= 3;
+        const policy = createPolicy(undefined, {
+            pageIsolation: !!(source.slots && source.slots.all) || (source.version >= 2 && source.version < 3),
+            contentTypeIsolation: hasContentScopes
+        });
         policy.writeDisabledComments = source.writeDisabledComments !== false;
         if (source.slots && Array.isArray(source.slots.home) && Array.isArray(source.slots.detail)) {
             policyPages(policy).forEach(function(page) {
                 const allowedPositions = page === 'home' ? HOME_PLACEMENTS : page === 'all' ? ALL_PLACEMENTS : DETAIL_PLACEMENTS;
                 policy.slots[page] = policy.slots[page].map(function(defaultSlot, index) {
-                    const item = (source.slots[page] || [])[index] || defaultSlot;
+                    const sourceSlots = source.slots[page] || (['article', 'tool', 'game'].indexOf(page) !== -1 ? source.slots.detail : null) || [];
+                    const item = sourceSlots[index] || defaultSlot;
                     return {
                         position: isAllowedPlacement(item.position, allowedPositions) && item.position !== 'off' ? item.position : defaultSlot.position,
                         unit: BANNER_UNITS.indexOf(item.unit) !== -1 ? item.unit : defaultSlot.unit
@@ -144,7 +163,7 @@ const AdRestoration = (function() {
                 const bannerKeys = ['banner1', 'banner2', 'banner3'];
                 policy.slots[page] = bannerKeys.map(function(key, index) {
                     const item = source.placements && source.placements[key] ? source.placements[key] : {};
-                    const position = item[page];
+                    const position = item[page] == null && ['article', 'tool', 'game'].indexOf(page) !== -1 ? item.detail : item[page];
                     const allowed = page === 'home' ? HOME_PLACEMENTS : page === 'all' ? ALL_PLACEMENTS : DETAIL_PLACEMENTS;
                     return {
                         position: isAllowedPlacement(position, allowed) && position !== 'off' ? position : policy.slots[page][index].position,
@@ -159,6 +178,9 @@ const AdRestoration = (function() {
             policy.outOfPage[key].home = item.home !== false;
             policy.outOfPage[key].detail = item.detail !== false;
             if (policy.slots.all) policy.outOfPage[key].all = item.all == null ? policy.outOfPage[key].detail : item.all !== false;
+            ['article', 'tool', 'game'].forEach(function(page) {
+                if (policy.slots[page]) policy.outOfPage[key][page] = item[page] == null ? policy.outOfPage[key].detail : item[page] !== false;
+            });
         });
         return syncPlacementsFromSlots(policy);
     }
@@ -171,7 +193,8 @@ const AdRestoration = (function() {
             policy.slots[page].forEach(function(slot, index) {
                 if (slot.unit === 'off') return;
                 if (used[slot.unit] != null) {
-                    errors.push(issue((page === 'home' ? '首页' : page === 'all' ? '全部文章页' : '详情页') + '广告位 ' + (used[slot.unit] + 1) + ' 和广告位 ' + (index + 1) + ' 重复使用 ' + slot.unit + '。同一页面的同一 banner 只能使用一次。', 'AD_POLICY_DUPLICATE_UNIT'));
+                    const pageLabel = { home: '首页', detail: '详情页', article: '文章详情页', tool: '工具详情页', game: '游戏详情页', all: '全部文章页' }[page] || page;
+                    errors.push(issue(pageLabel + '广告位 ' + (used[slot.unit] + 1) + ' 和广告位 ' + (index + 1) + ' 重复使用 ' + slot.unit + '。同一页面的同一 banner 只能使用一次。', 'AD_POLICY_DUPLICATE_UNIT'));
                 } else used[slot.unit] = index;
             });
         });
@@ -184,6 +207,79 @@ const AdRestoration = (function() {
 
     function normalizePath(value) {
         return String(value || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '').replace(/\/{2,}/g, '/');
+    }
+
+    // Keep a local export-boundary check as well as the shared planner check.
+    // Classic browser scripts can be refreshed independently, so the final
+    // injector must never let copied build/template trees become site pages.
+    const FINISHED_SITE_AUXILIARY_PATH = /(?:^|\/)(?:vendor-games|assets|node_modules|scripts|templates?|(?:[^/]+-)?_dist|\.git|\.tmp[^/]*|\.site-build)(?:\/|$)/i;
+
+    function isFinishedSiteDeployablePath(path, project) {
+        const normalized = normalizePath(path);
+        if (FINISHED_SITE_AUXILIARY_PATH.test(normalized)) return false;
+        if (typeof FinishedSiteAds === 'undefined') return true;
+        if (typeof FinishedSiteAds.isDeployableContentPath === 'function') {
+            return FinishedSiteAds.isDeployableContentPath(normalized, project);
+        }
+        return typeof FinishedSiteAds.isContentPath !== 'function' || FinishedSiteAds.isContentPath(normalized);
+    }
+
+    /**
+     * Pages explicitly excluded from search indexing are usually retired-route
+     * notices, preview shells or private QA documents. Preserve them byte for
+     * byte, but do not require the public site's three-banner layout on them.
+     */
+    function hasNoindexDirective(html) {
+        const tags = String(html || '').match(/<meta\b[^>]*>/gi) || [];
+        return tags.some(function(tag) {
+            const name = tag.match(/\bname\s*=\s*(["'])(.*?)\1/i);
+            const content = tag.match(/\bcontent\s*=\s*(["'])(.*?)\1/i);
+            return !!(name && content && /^(?:robots|googlebot)$/i.test(name[2].trim())
+                && /(?:^|[,\s])noindex(?:$|[,\s])/i.test(content[2]));
+        });
+    }
+
+    /**
+     * Find HTML documents that are loaded inside another page's iframe.
+     * They are deployment resources rather than standalone site pages, so
+     * inserting the host page's three banners into them breaks both layout and
+     * export validation. Keep the files byte-identical and validate their host
+     * page instead.
+     */
+    function referencedEmbeddedHtmlPaths(entries) {
+        const htmlEntries = (entries || []).filter(function(entry) { return /\.html?$/i.test(normalizePath(entry.path)); });
+        const available = htmlEntries.map(function(entry) { return normalizePath(entry.path).toLowerCase(); });
+        const embedded = new Set();
+
+        function resolveTarget(sourcePath, value) {
+            let source = String(value || '').trim();
+            if (!source || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(source)) return '';
+            source = source.split('#')[0].split('?')[0].replace(/\\/g, '/');
+            try { source = decodeURIComponent(source); } catch (_) {}
+            const parts = source.charAt(0) === '/' ? [] : directoryName(sourcePath).split('/').filter(Boolean);
+            source.replace(/^\/+/, '').split('/').forEach(function(part) {
+                if (!part || part === '.') return;
+                if (part === '..') parts.pop();
+                else parts.push(part);
+            });
+            return parts.join('/').toLowerCase();
+        }
+
+        htmlEntries.forEach(function(entry) {
+            const iframe = /<iframe\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+            let match;
+            while ((match = iframe.exec(entryText(entry))) !== null) {
+                const rawSource = match[1] || match[2] || match[3] || '';
+                const target = resolveTarget(entry.path, rawSource);
+                if (!target || !/\.html?$/i.test(target)) continue;
+                available.forEach(function(candidate) {
+                    if (candidate === target || (rawSource.trim().charAt(0) === '/' && candidate.endsWith('/' + target))) {
+                        embedded.add(candidate);
+                    }
+                });
+            }
+        });
+        return embedded;
     }
 
     function isSafePath(value) {
@@ -368,11 +464,14 @@ const AdRestoration = (function() {
         const entries = (rawEntries || []).map(function(entry) {
             return { path: normalizePath(entry.path || entry.name), text: entryText(entry), source: entry };
         }).filter(function(entry) { return isSafePath(entry.path); });
+        const embeddedDocuments = referencedEmbeddedHtmlPaths(entries);
         // Finished-site previews and both placement modes share the same page
         // scope. Embedded game documents stay in entries for lossless export.
         const htmlEntries = entries.filter(function(entry) {
             return /\.html?$/i.test(entry.path) && (!(options && options.finishedSite)
-                || typeof FinishedSiteAds === 'undefined' || FinishedSiteAds.isContentPath(entry.path));
+                || (isFinishedSiteDeployablePath(entry.path, options && options.project)
+                    && !hasNoindexDirective(entry.text)
+                    && !embeddedDocuments.has(entry.path.toLowerCase())));
         });
         const indexCandidates = htmlEntries.filter(function(entry) { return /(?:^|\/)index\.html?$/i.test(entry.path); })
             .sort(function(a, b) { return a.path.split('/').length - b.path.split('/').length; });
@@ -439,6 +538,7 @@ const AdRestoration = (function() {
             siteRoot: siteRoot,
             homePath: home ? home.path : '',
             detailPaths: details.map(function(entry) { return entry.path; }),
+            embeddedDocumentPaths: Array.from(embeddedDocuments),
             // Listing pages follow the detail-page policy but have a card grid,
             // not a prose container. Keep them separate for placement planning.
             listingPaths: htmlEntries.filter(function(entry) {
@@ -773,14 +873,36 @@ const AdRestoration = (function() {
         if (original) {
             const marker = '<!-- SITEFOUNDRY_AD_ORIGIN banner' + original[1] + ' -->';
             const markerIndex = html.indexOf(marker);
-            if (markerIndex >= 0) return { html: insertAt(html, markerIndex + marker.length, adGroupMarkup(html, position, adIds, false)) };
+            if (markerIndex >= 0) {
+                const index = markerIndex + marker.length;
+                const markup = options && options.previewMarkup || adGroupMarkup(html, position, adIds, false);
+                return { html: insertAt(html, index, markup), index: index, markup: markup };
+            }
             // 旧站既无位置清单，也无可靠容器/注释时，按用户确认采用统一默认位置。
             const defaults = createPolicy(undefined, { pageIsolation: true });
             return insertPlacement(html, pageType, defaults.slots[pageType][Number(original[1]) - 1].position, adIds, options);
         }
         const offsetAfterNavigation = position === 'after-navbar' && adIds.indexOf('adv1') !== -1
             && hasAdjacentScrollProgressAfterNavigation(html);
-        let markup = adGroupMarkup(html, position, adIds, offsetAfterNavigation);
+        let markup = options && options.previewMarkup || adGroupMarkup(html, position, adIds, offsetAfterNavigation);
+        if (options && options.finishedSite && typeof DOMParser !== 'undefined' && typeof FinishedSiteAds !== 'undefined') {
+            // Finished sites do not share our generated template classes. Use
+            // exactly the rendered-DOM resolver used by their live preview.
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const adjusted = [];
+            for (const id of adIds) {
+                const node = FinishedSiteAds.createPlaceholder(doc, 'banner' + id.replace('adv', ''));
+                if (!FinishedSiteAds.insertAtPosition(doc, pageType, position, node)) {
+                    return { html: html, error: issue('无法定位广告位置 ' + position + '。', 'AD_POLICY_POSITION_NOT_FOUND') };
+                }
+                if (node.hasAttribute('data-sitefoundry-placement-adjusted')) {
+                    adjusted.push('banner' + id.replace('adv', ''));
+                    node.removeAttribute('data-sitefoundry-placement-adjusted');
+                }
+            }
+            FinishedSiteAds.installLayout(doc);
+            return { html: FinishedSiteAds.serialize(doc), adjusted: adjusted };
+        }
         let anchor = null;
         let index = -1;
 
@@ -887,7 +1009,31 @@ const AdRestoration = (function() {
                 error: issue((pageType === 'home' ? '首页' : '详情页') + '无法定位广告位置 ' + position + '。', 'AD_POLICY_POSITION_NOT_FOUND')
             };
         }
-        return { html: insertAt(html, index, markup), error: null };
+        return { html: insertAt(html, index, markup), error: null, index: index, markup: markup };
+    }
+
+    /**
+     * 预览候选位直接使用导出的定位器，无法定位的选项不展示。
+     * 先独立计算所有索引，再从后往前插入，避免候选按钮改变后续 DOM 路径。
+     * 返回的按钮只进入 iframe，绝不传入站点导出数据。
+     */
+    function previewPlacementHtml(source, page, candidates, occupied) {
+        if (['home', 'detail', 'all'].indexOf(page) === -1) return source;
+        const escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const options = { batchPolicy: true, listingPage: page === 'all', previewMarkup: '<!-- SF_POLICY_PREVIEW -->' };
+        // 原站位置注释、现有广告和空白不构成新的内容间隙，避免同一位置以不同名称重复出现。
+        const gapKey = index => removeExistingAds(source.slice(0, index)).replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, '');
+        const blocked = new Set((occupied || []).map(position => insertPlacement(source, page, position, [], options).index).filter(index => index != null).map(gapKey));
+        const markers = [];
+        (candidates || []).forEach(function(candidate) {
+            if (!isAllowedPlacement(candidate.position, allowedPagePositions(page)) || candidate.position === 'off') return;
+            const markup = '<button type="button" class="sf-policy-place sf-policy-common" data-policy-position="' + escape(candidate.position) + '" title="点击在此放置广告">＋ 常用广告位 · ' + escape(candidate.label) + '</button>';
+            const placed = insertPlacement(source, page, candidate.position, [], Object.assign({}, options, { previewMarkup: markup }));
+            if (placed.error || placed.index == null || blocked.has(gapKey(placed.index))) return;
+            blocked.add(gapKey(placed.index));
+            markers.push(placed);
+        });
+        return markers.sort((a, b) => b.index - a.index).reduce((html, marker) => insertAt(html, marker.index, marker.markup), source);
     }
 
     function injectAdScripts(html, scriptPath) {
@@ -904,6 +1050,12 @@ const AdRestoration = (function() {
     function validateRestoredHtml(html, pageType, scriptPath, requestedPolicy, options) {
         const errors = [];
         const policy = normalizePolicy(requestedPolicy);
+        if (options && options.finishedSite && typeof FinishedSiteAds !== 'undefined' && typeof DOMParser !== 'undefined') {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            FinishedSiteAds.validatePlacements(doc, policy.slots[pageType]).forEach(function(message) {
+                errors.push(issue(message, 'AD_EXPORT_PLACEMENT_INVALID'));
+            });
+        }
         const visibleHtml = String(html || '').replace(/<!--[\s\S]*?-->/g, '')
             .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script\s*>)/gi, '$1$2').replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '');
         const escapedPath = scriptPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -926,22 +1078,49 @@ const AdRestoration = (function() {
         const p2 = visibleHtml.indexOf(CONTAINER_IDS[1]);
         const p3 = visibleHtml.indexOf(CONTAINER_IDS[2]);
         if (orderedDefaults && !(p1 < p2 && p2 < p3)) errors.push(issue('三个 banner 的页面顺序不正确。', 'RESTORE_CONTAINER_ORDER'));
-        const banner1Top = policy.slots.detail.some(function(slot) { return slot.unit === 'banner1' && slot.position === 'after-navbar'; });
+        const banner1Top = (policy.slots[pageType] || policy.slots.detail).some(function(slot) { return slot.unit === 'banner1' && slot.position === 'after-navbar'; });
         let detailStart = visibleHtml.search(/\bclass\s*=\s*["'][^"']*\bdetail-page\b/i);
         if (detailStart < 0 && options && options.finishedSite) {
             const semanticDetail = findFirstElement(visibleHtml, 'main') || findFirstElement(visibleHtml, 'article');
             detailStart = semanticDetail ? semanticDetail.start : -1;
         }
-        if (pageType === 'detail' && banner1Top && detailStart >= 0 && p1 > detailStart) {
+        if (!(options && options.finishedSite) && pageType === 'detail' && banner1Top && detailStart >= 0 && p1 > detailStart) {
             errors.push(issue('详情页第一个广告未恢复到正文容器之前。', 'RESTORE_DETAIL_FIRST_POSITION'));
         }
         return errors;
+    }
+
+    // A template's ad markup is part of its layout (spacing/classes/labels),
+    // not just a place to regenerate the builder's standard ad wrapper.
+    function originalAdElement(source, id) {
+        const masked = String(source).replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>|<!--[\s\S]*?-->/gi, block => ' '.repeat(block.length));
+        const match = new RegExp('<([a-z][\\w:-]*)\\b[^>]*\\bid\\s*=\\s*["\\\']' + id + '["\\\'][^>]*>', 'i').exec(masked);
+        if (!match) return null;
+        return { start: match.index, end: findMatchingElementEnd(source, match.index, match[1]) };
+    }
+
+    function restoreTemplateAdMarkup(html, source, slots) {
+        slots.forEach(function(slot) {
+            const origin = slot.position.match(ORIGINAL_PLACEMENT_PATTERN);
+            if (!origin || slot.unit === 'off') return; // Manual placements remain independently editable.
+            const oldId = 'adv' + origin[1], newId = 'adv' + slot.unit.replace('banner', '');
+            const original = originalAdElement(source, oldId) || originalAdElement(source, 'div-gpt-ad-banner' + origin[1]);
+            const generated = originalAdElement(html, newId);
+            if (!original || !generated || original.end <= original.start) return;
+            let markup = removeAdScripts(source.slice(original.start, original.end));
+            if (oldId !== newId) markup = markup.replace(new RegExp('(\\bid\\s*=\\s*["\\\'])(?:' + oldId + '|div-gpt-ad-banner' + origin[1] + ')(["\\\'])', 'gi'), function(match, prefix, quote) {
+                return prefix + (match.indexOf('div-gpt') >= 0 ? 'div-gpt-ad-' + slot.unit : newId) + quote;
+            });
+            html = html.slice(0, generated.start) + markup + html.slice(generated.end);
+        });
+        return html;
     }
 
     function restoreHtml(source, pageType, scriptPath, requestedPolicy, options) {
         const policy = normalizePolicy(requestedPolicy);
         let html = removeAdScripts(removeExistingAds(source));
         const errors = validatePolicy(policy);
+        const adjusted = [];
 
         const groups = {};
         policy.slots[pageType].forEach(function(slot) {
@@ -955,7 +1134,29 @@ const AdRestoration = (function() {
             const placed = insertPlacement(html, pageType, position, groups[position], options);
             html = placed.html;
             if (placed.error) errors.push(placed.error);
+            if (placed.adjusted) placed.adjusted.forEach(function(unit) {
+                if (adjusted.indexOf(unit) === -1) adjusted.push(unit);
+            });
         });
+        if (options && options.preserveTemplateContainers) html = restoreTemplateAdMarkup(html, source, policy.slots[pageType]);
+
+        // A manual position can resolve to the same gap on a shorter sibling
+        // page. Move only the later ad to the nearest safe semantic boundary;
+        // do not fail the whole export merely because templates vary slightly.
+        if (!errors.length && options && options.finishedSite && typeof DOMParser !== 'undefined'
+            && typeof FinishedSiteAds !== 'undefined' && FinishedSiteAds.repairPlacements) {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const repair = { skipped: [], adjusted: [] };
+            FinishedSiteAds.repairPlacements(doc, policy.slots[pageType], repair);
+            repair.skipped.forEach(function(item) {
+                errors.push(issue(item.unit + '：' + item.reason, 'AD_EXPORT_PLACEMENT_SEPARATION_FAILED'));
+            });
+            if (!repair.skipped.length) {
+                adjusted.push.apply(adjusted, repair.adjusted);
+                FinishedSiteAds.installLayout(doc);
+                html = FinishedSiteAds.serialize(doc);
+            }
+        }
 
         if (policy.writeDisabledComments) {
             ['banner1', 'banner2', 'banner3'].forEach(function(key, index) {
@@ -985,7 +1186,7 @@ const AdRestoration = (function() {
         // 移除旧容器后只会留下空白行；统一收敛，保证重复恢复不会不断增加空白。
         html = html.replace(/^[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n')
             .replace(/\s+(<div id="adv[123]")/g, '\n    $1');
-        return { valid: errors.length === 0, errors: errors, html: html };
+        return { valid: errors.length === 0, errors: errors, html: html, adjusted: adjusted };
     }
 
     function textBytes(text) {
@@ -1170,13 +1371,30 @@ const AdRestoration = (function() {
         entries.forEach(function(entry) { byPath[entry.path.toLowerCase()] = entry; });
         const pageErrors = [];
         const changedPages = [];
+        const adjustedPages = [];
+        const outputWarnings = (metadata.warnings || []).slice();
 
-        [{ path: metadata.homePath, type: 'home' }].concat(metadata.detailPaths.map(function(path) {
-            return { path: path, type: 'detail' };
+        function finishedContentType(path, entry) {
+            if (!(options && options.finishedSite) || typeof FinishedSiteAds === 'undefined') return 'detail';
+            let doc = null;
+            if (typeof DOMParser !== 'undefined' && entry) doc = new DOMParser().parseFromString(entryText(entry), 'text/html');
+            const type = FinishedSiteAds.contentPageType(path, doc, metadata.homePath);
+            return policy.slots[type] ? type : 'detail';
+        }
+        const pages = [{ path: metadata.homePath, type: 'home' }].concat(metadata.detailPaths.map(function(path) {
+            const entry = byPath[path.toLowerCase()];
+            return { path: path, type: finishedContentType(path, entry) };
         })).concat((metadata.listingPaths || []).map(function(path) {
-            return { path: path, type: policy.slots.all ? 'all' : 'detail', listingPage: true };
-        })).forEach(function(page) {
+            const entry = byPath[path.toLowerCase()];
+            return { path: path, type: policy.slots.all ? 'all' : finishedContentType(path, entry), listingPage: true };
+        })).filter(function(page, index, values) {
+            if (!page.path) return false;
+            if (options && options.finishedSite && !isFinishedSiteDeployablePath(page.path, options.project)) return false;
+            return values.findIndex(function(other) { return other.path.toLowerCase() === page.path.toLowerCase(); }) === index;
+        });
+        pages.forEach(function(page) {
             const entry = byPath[page.path.toLowerCase()];
+            if (!entry) return;
             const scriptPath = relativeAdScriptPath(page.path, metadata.siteRoot) + (policyMode ? '?v=ad-policy-1' : '');
             const result = restoreHtml(entryText(entry), page.type, scriptPath, policy, Object.assign({}, options, { listingPage: !!page.listingPage }));
             if (!result.valid) {
@@ -1187,9 +1405,13 @@ const AdRestoration = (function() {
             }
             entry.bytes = textBytes(result.html);
             changedPages.push(page.path);
+            if (result.adjusted && result.adjusted.length) {
+                adjustedPages.push({ path: page.path, pageType: page.type, units: result.adjusted.slice() });
+                outputWarnings.push(issue(page.path + '：页面结构与示例页不同，已把 ' + result.adjusted.join('、') + ' 调整到最近的安全内容间隙。', 'AD_EXPORT_PLACEMENT_ADJUSTED'));
+            }
         });
 
-        if (pageErrors.length) return { valid: false, errors: pageErrors, warnings: metadata.warnings, entries: entries, metadata: metadata };
+        if (pageErrors.length) return { valid: false, errors: pageErrors, warnings: outputWarnings, entries: entries, metadata: metadata };
 
         const dynamicPolicy = options && options.dynamicHomePolicy || (policyMode ? policy : null);
         const dynamicHomeResult = restoreDynamicHomeAds(entries, metadata, dynamicPolicy);
@@ -1265,10 +1487,11 @@ const AdRestoration = (function() {
         return {
             valid: true,
             errors: [],
-            warnings: metadata.warnings,
+            warnings: outputWarnings,
             entries: entries,
             metadata: metadata,
             changedPages: changedPages,
+            adjustedPages: adjustedPages,
             changedScripts: dynamicHomeResult.changedScripts,
             restoredConfig: config || {},
             sourceAdJsVersion: metadata.adJsVersion,
@@ -1324,6 +1547,7 @@ const AdRestoration = (function() {
         const lower = String(fileName || '').toLowerCase();
         if (/\.zip$/.test(lower)) return 'zip';
         if (/\.(?:tar\.gz|tgz)$/.test(lower)) return 'tar-gz';
+        if (/\.tar$/.test(lower)) return 'tar';
         if (/\.(?:rar|7z)$/.test(lower)) return 'archive-runtime';
         return '';
     }
@@ -1600,7 +1824,7 @@ const AdRestoration = (function() {
 
     async function readArchive(file, onStage) {
         const type = archiveType(file && file.name);
-        if (!type) throw new Error('站点源文件仅支持 .zip、.rar、.7z、.tar.gz 或 .tgz。');
+        if (!type) throw new Error('源文件仅支持 .zip、.rar、.7z、.tar、.tar.gz 或 .tgz。');
         if (type === 'zip') {
             if (typeof JSZip === 'undefined') throw new Error('ZIP 解析组件未加载。');
             const archiveData = await readArchiveBytes(file, onStage, '正在读取 ZIP 压缩包数据…', 12);
@@ -1659,6 +1883,14 @@ const AdRestoration = (function() {
             return entries;
         }
         if (type === 'archive-runtime') return readRarArchive(file, onStage);
+        if (type === 'tar') {
+            // Plain TAR has no compression layer; reuse the same path filtering
+            // and PAX/long-name handling as the established TAR.GZ reader.
+            const tarBytes = await readArchiveBytes(file, onStage, '正在读取 TAR 归档数据…', 80);
+            const entries = extractTarEntries(tarBytes);
+            reportArchiveProgress(onStage, 'TAR 文件提取完成：共 ' + entries.length + ' 个源码文件。', 96);
+            return entries;
+        }
         if (typeof DecompressionStream === 'undefined') throw new Error('当前浏览器不支持 TAR.GZ 解压，请使用新版 Chrome 或 Edge。');
         const stream = file.stream ? file.stream() : new Blob([await file.arrayBuffer()]).stream();
         let compressedBytes = 0;
@@ -1684,7 +1916,7 @@ const AdRestoration = (function() {
     }
 
     function archiveBaseName(fileName) {
-        return String(fileName || 'site').replace(/\.(?:tar\.gz|tgz|zip|rar|7z)$/i, '');
+        return String(fileName || 'site').replace(/\.(?:tar\.gz|tgz|zip|rar|7z|tar)$/i, '');
     }
 
     function siteFolderName(value, fallback) {
@@ -2013,12 +2245,12 @@ const AdRestoration = (function() {
         // into that server-rendered body would be removed during hydration.
         const nextBuildEntry = entries.filter(function(entry) {
             return /(?:^|\/)index\.html?$/i.test(entry.path)
-                && /<script\b[^>]*(?:src\s*=\s*["'][^"']*\/_next\/static\/|id\s*=\s*["']__NEXT_DATA__["'])|self\.__next_f\s*\./i.test(entry.text);
+                && /<script\b[^>]*(?:src\s*=\s*["'][^"']*\/_next\/static\/|id\s*=\s*["']__NEXT_DATA__["'])|self\.__next_f\s*\.|window\.__reactRouter(?:Context|Manifest)|__reactRouterContext/i.test(entry.text);
         }).sort(function(a, b) { return a.path.split('/').length - b.path.split('/').length; })[0];
         if (nextBuildEntry) {
             const root = nextBuildEntry.path.replace(/index\.html?$/i, '');
             return {
-                valid: true, kind: 'static-html', framework: 'React 已构建静态产物（Next.js 多页面）',
+                valid: true, kind: 'static-html', framework: 'React 已构建静态产物（hydrated 多页面）',
                 siteRoot: root, deploymentRoot: root, entryPath: nextBuildEntry.path,
                 previewEntryPath: nextBuildEntry.path, runtimePath: root + 'js/ad.js', runtimeSrc: '/js/ad.js',
                 hydratedPages: true, buildCommand: '已提供 Next.js 静态导出', errors: [], warnings: []
@@ -2295,78 +2527,13 @@ const AdRestoration = (function() {
     }
 
     function generateSpaAdRuntime(config, requestedPolicy, version, options) {
-        const paths = JSON.stringify({
-            banner1: config && config.bannerPath1 || '', banner2: config && config.bannerPath2 || '', banner3: config && config.bannerPath3 || '',
-            interstitial: config && config.interstitialPath || '', anchor: config && config.anchorPath || '', analytics: config && config.analyticsID || ''
-        }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
-        const slots = JSON.stringify(normalizePolicy(requestedPolicy).slots).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
-        let source = "(function(){\n" +
-            "'use strict';\n" +
-            "var paths=" + paths + ";\n" +
-            "var slots=" + slots + ";\n" +
-            "var state=window.__sitefoundryAds=window.__sitefoundryAds||{route:'',slots:[],services:false,outOfPage:false,timer:0};\n" +
-            "window.googletag=window.googletag||{cmd:[]};\n" +
-            // Runtime-created markers inherit the page color just like static placeholders.
-            "function ad(n,custom){var w=document.createElement('div');w.id='adv'+n;w.setAttribute('data-sitefoundry-runtime-ad',String(n));w.style.cssText='width:100%;text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;box-sizing:border-box;';if(custom){w.className='sitefoundry-ad-custom-placement';w.style.position='relative';w.style.transform='translateX(var(--sitefoundry-ad-center-offset, 0px))';}var l=document.createElement('div');l.textContent='advertisement'+n;l.style.cssText='text-align:center;display:block!important;color:inherit!important;-webkit-text-fill-color:currentColor!important;font-size:13px;';var s=document.createElement('div');s.id='div-gpt-ad-banner'+n;s.style.cssText='min-width:300px;min-height:250px;';w.appendChild(l);w.appendChild(s);return w;}\n" +
-            "function after(t,n){if(t&&t.parentNode)t.parentNode.insertBefore(n,t.nextSibling);}\n" +
-            "function scrollProgress(n){if(!n||n.nodeType!==1)return false;if(n.matches('[data-scroll-progress],[data-reading-progress],[data-page-progress],[data-scroll-indicator]'))return true;var c=n.className&&n.className.baseVal||n.className||'',v=String(c)+' '+String(n.id||'');return /(?:^|[-_\\s])(?:scroll|reading|page)[-_\\s]*(?:progress|indicator)(?:$|[-_\\s])/i.test(v);}\n" +
-            "function offsetAfterNavigation(n,h){if(!n||!h||!scrollProgress(h.nextElementSibling)&&!scrollProgress(h.lastElementChild))return;n.setAttribute('data-sitefoundry-after-nav-offset','');if(!document.querySelector('style[data-sitefoundry-after-nav-offset-style]')){var s=document.createElement('style');s.setAttribute('data-sitefoundry-after-nav-offset-style','');s.textContent='@media (min-width:720px){[data-sitefoundry-after-nav-offset]{margin-top:24px!important;}}';(document.head||document.documentElement).appendChild(s);}}\n" +
-            "function centerCustom(){document.querySelectorAll('.sitefoundry-ad-custom-placement').forEach(function(node){node.style.setProperty('--sitefoundry-ad-center-offset','0px');var rect=node.getBoundingClientRect(),offset=window.innerWidth/2-(rect.left+rect.width/2);node.style.setProperty('--sitefoundry-ad-center-offset',Math.round(offset*100)/100+'px');});}\n" +
-            "function refresh(home){googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)googletag.destroySlots(state.slots);state.slots=[];state.outOfPage=false;[1,2,3].forEach(function(n){var id='div-gpt-ad-banner'+n,p=paths['banner'+n];if(p&&document.getElementById(id)){var slot=googletag.defineSlot(p,[300,250],id);if(slot)state.slots.push(slot.addService(googletag.pubads()));}});if(!state.outOfPage){if(paths.interstitial&&home){var i=googletag.defineOutOfPageSlot(paths.interstitial,googletag.enums.OutOfPageFormat.INTERSTITIAL);if(i)state.slots.push(i.addService(googletag.pubads()));}if(paths.anchor){var a=googletag.defineOutOfPageSlot(paths.anchor,googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR);if(a)state.slots.push(a.addService(googletag.pubads()));}state.outOfPage=true;}if(!state.services){googletag.pubads().enableSingleRequest();googletag.enableServices();state.services=true;}[1,2,3].forEach(function(n){var id='div-gpt-ad-banner'+n;if(paths['banner'+n]&&document.getElementById(id))googletag.display(id);});});}\n" +
-            "function mount(force){if(!document.body)return;var route=location.pathname+location.search,complete=[1,2,3].every(function(n){return document.getElementById('div-gpt-ad-banner'+n);});if(!force&&state.route===route&&complete)return;document.querySelectorAll('[data-sitefoundry-runtime-ad]').forEach(function(n){n.remove();});var home=location.pathname==='/'||/\\/index\\.html?$/i.test(location.pathname),header=document.querySelector('header')||document.querySelector('nav'),main=document.querySelector('main')||document.querySelector('[role=main]')||document.getElementById('root')||document.body,footer=document.querySelector('footer'),sections=main.querySelectorAll('section:not([data-sitefoundry-runtime-ad])'),detail=document.querySelector('article')||document.querySelector('.detail-content')||document.querySelector('[class*=article-content]');function kids(t){return Array.prototype.filter.call((t||main).children||[],function(n){return !n.hasAttribute('data-sitefoundry-runtime-ad')&&!/^(?:SCRIPT|STYLE|TEMPLATE|HEADER|NAV|FOOTER|ASIDE)$/.test(n.tagName||'')&&!/(?:^|\\s)related(?:-|\\s|$)/i.test(n.className||'');});}function middle(t){var c=kids(t);return c.length?c[Math.max(0,Math.ceil(c.length/2)-1)]:(t||main);}function custom(position){var m=/^custom-after-((?:\\d+)(?:-\\d+)*)$/.exec(position||''),t=main;if(!m)return null;var p=m[1].split('-').map(Number);for(var i=0;i<p.length;i++){var c=kids(t);if(!c.length)return t;t=c[Math.min(p[i],c.length-1)];}return t;}function target(position){var chosen=custom(position);if(chosen)return chosen;if(position==='after-navbar')return header||main.firstElementChild;if(position==='footer-top')return footer||main.lastElementChild;if(position==='detail-after-content')return middle(detail||main);if(position==='content-bottom'||position==='detail-before-related'||position==='detail-after-related')return detail||main.lastElementChild;if(position==='detail-before-content'||position==='detail-between-p-1'||position==='detail-between-p-2'||position==='detail-between-p-3')return detail||main.firstElementChild;if(position==='after-hero'||position==='content-top')return main.firstElementChild;var m=/after-section-(\\d+)/.exec(position||'');return m&&sections[Number(m[1])]||main.firstElementChild;}(home?slots.home:slots.detail).forEach(function(slot){if(!slot||slot.unit==='off')return;var n=Number(String(slot.unit).replace('banner','')),node=ad(n,/^custom-after-(?:\\d+)(?:-\\d+)*$/.test(slot.position||'')),anchor=target(slot.position);if(n===1&&slot.position==='after-navbar')offsetAfterNavigation(node,header);if(slot.position==='footer-top'&&footer&&footer.parentNode)footer.parentNode.insertBefore(node,footer);else after(anchor,node);});centerCustom();requestAnimationFrame(centerCustom);state.route=route;refresh(home);}\n" +
-            "function schedule(force){clearTimeout(state.timer);state.timer=setTimeout(function(){mount(!!force);},160);}\n" +
-            "window.refreshClarivoBanners=function(){console.log('[SiteFoundry Ads] React route refresh requested');schedule(true);};\n" +
-            "['pushState','replaceState'].forEach(function(k){var original=history[k];if(!original||original.__sitefoundryWrapped)return;var wrapped=function(){var result=original.apply(this,arguments);schedule(true);return result;};wrapped.__sitefoundryWrapped=true;history[k]=wrapped;});\n" +
-            "addEventListener('popstate',function(){schedule(true);});addEventListener('resize',function(){requestAnimationFrame(centerCustom);});if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){schedule(true);});else schedule(true);new MutationObserver(function(){schedule(false);}).observe(document.documentElement,{childList:true,subtree:true});\n" +
-            "if(paths.analytics){var g=document.createElement('script');g.async=true;g.src='https://www.googletagmanager.com/gtag/js?id='+encodeURIComponent(paths.analytics);document.head.appendChild(g);window.dataLayer=window.dataLayer||[];window.gtag=window.gtag||function(){dataLayer.push(arguments);};gtag('js',new Date());gtag('config',paths.analytics);}\n" +
-            "})();\n";
-        // Manual SPA sites still exclude utility routes. Unknown manual
-        // anchors are skipped rather than silently appended elsewhere.
-        // Only the root index is home; /archive/index.html and detail indexes
-        // must retain detail policy and the template's home-only interstitial.
-        source = source.replace("home=location.pathname==='/'||/\\/index\\.html?$/i", "home=location.pathname==='/'||/^\\/index\\.html?$/i");
-        source = source.replace("if(!document.body)return;var route=location.pathname+location.search,complete=", String.raw`if(!document.body)return;var route=location.pathname+location.search;if(/(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|cookie(?:-policy)?|terms(?:-of-(?:service|use))?|legal|faq|404|accessibility|editorial(?:-policy|-standards)?|sources?-methodology|corrections|disclaimer|disclosures|copyright)(?:[\/.]|$)/i.test(location.pathname)){document.querySelectorAll('[data-sitefoundry-runtime-ad]').forEach(function(node){node.remove();});state.route=route;googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)googletag.destroySlots(state.slots);state.slots=[];state.outOfPage=false;});return;}var complete=`);
-        source = source.replace(
-            "header=document.querySelector('header')||document.querySelector('nav')",
-            "header=document.querySelector('nav,header,[role=banner],[role=navigation]')||Array.prototype.filter.call(document.querySelectorAll('[class*=header],[id*=header],[class*=navbar],[id*=navbar],[class*=navigation],[id*=navigation],[class~=nav],[class*=nav-],[class*=-nav]'),function(node){var name=String(node.className||'')+' '+String(node.id||'');return !/pagination|breadcrumb|social|share|footer/i.test(name)&&!/^(?:MAIN|FOOTER|ASIDE)$/.test(node.tagName||'')&&node.querySelectorAll('a[href]').length>=2;})[0]||null"
-        );
-        source = source.replace("return header||main.firstElementChild", "return header")
-            .replace("return footer||main.lastElementChild", "return footer")
-            .replace("return m&&sections[Number(m[1])]||main.firstElementChild", "return m?sections[Number(m[1])]:null")
-            .replace("if(!c.length)return t;t=c[Math.min(p[i],c.length-1)]", "if(!c[p[i]])return null;t=c[p[i]]")
-            .replace("state.outOfPage=false;[1,2,3]", "state.outOfPage=false;var outOfPage=[];[1,2,3]")
-            .replace("if(i)state.slots.push(i.addService(googletag.pubads()));", "if(i){state.slots.push(i.addService(googletag.pubads()));outOfPage.push(i);}")
-            .replace("if(a)state.slots.push(a.addService(googletag.pubads()));", "if(a){state.slots.push(a.addService(googletag.pubads()));outOfPage.push(a);}")
-            .replace("state.services=true;}[1,2,3]", "state.services=true;}outOfPage.forEach(function(slot){googletag.display(slot);});[1,2,3]");
-        // Keep the existing manual-placement runtime and vary only the ad
-        // loading behavior. Fixed mode uses the shared DOM planner instead.
-        if (version === 'initial') {
-            source = source.replace(
-                "if(paths['banner'+n]&&document.getElementById(id))googletag.display(id);",
-                "if(paths['banner'+n]&&document.getElementById(id)){var element=document.getElementById(id);if(typeof IntersectionObserver==='function'){var observer=new IntersectionObserver(function(entries){if(entries.some(function(entry){return entry.isIntersecting;})){observer.disconnect();googletag.cmd.push(function(){googletag.display(id);});}},{threshold:0.1});observer.observe(element);}else googletag.display(id);}"
-            );
-        } else {
-            source = source.replace("var slots=" + slots + ";\n", "var slots=" + slots + ";\nvar adJsVersion=" + JSON.stringify(version || 'v1.0.1') + ";\n");
-            source = source.replace("function refresh(home){googletag.cmd.push(function(){if(state.slots.length&&googletag.destroySlots)", "function refresh(home){googletag.cmd.push(function(){if(googletag.setConfig)googletag.setConfig({lazyLoad:{fetchMarginPercent:50,renderMarginPercent:0,mobileScaling:1},singleRequest:false});if(state.slots.length&&googletag.destroySlots)");
-            if (version === 'v1.0.2') source = source.replace('googletag.setConfig({lazyLoad:{fetchMarginPercent:50,renderMarginPercent:0,mobileScaling:1},singleRequest:false});', 'googletag.setConfig({lazyLoad:null,singleRequest:false});');
-            // v1.0.2.1 inherits v1.0.2's disabled extra interstitial triggers.
-            if (version !== 'v1.0.0' && version !== 'v1.0.2' && version !== 'v1.0.2.1') source = source.replace("outOfPage.push(i);", "outOfPage.push(i);if(i.setConfig)i.setConfig({interstitial:{triggers:{unhideWindow:true,navBar:true,inactivity:true,endOfArticle:true,continueReading:true}}});");
-        }
-        if (options && options.waitForLoad) {
-            // Next hydration can still be running at DOMContentLoaded. Defer
-            // the first DOM mutation until local application scripts load;
-            // route changes continue to use the existing debounced rescan.
-            source = source.replace('function schedule(force){clearTimeout(state.timer);',
-                "function schedule(force){clearTimeout(state.timer);if(document.readyState!=='complete')return;");
-            source = source.replace("addEventListener('popstate',", "addEventListener('load',function(){schedule(true);},{once:true});addEventListener('popstate',");
-        }
-        return '/** 成品站 ad.js ' + (version || 'v1.0.1') + ' · manual SPA runtime */\n' + source;
+        // Rendered source and compiled SPA exports share the exact same DOM
+        // semantics as static injection. There is no separate footer fallback.
+        return FinishedSiteAds.dynamicRuntimeSource(config, version, Object.assign({}, options, {
+            policy: normalizePolicy(requestedPolicy)
+        }));
     }
 
-    // React source projects already receive <Advertisement> components from the
-    // AST injector. Their runtime must consume those containers instead of
-    // creating a second set of adv1/2/3 nodes. This mirrors the lazy-loading
-    // implementation proven on clarivo.cc while keeping ad paths configurable.
     function generateReactSourceAdRuntime(config, version) {
         function literal(value) {
             return JSON.stringify(String(value || '')).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
@@ -2535,9 +2702,13 @@ const AdRestoration = (function() {
         // Next static exports have independent HTML entry points. Install only
         // script loaders on every content route and preserve the SSR body, so
         // direct detail/listing requests and later hydration keep working.
+        const embeddedDocuments = referencedEmbeddedHtmlPaths(entries);
         const pages = project.hydratedPages ? entries.filter(function(item) {
             return item.path.indexOf(project.deploymentRoot || project.siteRoot || '') === 0
-                && /\.html?$/i.test(item.path) && FinishedSiteAds.isContentPath(item.path);
+                && /\.html?$/i.test(item.path)
+                && isFinishedSiteDeployablePath(item.path, project)
+                && !hasNoindexDirective(entryText(item))
+                && !embeddedDocuments.has(item.path.toLowerCase());
         }) : [entry];
         for (const page of pages) {
             let html = removeAdScripts(entryText(page));
@@ -2582,8 +2753,13 @@ const AdRestoration = (function() {
         const changedPages = [];
         const warnings = [];
         const pagePlacements = {};
+        const errors = [];
+        const embeddedDocuments = referencedEmbeddedHtmlPaths(entries);
         const htmlEntries = entries.filter(function(entry) {
-            return entry.path.indexOf(root) === 0 && /\.html?$/i.test(entry.path) && FinishedSiteAds.isContentPath(entry.path);
+            return entry.path.indexOf(root) === 0 && /\.html?$/i.test(entry.path)
+                && isFinishedSiteDeployablePath(entry.path, project)
+                && !hasNoindexDirective(entryText(entry))
+                && !embeddedDocuments.has(entry.path.toLowerCase());
         });
         if (!htmlEntries.length) return { valid: false, errors: [issue('未找到可添加广告的内容页。', 'AD_FIXED_CONTENT_MISSING')], warnings: [], entries: entries };
         for (const entry of htmlEntries) {
@@ -2592,14 +2768,14 @@ const AdRestoration = (function() {
             // a successful injection. Content and unrelated widgets are kept.
             const source = removeAdScripts(removeExistingAds(entryText(entry)));
             if (!/<head\b[^>]*>[\s\S]*?<\/head\s*>/i.test(source) || !/<body\b/i.test(source)) {
-                warnings.push(issue(entry.path + '：缺少完整 head/body，已跳过固定广告位。', 'AD_FIXED_DOCUMENT_INCOMPLETE'));
+                errors.push(issue(entry.path + '：缺少完整 head/body，无法完整加入三个广告位。', 'AD_FIXED_DOCUMENT_INCOMPLETE'));
                 continue;
             }
             const doc = new DOMParser().parseFromString(source, 'text/html');
             const pageType = FinishedSiteAds.isHomePath(entry.path, home) ? 'home' : 'detail';
             const result = FinishedSiteAds.place(doc, pageType, config);
             result.skipped.forEach(function(item) {
-                warnings.push(issue(entry.path + '：' + item.unit + ' ' + item.reason + '，请切换手动放置。', 'AD_FIXED_SLOT_SKIPPED'));
+                errors.push(issue(entry.path + '：' + item.unit + ' ' + item.reason + '；未完整加入已确认的广告位。', 'AD_FIXED_SLOT_SKIPPED'));
             });
             pagePlacements[entry.path] = result;
             if (!result.placed.length) continue;
@@ -2628,7 +2804,7 @@ const AdRestoration = (function() {
         const oldManifest = entries.find(function(entry) { return entry.path.toLowerCase() === manifestPath.toLowerCase(); });
         if (oldManifest) oldManifest.bytes = textBytes(JSON.stringify(manifest, null, 2) + '\n');
         else entries.push({ path: manifestPath, bytes: textBytes(JSON.stringify(manifest, null, 2) + '\n') });
-        return { valid: true, errors: [], warnings: warnings, entries: entries, project: project,
+        return { valid: errors.length === 0, errors: errors, warnings: warnings, entries: entries, project: project,
             changedPages: changedPages, changedScripts: [adPath], pagePlacements: pagePlacements };
     }
 
@@ -2640,7 +2816,11 @@ const AdRestoration = (function() {
             return injectFixedSiteEntries(rawEntries, project, config, archiveName, settings.version);
         }
         if (project.kind === 'static-html' && !/React 已构建静态产物/.test(project.framework || '')) {
-            const restored = restoreEntries(rawEntries, config, archiveName, requestedPolicy || createPolicy(), { finishedSite: true, adJsVersion: settings && settings.version });
+            const restored = restoreEntries(rawEntries, config, archiveName, requestedPolicy || createPolicy(), {
+                finishedSite: true,
+                adJsVersion: settings && settings.version,
+                project: project
+            });
             restored.project = project;
             return restored;
         }
@@ -2722,6 +2902,12 @@ const AdRestoration = (function() {
                 const doc = new DOMParser().parseFromString(entryText(entry), 'text/html');
                 const plan = manifest && manifest.pagePlacements && (manifest.pagePlacements[path] || manifest.pagePlacements[relative]);
                 if (!plan) { errors.push(issue(path + '：缺少固定广告位清单。', 'AD_FIXED_PAGE_PLAN_MISSING')); return; }
+                const required = FinishedSiteAds.activeUnits(config).map(function(unit) {
+                    return { unit: unit, position: unit === 'banner2' ? 'content-middle' : unit === 'banner1' ? 'after-navbar' : 'footer-top' };
+                });
+                FinishedSiteAds.validatePlacements(doc, required).forEach(function(message) {
+                    errors.push(issue(path + '：' + message, 'AD_FIXED_PLACEMENT_INVALID'));
+                });
                 (plan.placed || []).forEach(function(unit) {
                     const count = doc.querySelectorAll('#div-gpt-ad-' + unit).length;
                     if (count !== 1) errors.push(issue(path + '：' + unit + ' 容器数量应为 1，实际为 ' + count + '。', 'AD_FIXED_SLOT_COUNT'));
@@ -2785,9 +2971,10 @@ const AdRestoration = (function() {
             if (!runtime) errors.push(issue('部署产物缺少广告运行时 ' + (output.runtimePath || 'js/ad.js') + '。', 'AD_EXPORT_RUNTIME_MISSING'));
             else {
                 const source = entryText(runtime);
-                ['div-gpt-ad-banner', 'refreshClarivoBanners', "'pushState','replaceState'"].forEach(function(token) {
+                ['div-gpt-ad-banner', 'refreshClarivoBanners'].forEach(function(token) {
                     if (source.indexOf(token) === -1) errors.push(issue(runtime.path + ' 缺少 ' + token + '，SPA 广告重扫不完整。', 'AD_EXPORT_SPA_RUNTIME_INCOMPLETE'));
                 });
+                if (!/'pushState',\s*'replaceState'/.test(source)) errors.push(issue(runtime.path + ' 缺少路由切换重扫。', 'AD_EXPORT_SPA_RUNTIME_INCOMPLETE'));
                 ['bannerPath1', 'bannerPath2', 'bannerPath3', 'interstitialPath', 'anchorPath', 'analyticsID'].forEach(function(key) {
                     const value = String((config || {})[key] || '');
                     if (value && source.indexOf(value) === -1) errors.push(issue(runtime.path + ' 未包含已确认的 ' + key + '。', 'AD_EXPORT_RUNTIME_PATH_MISMATCH'));
@@ -2843,7 +3030,12 @@ const AdRestoration = (function() {
                 checkedPages.push(page.path);
                 // Injection treats only the detected entry as home. Use that
                 // identity here too: games/news/category routes use detail slots.
-                const pageType = normalizePath(page.path).toLowerCase() === normalizePath(output.entryPath || 'index.html').toLowerCase() ? 'home' : 'detail';
+                let pageType = normalizePath(page.path).toLowerCase() === normalizePath(output.entryPath || 'index.html').toLowerCase() ? 'home' : 'detail';
+                if (pageType !== 'home' && typeof FinishedSiteAds !== 'undefined') {
+                    const doc = typeof DOMParser !== 'undefined' ? new DOMParser().parseFromString(entryText(page), 'text/html') : null;
+                    const typed = FinishedSiteAds.contentPageType(page.path, doc, output.entryPath || 'index.html');
+                    if (policy.slots[typed]) pageType = typed;
+                }
                 const relativePath = relativeAdScriptPath(page.path, '');
                 const checks = validateRestoredHtml(entryText(page), pageType, relativePath + '?v=ad-policy-1', policy, { finishedSite: true });
                 checks.forEach(function(check) { errors.push(issue(path + '：' + check.message, check.code)); });
@@ -2903,7 +3095,11 @@ const AdRestoration = (function() {
             const effectivePolicy = normalizePolicy(settings.policy);
             ['banner1', 'banner2', 'banner3'].forEach(function(unit) {
                 if (mapping.code.config[unit.replace('banner', 'bannerPath')]) return;
-                ['home', 'detail'].forEach(function(page) { effectivePolicy.slots[page].forEach(function(slot) { if (slot.unit === unit) { slot.unit = 'off'; slot.position = 'off'; } }); });
+                policyPages(effectivePolicy).forEach(function(page) {
+                    effectivePolicy.slots[page].forEach(function(slot) {
+                        if (slot.unit === unit) { slot.unit = 'off'; slot.position = 'off'; }
+                    });
+                });
             });
             if (mapping.project.kind === 'react-source' && typeof reactSourceInjector !== 'function') {
                 results.push({
@@ -2913,15 +3109,19 @@ const AdRestoration = (function() {
                 });
                 continue;
             }
-            const dynamicManual = settings.mode === 'manual' && mapping.project.kind === 'react-source'
-                && !mapping.project.entryPath;
-            const runtimeOptions = { waitForLoad: /Next\.js/.test(mapping.project.framework || '') };
+            // Source JSX is not the rendered page: one component may expand to
+            // a whole directory or a client-loaded article. Resolve all React
+            // workflow positions against the same DOM used by the preview,
+            // including ordinary Vite projects with a root index.html.
+            const dynamicManual = settings.mode === 'manual' && mapping.project.kind === 'react-source';
+            const runtimeOptions = { waitForLoad: /Next\.js|React/.test(mapping.project.framework || '') };
             const fixedRuntime = settings.mode === 'fixed' && typeof FinishedSiteAds !== 'undefined'
                 ? FinishedSiteAds.dynamicRuntimeSource(mapping.code.config, settings.version, runtimeOptions) : '';
             const manualRuntime = dynamicManual ? generateSpaAdRuntime(mapping.code.config, effectivePolicy, settings.version, runtimeOptions) : '';
             const injected = mapping.project.kind === 'react-source'
                 ? reactSourceInjector(mapping.site.entries, mapping.project, mapping.code.config, effectivePolicy, mapping.siteName,
-                    fixedRuntime || manualRuntime || generateReactSourceAdRuntime(mapping.code.config, settings.version), settings)
+                    fixedRuntime || manualRuntime || generateReactSourceAdRuntime(mapping.code.config, settings.version),
+                    Object.assign({}, settings, { renderedPlacement: dynamicManual }))
                 : injectAdsIntoSiteEntries(mapping.site.entries, mapping.code.config, mapping.siteName, effectivePolicy, settings);
             if (!injected.valid) {
                 results.push({ valid: false, siteName: mapping.siteName, framework: mapping.framework, host: mapping.host, errors: injected.errors, warnings: mapping.warnings.concat(injected.warnings || []) });
@@ -3187,7 +3387,17 @@ const AdRestoration = (function() {
         policyPages(policy).forEach(function(page) {
             policy.slots[page].forEach(function(slot) {
                 const original = slot.position.match(ORIGINAL_PLACEMENT_PATTERN);
-                if (original) slot.position = origins.positions[page][Number(original[1]) - 1];
+                if (original) {
+                    // In template reuse, the currently uploaded DOM is the
+                    // original layout even when an older manifest records a
+                    // semantic preset. Only explicit manual edits override it.
+                    const paths = page === 'home' ? [metadata.homePath] : page === 'all' ? metadata.listingPaths || [] : metadata.detailPaths;
+                    const hasTemplateNode = site.preserveTemplateLayout && paths.some(function(path) {
+                        const entry = site.entries.find(entry => entry.path === path);
+                        return entry && (originalAdElement(entryText(entry), 'adv' + original[1]) || originalAdElement(entryText(entry), 'div-gpt-ad-banner' + original[1]));
+                    });
+                    if (!hasTemplateNode) slot.position = origins.positions[page][Number(original[1]) - 1];
+                }
             });
             // 关闭时也记录当前选择的间隙，导出后重新导入仍能恢复。
             // 限流预设只生成临时布局，其原位置清单必须继续使用进入预设前的记录。
@@ -3204,6 +3414,7 @@ const AdRestoration = (function() {
         });
         const result = restoreEntries(origins.entries, config, site.name, policy, {
             batchPolicy: true, batchAdJsVersion: mode === 'original' ? metadata.adJsVersion : mode,
+            preserveTemplateContainers: !!site.preserveTemplateLayout,
             dynamicHomePolicy: dynamicPolicy,
             originalPlacements: { version: 1, positions: savedPositions, dynamicHomePositions: options.preserveOriginalPlacements ? originalDynamicPositions : origins.dynamicHomePositions }
         });
@@ -3518,6 +3729,9 @@ const AdRestoration = (function() {
         readSiteDirectoryFiles: readSiteDirectoryFiles,
         readSiteDirectoryHandle: readSiteDirectoryHandle,
         readSiteArchiveFiles: readSiteArchiveFiles,
+        // Generic path/byte entries also serve content sources without requiring
+        // them to be classified as complete advertising sites.
+        readArchiveEntries: readArchive,
         readRarArchiveEntries: readRarArchive,
         classifyInjectableSiteEntries: classifyInjectableSiteEntries,
         staticDeploymentSite: staticDeploymentSite,
@@ -3538,6 +3752,7 @@ const AdRestoration = (function() {
         zipPolicyBatch: zipPolicyBatch,
         policySummary: policySummary,
         homePlacements: HOME_PLACEMENTS.slice(),
+        previewPlacementHtml: previewPlacementHtml,
         detailPlacements: DETAIL_PLACEMENTS.slice(),
         allPlacements: ALL_PLACEMENTS.slice(),
         bannerUnits: BANNER_UNITS.slice(),

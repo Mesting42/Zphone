@@ -84,9 +84,9 @@ const homeHtml = `<!doctype html><html><head>
 <script defer src="js/ad.js"></script><script defer src="js/ad.js"></script>
 </head><body><nav class="navbar glass-sticky"></nav>${wrongAd}
 <section class="hero"></section><main class="main-content"><div class="container">
-<section class="category-section"><div class="items-grid"></div></section>
-<section class="category-section"><div class="items-grid"></div></section>
-<section class="category-section"><div class="items-grid"></div></section>
+<section class="category-section"><h2>Category</h2><div class="items-grid"><p>Original category content.</p></div></section>
+<section class="category-section"><h2>Category</h2><div class="items-grid"><p>Original category content.</p></div></section>
+<section class="category-section"><h2>Category</h2><div class="items-grid"><p>Original category content.</p></div></section>
 </div></main><footer class="footer"></footer></body></html>`;
 
 const detailHtml = `<!doctype html><html><head></head><body><nav class="navbar dark-fixed"></nav>
@@ -376,7 +376,7 @@ describe('batch ad restoration', () => {
     expect(ad).not.toContain('// const adUnitInterstitial');
 
     const finished = context.__restoration.restoreEntries(entries, config, 'new-site', policy, { finishedSite: true });
-    expect(finished.valid).toBe(true);
+    expect(finished.valid, JSON.stringify(finished.errors)).toBe(true);
     const finishedAd = new TextDecoder().decode(finished.entries.find((entry) => entry.path === 'js/ad.js').bytes);
     expect(finishedAd).toContain('const bannerPath1 =');
     expect(finishedAd).not.toContain('ad.js v1.0.1');
@@ -1376,7 +1376,7 @@ describe('batch ad restoration', () => {
       { path: 'index.html', text: cleanHome },
       { path: 'details/article1.html', text: cleanDetail }
     ], config, 'zp0903a.example.pro');
-    expect(output.valid).toBe(true);
+    expect(output.valid, JSON.stringify(output.errors)).toBe(true);
     const files = Object.fromEntries(output.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
     expect(files['index.html']).toContain('div-gpt-ad-banner1');
     expect(files['details/article1.html']).toContain('src="../js/ad.js?v=ad-policy-1"');
@@ -1398,7 +1398,7 @@ describe('batch ad restoration', () => {
     expect(project.metadata.detailPaths).toEqual(['news/healthy-preview/index.html']);
 
     const output = context.__restoration.injectAdsIntoSiteEntries(entries, config, 'news-site');
-    expect(output.valid).toBe(true);
+    expect(output.valid, JSON.stringify(output.errors)).toBe(true);
     const files = Object.fromEntries(output.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
     expect(files['news/healthy-preview/index.html']).toContain('src="../../js/ad.js?v=ad-policy-1"');
     expect(files['news/healthy-preview/index.html']).toContain('div-gpt-ad-banner1');
@@ -1417,11 +1417,11 @@ describe('batch ad restoration', () => {
       { path: 'index.html', text: reactIndex },
       { path: 'assets/index-AbC123.js', text: 'document.getElementById("root")' }
     ], config, 'zp0903a.example.pro');
-    expect(output.valid).toBe(true);
+    expect(output.valid, JSON.stringify(output.errors)).toBe(true);
     const files = Object.fromEntries(output.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
     expect(files['index.html']).toContain('data-sitefoundry-ad-runtime="loader"');
     expect(files['js/ad.js']).toContain('MutationObserver');
-    expect(files['js/ad.js']).toContain("'pushState','replaceState'");
+    expect(files['js/ad.js']).toMatch(/'pushState',\s*'replaceState'/);
     expect(files['js/ad.js']).toContain('zp0903a.example.pro-banner3');
     expect(files['ad-injection.json']).toContain('React 已构建静态产物');
   });
@@ -1445,11 +1445,140 @@ describe('batch ad restoration', () => {
       { path: 'assets/index-AbC123.js', text: 'document.getElementById("root")' }
     ], config, 'zp0903a.example.pro', policy);
 
-    expect(output.valid).toBe(true);
+    expect(output.valid, JSON.stringify(output.errors)).toBe(true);
     const files = Object.fromEntries(output.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
     expect(files['js/ad.js']).toContain('after-section-2');
     expect(files['js/ad.js']).toContain('detail-after-related');
     expect(files['ad-injection.json']).toContain('"policy"');
+  });
+
+  it('inherits manual positions separately across article, tool and game detail pages', () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const policy = context.__restoration.createPolicy(undefined, { contentTypeIsolation: true });
+    policy.writeDisabledComments = false;
+    policy.slots.article = [{ position: 'after-navbar', unit: 'banner1' }, { position: 'off', unit: 'off' }, { position: 'off', unit: 'off' }];
+    policy.slots.tool = [{ position: 'off', unit: 'off' }, { position: 'content-ratio-500', unit: 'banner2' }, { position: 'off', unit: 'off' }];
+    policy.slots.game = [{ position: 'off', unit: 'off' }, { position: 'off', unit: 'off' }, { position: 'footer-top', unit: 'banner3' }];
+    const article = '<!doctype html><html><head></head><body><nav><a>Home</a><a>News</a></nav><main><article class="article-content"><h1>Article</h1><p>First paragraph.</p><p>Second paragraph.</p></article></main><footer>Footer</footer></body></html>';
+    const tool = '<!doctype html><html><head></head><body><nav><a>Home</a><a>Tools</a></nav><main><h1>Tool</h1><form><input><button>Run</button></form><section><p>First guide paragraph.</p><p>Second guide paragraph.</p></section></main><footer>Footer</footer></body></html>';
+    const game = '<!doctype html><html><head></head><body><nav><a>Home</a><a>Games</a></nav><main><article><h1>Game</h1><section class="player"><canvas></canvas></section><section><p>First instruction.</p><p>Second instruction.</p></section></article></main><footer>Footer</footer></body></html>';
+    const entries = [
+      { path: 'index.html', text: homeHtml.replaceAll(wrongAd, '') },
+      { path: 'articles/one/index.html', text: article },
+      { path: 'articles/two/index.html', text: article.replace('Article', 'Second article') },
+      { path: 'tools/orbit/index.html', text: tool },
+      { path: 'games/runner/index.html', text: game }
+    ];
+    const result = context.__restoration.injectAdsIntoSiteEntries(entries, config, 'typed.test', policy, { mode: 'manual', version: 'v1.0.2.1' });
+    expect(result.valid, JSON.stringify(result.errors)).toBe(true);
+    const files = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(files['articles/one/index.html']).toContain('div-gpt-ad-banner1');
+    expect(files['articles/two/index.html']).toContain('div-gpt-ad-banner1');
+    expect(files['articles/one/index.html']).not.toContain('div-gpt-ad-banner2');
+    expect(files['tools/orbit/index.html']).toContain('div-gpt-ad-banner2');
+    expect(files['tools/orbit/index.html']).not.toContain('div-gpt-ad-banner1');
+    expect(files['games/runner/index.html']).toContain('div-gpt-ad-banner3');
+    expect(files['games/runner/index.html']).not.toContain('div-gpt-ad-banner2');
+    const manifest = JSON.parse(files['ad-policy.json']);
+    expect(manifest.policy.version).toBe(3);
+    expect(manifest.policy.slots.article.map((slot) => slot.unit)).toEqual(['banner1', 'off', 'off']);
+    expect(manifest.policy.slots.article[0].position).toBe('after-navbar');
+    expect(manifest.policy.slots.tool.map((slot) => slot.unit)).toEqual(['off', 'banner2', 'off']);
+    expect(manifest.policy.slots.tool[1].position).toBe('content-ratio-500');
+    expect(manifest.policy.slots.game.map((slot) => slot.unit)).toEqual(['off', 'off', 'banner3']);
+    expect(manifest.policy.slots.game[2].position).toBe('footer-top');
+  });
+
+  it('keeps audit backups unchanged and adjusts a semantic manual position per article structure', () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const policy = context.__restoration.createPolicy(undefined, { contentTypeIsolation: true });
+    policy.writeDisabledComments = false;
+    policy.slots.article = [{ position: 'off', unit: 'off' }, { position: 'content-ratio-333', unit: 'banner2' }, { position: 'off', unit: 'off' }];
+    policy.slots.tool.forEach((slot) => { slot.unit = 'off'; slot.position = 'off'; });
+    policy.slots.game.forEach((slot) => { slot.unit = 'off'; slot.position = 'off'; });
+    const longArticle = '<!doctype html><html><head></head><body><nav><a>Home</a><a>Articles</a></nav><main><article class="article-content"><h1>Long</h1><p>One.</p><p>Two.</p><p>Three.</p><p>Four.</p></article></main><footer>Footer</footer></body></html>';
+    const shortArticle = '<!doctype html><html><head></head><body><nav><a>Home</a><a>Articles</a></nav><main><article class="article-content"><h1>Short</h1><p>A compact sibling article.</p></article></main><footer>Footer</footer></body></html>';
+    const backup = shortArticle.replace('Short', 'Backup must remain byte-identical');
+    const entries = [
+      { path: 'index.html', text: homeHtml.replaceAll(wrongAd, '') },
+      { path: 'articles/long/index.html', text: longArticle },
+      { path: 'articles/short/index.html', text: shortArticle },
+      { path: '.site-build/backups/before-tools/articles/short/index.html', text: backup }
+    ];
+    const result = context.__restoration.injectAdsIntoSiteEntries(entries, config, 'semantic.test', policy, { mode: 'manual', version: 'v1.0.2.1' });
+    expect(result.valid, JSON.stringify(result.errors)).toBe(true);
+    expect(result.changedPages).not.toContain('.site-build/backups/before-tools/articles/short/index.html');
+    expect(result.adjustedPages.map((item) => item.path)).toEqual(expect.arrayContaining(['articles/long/index.html', 'articles/short/index.html']));
+    const output = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(output['articles/long/index.html']).toContain('div-gpt-ad-banner2');
+    expect(output['articles/short/index.html']).toContain('div-gpt-ad-banner2');
+    expect(output['.site-build/backups/before-tools/articles/short/index.html']).toBe(backup);
+    expect(result.warnings.some((item) => item.code === 'AD_EXPORT_PLACEMENT_ADJUSTED')).toBe(true);
+  });
+
+  it('injects and validates only deployed pages when source templates and public copies are present', async () => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const deployableTool = '<!doctype html><html><head></head><body><nav><a>Home</a><a>Tools</a></nav><main><article><h1>Orbit weight</h1><form><input><button>Calculate</button></form><p>First explanation paragraph.</p><p>Second explanation paragraph.</p></article></main><footer>Footer</footer></body></html>';
+    const sourceOnly = '<!doctype html><html><head></head><body><main><p>Source-only artifact without a site footer.</p></main></body></html>';
+    const entries = [
+      { path: 'index.html', text: homeHtml.replaceAll(wrongAd, '') },
+      { path: 'tools/orbit-weight/index.html', text: deployableTool },
+      { path: '03-OrbitTools工具站-_dist/orb-gallery.html', text: sourceOnly },
+      { path: 'public/orb-gallery.html', text: sourceOnly },
+      { path: 'templates/blog-article.html', text: sourceOnly },
+      { path: 'templates/blog-index.html', text: '<template>Source template</template>' },
+      { path: 'scripts/article-qa.html', text: sourceOnly },
+      { path: 'tools/retired.html', text: '<!doctype html><html><head><meta content="noindex, follow" name="robots"></head><body><main><h1>Tool moved</h1></main></body></html>' },
+    ];
+    const host = 'zp0903a.example.pro';
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, host);
+    const policy = context.__restoration.createPolicy(undefined, { contentTypeIsolation: true });
+    const settings = { mode: 'manual', version: 'v1.0.2.1', policy };
+    const result = context.__restoration.injectAdsIntoSiteEntries(entries, config, host, policy, {
+      mode: 'manual', version: 'v1.0.2.1'
+    });
+    expect(project.valid).toBe(true);
+    expect(result.valid, JSON.stringify(result.errors)).toBe(true);
+    expect(result.changedPages).toEqual(['index.html', 'tools/orbit-weight/index.html']);
+    const output = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(output['tools/orbit-weight/index.html']).toContain('div-gpt-ad-banner3');
+    expect(output['03-OrbitTools工具站-_dist/orb-gallery.html']).toBe(sourceOnly);
+    expect(output['public/orb-gallery.html']).toBe(sourceOnly);
+    expect(output['templates/blog-article.html']).toBe(sourceOnly);
+      expect(output['scripts/article-qa.html']).toBe(sourceOnly);
+      expect(output['tools/retired.html']).not.toContain('div-gpt-ad-banner');
+    const fixedResult = context.__restoration.injectAdsIntoSiteEntries(entries, config, host, policy, {
+      mode: 'fixed', version: 'v1.0.2.1'
+    });
+    expect(fixedResult.valid, JSON.stringify(fixedResult.errors)).toBe(true);
+    expect(fixedResult.changedPages).toEqual(['index.html', 'tools/orbit-weight/index.html']);
+    const fixedOutput = Object.fromEntries(fixedResult.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(fixedOutput['03-OrbitTools工具站-_dist/orb-gallery.html']).toBe(sourceOnly);
+    const code = context.__restoration.inspectCodeText(oldAdJs, host + '.txt');
+    const batch = await context.__restoration.applyAdCodeBatch([{ id: host, name: host, entries, project }], [code], undefined, settings);
+    expect(batch.results[0].valid, JSON.stringify(batch.results[0].errors)).toBe(true);
+    expect(batch.results[0].verification.checkedPages).toEqual(['index.html', 'tools/orbit-weight/index.html']);
+  });
+
+  it.each(['manual', 'fixed'])('keeps iframe HTML resources unchanged during %s finished-site export', (mode) => {
+    const config = context.__restoration.readExistingConfig(oldAdJs);
+    const embeddedHtml = '<!doctype html><html><head><style id="orbit-tools-embed">html,body{overflow:hidden}</style></head><body><canvas id="orb"></canvas><header class="nav"><nav><a href="#">Components</a></nav></header></body></html>';
+    const homeWithEmbed = homeHtml.replaceAll(wrongAd, '').replace('</main>', '<iframe src="/orb-gallery.html" title="Interactive Orb Gallery"></iframe></main>');
+    const toolPage = '<!doctype html><html><head></head><body><nav>Tools</nav><main><article><h1>Useful tools</h1><p>First section.</p><p>Second section.</p></article></main><footer>Footer</footer></body></html>';
+    const entries = [
+      { path: 'index.html', text: homeWithEmbed },
+      { path: 'tools.html', text: toolPage },
+      { path: 'orb-gallery.html', text: embeddedHtml }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'orbit-tools.test');
+    expect(project.metadata.embeddedDocumentPaths).toEqual(['orb-gallery.html']);
+    const result = context.__restoration.injectAdsIntoSiteEntries(entries, config, 'orbit-tools.test', context.__restoration.createPolicy(), {
+      mode, version: 'v1.0.2.1'
+    });
+    expect(result.valid, JSON.stringify(result.errors)).toBe(true);
+    expect(result.changedPages).toEqual(['index.html', 'tools.html']);
+    const output = Object.fromEntries(result.entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
+    expect(output['orb-gallery.html']).toBe(embeddedHtml);
   });
 
   it('supports Vite React source projects and blocks unbuilt Next.js projects', () => {
@@ -1522,25 +1651,19 @@ describe('batch ad restoration', () => {
     const files = Object.fromEntries(batch.sites[0].entries.map((entry) => [entry.path, new TextDecoder().decode(entry.bytes)]));
     expect(Object.keys(files)).toEqual(expect.arrayContaining([
       'package.json', 'index.html', 'src/App.jsx', 'dist/index.html',
-      'src/components/advertisement.jsx', 'public/js/ad.js', 'ad-injection.json'
+      'public/js/ad.js', 'ad-injection.json'
     ]));
-    expect(files['src/App.jsx']).toContain('<Advertisement id="banner1"');
+    // Source components are preserved verbatim: a custom component can expand
+    // to arbitrary content, so the workflow resolves positions after rendering.
+    expect(files['src/App.jsx']).toBe('export default () => <main>new source</main>;');
+    expect(files['index.html']).toContain('/js/ad.js');
     expect(files['dist/index.html']).toContain('stale build');
+    expect(files['public/js/ad.js']).toContain('manual SPA runtime');
     expect(files['public/js/ad.js']).toContain('new IntersectionObserver');
-    expect(files['public/js/ad.js']).toContain('function delayLoadBanner');
-    expect(files['public/js/ad.js']).toContain('googletag.destroySlots(previousSlots)');
+    expect(files['public/js/ad.js']).toContain('googletag.destroySlots(state.slots)');
     expect(files['public/js/ad.js']).toContain('window.refreshClarivoBanners');
-    expect(files['public/js/ad.js']).toContain('[LazyLoad] 初始化监控:');
-    expect(files['public/js/ad.js']).toContain('进入视口，定义广告位...');
-    expect(files['public/js/ad.js']).toContain('第一次 display()，请求广告...');
-    expect(files['public/js/ad.js']).toContain('display() 完成');
-    expect(files['public/js/ad.js']).toContain('[LazyLoad] 已销毁上一页 Banner 广告位');
-    expect(files['public/js/ad.js']).toContain('[Init] Interstitial 已定义');
-    expect(files['public/js/ad.js']).toContain('[Init] Anchor 已定义');
-    expect(files['public/js/ad.js']).toContain('Analytics ID is empty. Skipping Google Analytics initialization.');
-    expect(files['public/js/ad.js']).not.toContain('data-sitefoundry-runtime-ad');
-    expect(files['public/js/ad.js']).not.toContain('new MutationObserver');
-    expect(batch.results[0]).toMatchObject({ valid: true, exportScope: '已注入广告的完整 React 源码（需要在项目环境构建）' });
+    expect(files['public/js/ad.js']).toContain('new MutationObserver');
+    expect(batch.results[0]).toMatchObject({ valid: true, exportScope: '完整 React 源码' });
   });
 
   it('exports fixed React source from a wrapped archive with the selected runtime', async () => {
@@ -1604,7 +1727,7 @@ describe('batch ad restoration', () => {
     }
     expect(files['privacy-policy/index.html']).toBe(html('Privacy'));
     expect(files['_next/static/app.js']).toBe('/* original application */');
-    expect(files['js/ad.js']).toContain(mode === 'fixed' ? '"waitForLoad":true' : "document.readyState!=='complete'");
+    expect(files['js/ad.js']).toContain('"waitForLoad":true');
     expect(files['js/ad.js']).toContain('/^\\/index\\.html?$/i.test(location.pathname)');
     expect(() => new Function(files['js/ad.js'])).not.toThrow();
   });
@@ -1840,6 +1963,26 @@ describe('batch ad restoration', () => {
   });
 });
 
+
+describe('template original ad markup', () => {
+  it('retains uploaded wrappers and dimensions at original nodes, while allowing a manual move', () => {
+    const wrappers = [1, 2, 3].map(n => '<div id="adv' + n + '" class="source-ad style-' + n + '" style="padding:' + (n * 7) + 'px;margin:19px"><span class="source-label">Sponsor</span><div id="div-gpt-ad-banner' + n + '" style="width:728px;height:90px"></div></div>');
+    const html = '<html><head></head><body><nav>Nav</nav><!-- SITEFOUNDRY_AD_ORIGIN banner1 -->' + wrappers[0]
+      + '<main><section class="category-section"><h2>A</h2></section><!-- SITEFOUNDRY_AD_ORIGIN banner2 -->' + wrappers[1]
+      + '<section class="category-section"><h2>B</h2></section><!-- SITEFOUNDRY_AD_ORIGIN banner3 -->' + wrappers[2] + '</main><footer>Footer</footer></body></html>';
+    const policy = context.__restoration.createPolicy('restore-original', { pageIsolation: true });
+    const original = context.__restoration.restoreHtml(html, 'home', 'js/ad.js', policy, { preserveTemplateContainers: true });
+    expect(original.valid).toBe(true);
+    for (const wrapper of wrappers) expect(original.html).toContain(wrapper);
+    policy.slots.home[1].position = 'footer-top';
+    const moved = context.__restoration.restoreHtml(html, 'home', 'js/ad.js', policy, { preserveTemplateContainers: true });
+    expect(moved.valid).toBe(true);
+    expect(moved.html).not.toContain(wrappers[1]);
+    expect(moved.html.indexOf('id="adv2"')).toBeGreaterThan(moved.html.indexOf('</main>'));
+    expect(moved.html).toContain(wrappers[0]);
+    expect(moved.html).toContain(wrappers[2]);
+  });
+});
 
 describe('listing pages and multi-site policy archives', () => {
   it.each(['all-articles.html', 'all-games.html'])('closes and restores banners on %s', (listingPath) => {

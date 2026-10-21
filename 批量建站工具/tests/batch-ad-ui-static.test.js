@@ -177,7 +177,7 @@ describe('batch ad upload formats', () => {
     expect(app).toContain("step === 1 ? '进入配置网站 →'");
     expect(app).toContain('var targetStep = nextWorkflowStep();');
     expect(app).toContain('if (appState.currentStep === step && step !== prevStep)');
-    expect(app).toContain('function updateAdInjectionPreview(pageType, entryPath)');
+    expect(app).toContain('function updateAdInjectionPreview(pageType, entryPath, virtualRoute)');
     expect(app).toContain('function buildAdInjectionPreviewDocument(site, pageType, entryPath)');
     expect(app).toContain("previewFrame.setAttribute('sandbox', 'allow-scripts')");
     expect(app).toContain('getAdInjectionPolicy()');
@@ -266,8 +266,9 @@ describe('batch ad upload formats', () => {
     expect(app).toContain("if (!site._previewBuild) {\n            site._previewBuild = adInjectionUploadedPreviewArtifact(site, previewSourceEntries);");
     expect(app).toContain('hasDedicatedPreviewSource && !hasUploadedArtifact');
     expect(app).toContain('dist|build|out|output|export|www|_site|public');
-    expect(app).toContain('isPreviewDetailEntry(path, adInjectionPreviewRoot(preferredPath))');
-    expect(previewRouter).toContain('details?|articles?|news|posts?|stories?|guides?|blog|tools|games?');
+    expect(app).toContain("adInjectionEntryPageType(entry, root, preferredPath) === pageType");
+    expect(previewRouter).toContain('details?|articles?|news|posts?|stories?|guides?|blog|tools?|calculators?|converters?|generators?|games?|play');
+    expect(previewRouter).toContain('if (!isPreviewDetailEntry(path, rootPath)) return');
   });
 
   it('rewrites image paths created dynamically by finished-site JavaScript', () => {
@@ -334,21 +335,17 @@ describe('batch ad upload formats', () => {
 
   it('offsets top banner1 only when a custom scroll progress rail follows navigation', () => {
     expect(finishedSiteAds).toContain('function adjacentScrollProgress');
-    expect(finishedSiteAds).toContain("unit === 'banner1' && anchor === header && relation === 'after'");
+    expect(finishedSiteAds).toContain("position === 'after-navbar' && node.id === 'adv1'");
     expect(finishedSiteAds).toContain('@media (min-width:720px){[data-sitefoundry-after-nav-offset]{margin-top:24px!important;}}');
-    expect(app).toContain('FinishedSiteAds.applyAfterNavigationOffset(doc, node, navigation)');
+    expect(finishedSiteAds).toContain('applyAfterNavigationOffset(doc, node, navigationAnchor(doc))');
     expect(adRestoration).toContain('hasAdjacentScrollProgressAfterNavigation(html)');
   });
 
-  it('uses the normal-builder advertisement placeholders in finished-site previews without a second white banner card', () => {
+  it('uses the shared planner and decorates only finished-site previews', () => {
     const previewSlots = app.slice(app.indexOf('function addAdInjectionPreviewSlots'), app.indexOf('function buildAdInjectionPreviewDocument'));
-
-    expect(previewSlots).toContain("label.textContent = 'advertisement' + unitNumber;");
-    expect(previewSlots).toContain("area.id = 'div-gpt-ad-banner' + unitNumber;");
-    expect(previewSlots).toContain("area.style.cssText = 'min-width:300px;min-height:250px;';");
-    expect(previewSlots).toContain("outer.style.cssText = 'text-align:center;padding:10px;display:flex;flex-direction:column;align-items:center;overflow:hidden;margin-top:1px;';");
-    expect(previewSlots).not.toContain('Banner ');
-    expect(previewSlots).not.toContain('300 × 250');
+    expect(previewSlots).toContain('FinishedSiteAds.placePolicy(doc, page, slots)');
+    expect(previewSlots).toContain('FinishedSiteAds.decoratePreview(doc)');
+    expect(finishedSiteAds).toContain("label.textContent = 'Advertisement'");
   });
 
   it('offers and previews the second detail banner at the semantic content midpoint', () => {
@@ -356,9 +353,9 @@ describe('batch ad upload formats', () => {
 
     expect(previewPipeline).toContain("'detail-after-content': '详情内容中部'");
     expect(previewPipeline).toContain('function adInjectionDetailContentTarget');
-    expect(previewPipeline).toContain("['detail-after-content', content, 'middle', '正文中部']");
-    expect(previewPipeline).toContain("slot.position === 'detail-after-content'");
-    expect(previewPipeline).toContain('insertAdInjectionContentMiddle(content, node)');
+    expect(previewPipeline).toContain("['detail-middle', content, 'middle', '正文中部']");
+    expect(previewPipeline).toContain('FinishedSiteAds.placePolicy(doc, page, slots)');
+    expect(finishedSiteAds).toContain('detail-middle|detail-after-content');
     expect(previewPipeline).not.toContain("(slot.position === 'detail-after-content' || slot.position === 'content-bottom') && main) main.appendChild(node)");
   });
 
@@ -366,7 +363,7 @@ describe('batch ad upload formats', () => {
     const previewPipeline = app.slice(app.indexOf('function adInjectionPlacementLabel'), app.indexOf('function buildAdInjectionPreviewDocument'));
 
     expect(previewPipeline).toContain('function collectAdInjectionCustomPlacements');
-    expect(previewPipeline).toContain('var maxPlacements = 2400;');
+    expect(previewPipeline).toContain('FinishedSiteAds.semanticBoundaries(root.ownerDocument)');
     expect(previewPipeline).toContain('function rebuild(){geometries=[];');
     expect(previewPipeline).toContain('function fallbackAt(event)');
     expect(previewPipeline).toContain("document.addEventListener('mousemove',pointerMove,true)");
@@ -379,8 +376,8 @@ describe('batch ad upload formats', () => {
     expect(previewPipeline).toContain("customLabel.textContent='＋ 点击放置广告'");
     expect(previewPipeline).toContain('customButton.hidden=true');
     expect(previewPipeline).toContain("type:'ad-injection-place'");
-    expect(previewPipeline).toContain("/^custom-after-(?:\\d+)(?:-\\d+)*$/");
-    expect(previewPipeline).toContain('insertAfter(adInjectionResolveCustomTarget(main, slot.position), node)');
+    expect(previewPipeline).toContain("position: 'content-ratio-' + candidate.ratio");
+    expect(finishedSiteAds).toContain('function ratioBoundary');
     expect(previewPipeline).not.toContain('parentNode.insertBefore(marker');
     expect(app).toContain('上下内容之间的留白');
   });
@@ -393,7 +390,7 @@ describe('batch ad upload formats', () => {
     expect(previewPipeline).toContain('sitefoundry-injection-common-marker');
     expect(previewPipeline).toContain('sitefoundry-injection-custom-marker');
     expect(previewPipeline).toContain("node.textContent='＋ '+candidate.label");
-    expect(previewPipeline).toContain("slot.unit === appState.adInjectionPlacementMode && /^custom-after-");
+    expect(previewPipeline).toContain("slot.unit === appState.adInjectionPlacementMode && /^(?:custom-after-|content-ratio-)/");
     expect(previewPipeline).toContain('adInjectionOccupiedPositions(page, appState.adInjectionPlacementMode)');
     expect(app).toContain('右侧仍显示常用广告位');
     expect(app).toContain('重新放置时仅隐藏当前自定义广告');
@@ -405,7 +402,7 @@ describe('batch ad upload formats', () => {
 
     expect(injectionMessages).toContain("setAdInjectionPolicyPlacement(unit, currentAdInjectionPreviewPage(), '');");
     expect(injectionMessages).not.toContain("setAdInjectionPolicyPlacement(unit, 'home', '');\n                setAdInjectionPolicyPlacement(unit, 'detail', '');");
-    expect(placementMarkers).toContain("target && (candidate[2] === 'before' ? target.previousElementSibling : target.nextElementSibling)");
+    expect(placementMarkers).toContain("if (gap && gap.anchor)");
   });
 
   it('does not expose a custom placement trigger inside a visible common placement region', () => {
@@ -420,8 +417,8 @@ describe('batch ad upload formats', () => {
     const previewSlots = app.slice(app.indexOf('function addAdInjectionPreviewSlots'), app.indexOf('function buildAdInjectionPreviewDocument'));
 
     expect(app).toContain('function centerAdInjectionCustomPlacements');
-    expect(previewSlots).toContain("outer.classList.add('sitefoundry-ad-custom-placement')");
-    expect(previewSlots).toContain("--sitefoundry-ad-center-offset");
+    expect(finishedSiteAds).toContain("node.classList.add('sitefoundry-ad-custom-placement')");
+    expect(finishedSiteAds).toContain("--sitefoundry-ad-center-offset");
     expect(previewSlots).toContain('centerAdInjectionCustomPlacements(doc)');
   });
 });

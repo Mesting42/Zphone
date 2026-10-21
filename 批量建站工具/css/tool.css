@@ -3511,6 +3511,15 @@ html:has(.domain-selection-panel.active) {
 .template-reuse-source-head { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px; }
 .template-reuse-source-head h4 { margin:2px 0 0;color:#173a68;font-size:15px; }
 .template-reuse-source-actions { display:flex;flex-wrap:wrap;gap:10px;margin:12px 0; }
+.template-reuse-kind-controls { display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0; }
+.template-reuse-kind-controls[hidden] { display:none; }
+.template-reuse-kind-controls label { color:#173a68;font-weight:600;font-size:13px; }
+.template-reuse-kind-controls select { box-sizing:border-box;max-width:100%;min-height:42px;padding:8px 12px;border:1px solid #b5c9e3;border-radius:8px;color:#173a68;background:#fff;font:inherit; }
+.template-reuse-kind-controls select:focus-visible { outline:3px solid #4a9eff;outline-offset:2px; }
+.template-reuse-kind-controls .group-hint { flex-basis:100%;margin:0; }
+.template-reuse-kind-controls .select-shell { min-width:0;flex:1; }
+.template-reuse-source-actions[hidden] { display:none; }
+.template-reuse-source-actions > .group-hint { flex-basis:100%;margin:0; }
 .template-reuse-theme-row { display:flex;align-items:center;gap:12px;margin-top:10px;max-width:460px; }
 .template-reuse-theme-row label { color:#334155;font-size:12px;font-weight:700; }
 .template-reuse-theme-row select { flex:1;min-height:36px;border:1px solid #cbd5e1;border-radius:9px;padding:0 10px;background:#fff;color:#1e293b; }
@@ -3531,6 +3540,9 @@ html:has(.domain-selection-panel.active) {
 .restoration-file-status.is-ready { color:#277352;font-weight:700; }
 @media (max-width:680px) {
     .template-reuse-source-head { align-items:flex-start;flex-direction:column; }
+    .template-reuse-kind-controls label { flex-basis:100%; }
+    .template-reuse-kind-controls select { width:100%;min-width:0;flex:1 1 100%; }
+    .template-reuse-kind-controls .select-shell { width:100%;flex:1 1 100%; }
     .template-reuse-theme-row { align-items:flex-start;flex-direction:column;gap:6px;max-width:none; }
     .template-reuse-theme-row select { width:100%; }
 }
@@ -4232,10 +4244,25 @@ body.has-config-transition .diff-config-section.active:not([hidden]) {
 .ad-policy-config-panel .ad-policy-oop { display: flex; flex-wrap: wrap; gap: 10px; }
 .ad-policy-config-panel .ad-policy-site-list { max-height: none; overflow: visible; }
 .ad-policy-config-panel .config-group,
-.ad-policy-placement-mode { flex-shrink: 0; }
-.ad-policy-placement-mode { margin: 12px 0; padding: 12px; border: 1px solid #c4ddf5; border-radius: 12px; }
-.ad-policy-placement-mode label { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
-.ad-policy-place-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ad-policy-placement-group { flex-shrink: 0; }
+.ad-policy-placement-group .normal-ad-mode-grid { margin: 12px 0; }
+.ad-policy-placement-group .group-desc { color: #71849a; font-size: 12px; line-height: 1.55; }
+.ad-policy-placement-group .ad-container-config.is-placing { border-color: #2377d8; background: #f2f7ff; }
+.ad-policy-placement-group .ad-select-btn[aria-pressed="true"] { color: #fff; background: #2377d8; }
+.ad-policy-custom-toggle { display: flex; align-items: center; gap: 6px; color: #5c7188; font-size: 12px; margin: 12px 0; }
+#ad-policy-placement-hint { padding: 10px; border: 1px dashed #4a9eff; border-radius: 6px; background: #edf5ff; color: #1769c5; font-size: 12px; line-height: 1.5; }
+/* 与普通建站共用 style-card；限制到当前面板，避免主题名或按钮挤宽左栏。 */
+#template-reuse-theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+#template-reuse-theme-grid .style-card { min-width: 0; font-family: inherit; font-size: 12px; color: inherit; background: rgba(255,255,255,.5); }
+#template-reuse-theme-grid .style-card.selected { background: #f0f7ff; }
+#template-reuse-theme-grid .style-preview { display: block; }
+#template-reuse-theme-grid .style-name { display: block; overflow-wrap: anywhere; }
+#template-reuse-theme-grid .style-card:focus-visible { outline: 3px solid #2377d8; outline-offset: 2px; }
+.template-reuse-theme-name { margin-left: auto; color: #71849a; font-size: 12px; }
+.template-reuse-theme-picker summary { display: flex; align-items: center; cursor: pointer; padding: 10px 0; gap: 8px; }
+.template-reuse-theme-picker summary::after { content: '⌄'; color: #71849a; }
+.template-reuse-theme-picker[open] summary::after { content: '⌃'; }
+.template-reuse-theme-picker .preset-count { padding: 2px 7px; border-radius: 999px; background: #e8f1ff; color: #245b95; font-size: 10px; white-space: nowrap; }
 #ad-policy-page-picker { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 #ad-policy-page-picker select { max-width: 220px; min-height: 36px; }
 .ad-policy-config-panel button:focus-visible,

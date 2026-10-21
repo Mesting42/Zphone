@@ -412,7 +412,7 @@ export function injectReactSource(entriesInput, project, config, policy, archive
         path: sourceRoot ? pathOf(entry).slice(sourceRoot.length) : pathOf(entry),
         bytes: entry.bytes ? new Uint8Array(entry.bytes) : bytes(entry.text || '')
     }));
-    const dynamicPlacement = settings && (settings.mode === 'fixed' || !project.entryPath);
+    const dynamicPlacement = settings && (settings.mode === 'fixed' || settings.renderedPlacement || !project.entryPath);
     if (dynamicPlacement) {
         // Fixed placement is resolved against the rendered DOM on each route.
         // Next.js manual placement also runs after hydration so the policy can

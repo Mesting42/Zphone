@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  availablePreviewContentTypes,
   isPreviewInternalHref,
   isPreviewDetailEntry,
+  previewContentTypeForEntry,
   previewPageTypeForEntry,
   resolvePreviewHtmlEntry,
 } from '../js/ad-injection-preview-router.js';
@@ -75,5 +77,28 @@ describe('finished-site preview routing', () => {
     expect(isPreviewDetailEntry('dist/client/games/space-runner/index.html', 'dist/client/')).toBe(true);
     expect(isPreviewDetailEntry('dist/client/games/index.html', 'dist/client/')).toBe(false);
     expect(isPreviewDetailEntry('dist/client/blog/how-antennas-work/index.html', 'dist/client/')).toBe(true);
+  });
+
+  it('keeps article, tool and game detail placement scopes independent', () => {
+    expect(previewContentTypeForEntry('dist/client/blog/how-antennas-work/index.html', 'dist/client/')).toBe('article');
+    expect(previewContentTypeForEntry('dist/client/tools/swr/index.html', 'dist/client/')).toBe('tool');
+    expect(previewContentTypeForEntry('dist/client/games/space-runner/index.html', 'dist/client/')).toBe('game');
+    expect(previewContentTypeForEntry('dist/client/index.html', 'dist/client/')).toBe('home');
+  });
+
+  it('shows placement tabs only for concrete detail pages', () => {
+    const listingOnly = [
+      { path: 'index.html' },
+      { path: 'tools/index.html' },
+      { path: 'games/index.html' },
+      { path: 'templates/blog-article.html' },
+      { path: '_dist/orb-gallery.html' },
+    ];
+    expect(availablePreviewContentTypes(listingOnly, '')).toEqual({});
+    expect(availablePreviewContentTypes([
+      ...listingOnly,
+      { path: 'tools/orbit-weight/index.html' },
+      { path: 'articles/field-notes.html' },
+    ], '')).toEqual({ tool: true, article: true });
   });
 });

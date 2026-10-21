@@ -112,7 +112,7 @@ export function createAssetMapper(sourceEntries, siteRoot) {
             const candidates = [...entries.values()].filter(candidate => candidate.path.toLowerCase().endsWith('/' + path.toLowerCase()));
             if (candidates.length === 1) entry = candidates[0];
         }
-        if (!entry || !/\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(entry.path)) throw new Error('内容图片不存在：' + ref + '（来源 ' + owner + '）。');
+        if (!entry || !/\.(?:avif|gif|jfif|jpe?g|png|svg|webp)$/i.test(entry.path)) throw new Error('内容图片不存在：' + ref + '（来源 ' + owner + '）。');
         const target = siteRoot + 'assets/template-reuse/' + normalizePath(entry.path);
         copied.set(target, { path: target, bytes: new Uint8Array(entry.bytes || new TextEncoder().encode(entryText(entry))) });
         return relativePath(outputPath, target);

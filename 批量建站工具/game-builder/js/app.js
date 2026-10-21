@@ -10,6 +10,7 @@
     if (window.AdTemplateCatalog) await window.AdTemplateCatalog.ready;
 
     // 保留经典脚本入口；只动态加载共用展示模块，避免维护两套摘要标记。
+    var gameCatalogSource = await import('../../js/game-catalog-source.js?v=20261021-template-games-1');
     var exportSummaryView = await import('../../js/export-summary-view.js?v=sha256-3f2b9900e822a4dc');
     var exportProgressView = await import('../../js/export-progress-view.js?v=sha256-cd8cc888fe9e8d8a');
 
@@ -826,63 +827,9 @@
         };
     }
 
-    function unwrapGameArray(payload) {
-        if (Array.isArray(payload)) return payload;
-        if (!payload || typeof payload !== 'object') return [];
-        var preferredKeys = ['games', 'data', 'items', 'results'];
-        for (var i = 0; i < preferredKeys.length; i++) {
-            if (Array.isArray(payload[preferredKeys[i]])) return payload[preferredKeys[i]];
-        }
-        var keys = Object.keys(payload);
-        for (var j = 0; j < keys.length; j++) {
-            if (Array.isArray(payload[keys[j]])) return payload[keys[j]];
-        }
-        return [];
-    }
-
-    function firstValue(item, keys) {
-        for (var i = 0; i < keys.length; i++) {
-            var value = item[keys[i]];
-            if (value !== undefined && value !== null && String(value).trim() !== '') return value;
-        }
-        return '';
-    }
-
-    function isSafeRelativeAsset(value) {
-        var path = String(value || '').trim().replace(/\\/g, '/');
-        if (!path || path.startsWith('/') || path.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(path)) return false;
-        return !path.split('/').some(function(segment) { return segment === '..'; });
-    }
-
+    // Catalog validation is shared with advertised-template reuse.
     function normalizeGames(payload, sourceId) {
-        var rows = unwrapGameArray(payload);
-        var seen = {};
-        return rows.map(function(item, index) {
-            if (!item || typeof item !== 'object') return null;
-            var url = String(firstValue(item, ['url', 'gameUrl', 'game_url', 'embedUrl', 'embed_url', 'store_url', 'local_entry', 'game_file'])).trim();
-            var originalThumb = String(firstValue(item, ['thumb', 'thumbnailUrl', 'thumbnail', 'image', 'imageUrl', 'cover', 'coverUrl'])).trim();
-            var normalized = Object.assign({}, item, {
-                id: firstValue(item, ['id', 'gameId', 'game_id', 'slug']) || (sourceId + '-' + (index + 1)),
-                title: String(firstValue(item, ['title', 'name', 'gameTitle'])).trim(),
-                description: String(firstValue(item, ['description', 'desc_en', 'content', 'summary', 'excerpt'])).trim(),
-                url: url,
-                thumb: originalThumb,
-                thumbFallback: '',
-                source: sourceId
-            });
-            var allowsLocalFiles = sourceId === 'opensource-local' || sourceId === 'json-zip' || sourceId === 'differentiated-zip' || sourceId === 'saved-local' || /^builtin-source-\d+$/.test(sourceId);
-            // Extended archives extract JSON and images, but deliberately do
-            // not import executable HTML. Accept their local covers separately
-            // from the existing ZIP/local-game permission for game entry files.
-            var allowsLocalImages = allowsLocalFiles || sourceId === 'json-archive';
-            var validGameUrl = /^https?:\/\//i.test(normalized.url) || (allowsLocalFiles && isSafeRelativeAsset(normalized.url));
-            var validThumb = /^https?:\/\//i.test(normalized.thumb) || (allowsLocalImages && isSafeRelativeAsset(normalized.thumb));
-            if (!normalized.title || !validGameUrl || !validThumb) return null;
-            var duplicateKey = normalized.url.toLowerCase();
-            if (seen[duplicateKey]) return null;
-            seen[duplicateKey] = true;
-            return normalized;
-        }).filter(Boolean);
+        return gameCatalogSource.normalizeGameCatalog(payload, sourceId);
     }
 
     function updateSourceStatus(message, state) {
@@ -1052,29 +999,8 @@
     }
 
     function activateOpenSourceLibrary() {
-        var bundle = window.OPEN_SOURCE_GAME_BUNDLE;
-        if (!bundle || !Array.isArray(bundle.games) || !bundle.games.length) {
-            throw new Error('开源游戏包未正确加载');
-        }
-        var localImages = {};
-        var localImageDataUrls = {};
-        var localGameFiles = {};
-        var catalog = bundle.games.map(function(game) {
-            localImages[game.coverFile] = dataUrlToBlob(game.coverData);
-            localImageDataUrls[game.coverFile] = game.coverData;
-            localGameFiles[game.gameFile] = game.gameHtml;
-            var item = Object.assign({}, game);
-            delete item.coverData;
-            delete item.gameHtml;
-            return item;
-        });
-        replaceGameData(catalog, 'opensource-local', '开源本地 · 首批', {
-            localImages: localImages,
-            localImageDataUrls: localImageDataUrls,
-            localGameFiles: localGameFiles,
-            categories: bundle.categoryPreset,
-            sourceNotice: bundle.source
-        });
+        var catalog = gameCatalogSource.openSourceGameCatalog(window.OPEN_SOURCE_GAME_BUNDLE);
+        replaceGameData(catalog.games, catalog.id, catalog.name, catalog);
     }
 
     function initDataSourceControls() {
@@ -1184,19 +1110,12 @@
             if (!canPersistCatalogs()) return;
             var revision = ++sourceLoadRevision;
             updateSourceStatus('正在读取本地内置目录…', 'loading');
-            SavedGameCatalogs.get(id).then(async function(catalog) {
-                if (!catalog || !Array.isArray(catalog.data)) throw new Error('找不到该本地内置目录。');
-                var localImages = catalog.localImages || {};
-                var localImageDataUrls = await restoreLocalImageDataUrls(localImages);
+            gameCatalogSource.loadGameCatalog('saved:' + id).then(async function(catalog) {
+                catalog.localImageDataUrls = await restoreLocalImageDataUrls(catalog.localImages || {});
                 if (revision !== sourceLoadRevision || sourceSelect.value !== 'saved:' + id) return;
-                replaceGameData(catalog.data, 'saved-local', '本地内置 · ' + catalog.name, {
-                    localImages: localImages,
-                    localImageDataUrls: localImageDataUrls,
-                    localGameFiles: catalog.localGameFiles || {},
-                    sourceNotice: catalog.sourceNotice || null
-                });
-                activeSavedCatalogId = catalog.id;
-                savedName.value = catalog.name;
+                replaceGameData(catalog.games, catalog.id, catalog.name, catalog);
+                activeSavedCatalogId = id;
+                savedName.value = catalog.catalogName;
                 updateSavedCatalogControls();
             }).catch(function(error) {
                 if (revision !== sourceLoadRevision) return;
@@ -1215,24 +1134,10 @@
             var sourceValue = 'builtin-' + source.id;
             try {
                 updateSourceStatus('正在读取' + source.name + '…', 'loading');
-                var response = await fetch(source.archive, { cache: 'force-cache' });
-                if (!response.ok) throw new Error('资源文件请求失败（HTTP ' + response.status + '）。');
-                var blob = await response.blob();
-                var archiveName = String(source.archive).split('/').pop() || (source.id + '.zip');
-                var archiveFile = new File([blob], archiveName, { type: 'application/zip' });
-                var archive = await GameZipImport.importArchive(archiveFile, function(payload) {
-                    return normalizeGames(payload, sourceValue);
-                });
+                var catalog = await gameCatalogSource.loadGameCatalog(sourceValue);
                 if (revision !== sourceLoadRevision || sourceSelect.value !== sourceValue) return;
-                var localImages = {};
-                Object.keys(archive.localImageDataUrls).forEach(function(filename) {
-                    localImages[filename] = dataUrlToBlob(archive.localImageDataUrls[filename]);
-                });
-                replaceGameData(archive.payload, sourceValue, source.name, {
-                    localImages: localImages,
-                    localImageDataUrls: archive.localImageDataUrls
-                });
-                updateSourceStatus('已加载 ' + archive.recordCount + ' 款游戏与 ' + Object.keys(localImages).length + ' 张本地封面 · ' + source.name, 'success');
+                replaceGameData(catalog.games, catalog.id, catalog.name, catalog);
+                updateSourceStatus('已加载 ' + catalog.games.length + ' 款游戏与 ' + Object.keys(catalog.localImages || {}).length + ' 张本地封面 · ' + source.name, 'success');
             } catch (error) {
                 if (revision !== sourceLoadRevision || sourceSelect.value !== sourceValue) return;
                 updateSourceStatus(source.name + ' 加载失败：' + error.message, 'error');

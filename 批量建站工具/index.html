@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" sizes="any" href="assets/sitefoundry-icon.svg?v=20261013-brand-1">
     <link rel="apple-touch-icon" sizes="180x180" href="assets/sitefoundry-apple-touch.png?v=20261013-brand-1">
     <link rel="stylesheet" href="css/config-disclosures.css?v=20261012-reference-2">
-    <link rel="stylesheet" href="css/tool.css?v=sha256-32099c3ebd450da6">
+    <link rel="stylesheet" href="css/tool.css?v=sha256-7e92c691ed57331a">
     <link rel="stylesheet" href="css/liquid-glass.css?v=sha256-d5b2595235a35205">
     <link rel="stylesheet" href="css/field-mapping.css?v=sha256-1219396f95248285">
     <link rel="stylesheet" href="css/export-page.css?v=sha256-3378432a641129e7">
@@ -215,12 +215,23 @@
                 </div>
                 <section class="template-reuse-source" id="template-reuse-source" hidden aria-labelledby="template-reuse-source-title">
                     <div class="template-reuse-source-head"><div><span class="section-kicker">模板复用 · 内容来源</span><h4 id="template-reuse-source-title">选择要替换进模板的新内容</h4></div><span class="restoration-local-badge">只读源码，不上传云端</span></div>
-                    <p class="group-hint">保留模板的导航、页脚、法律页和布局；详情页数量跟随新内容，移除多余旧内容页。支持 JSON/图片 ZIP 或另一份静态网站 ZIP。</p>
-                    <div class="template-reuse-source-actions">
-                        <button type="button" class="restoration-pick-button" id="template-reuse-content-button">选择 JSON 或内容 ZIP</button>
-                        <button type="button" class="restoration-pick-button" id="template-reuse-site-button">选择静态网站 ZIP</button>
-                        <input type="file" id="template-reuse-content-input" accept=".json,.zip,application/json,application/zip" hidden>
-                        <input type="file" id="template-reuse-site-input" accept=".zip,application/zip" hidden>
+                    <p class="group-hint">保留模板的导航、页脚、法律页和布局；详情页数量跟随所选内容，移除多余旧内容页。资讯站可导入新内容，游戏站可直接选择现有游戏目录。</p>
+                    <div class="template-reuse-kind-controls">
+                        <label for="template-reuse-site-type">生成站点类型</label>
+                        <select id="template-reuse-site-type"><option value="editorial">资讯站</option><option value="games">游戏站</option></select>
+                    </div>
+                    <div id="template-reuse-game-source" class="template-reuse-kind-controls" hidden>
+                        <label for="template-reuse-game-catalog">游戏目录</label>
+                        <select id="template-reuse-game-catalog"><option value="builtin">当前内置目录</option></select>
+                        <button type="button" class="restoration-pick-button" id="template-reuse-game-retry">重新读取目录</button>
+                        <p class="group-hint">直接使用游戏建站的现有目录，无需上传数据源；本地游戏、封面和许可证随成品导出。</p>
+                    </div>
+                    <div class="template-reuse-source-actions" id="template-reuse-article-source">
+                        <p class="group-hint">支持 JSON、JSON/图片内容包或静态网站压缩包（ZIP、RAR、7Z、TAR、TAR.GZ/TGZ）。</p>
+                        <button type="button" class="restoration-pick-button" id="template-reuse-content-button">选择 JSON 或内容压缩包</button>
+                        <button type="button" class="restoration-pick-button" id="template-reuse-site-button">选择静态网站压缩包</button>
+                        <input type="file" id="template-reuse-content-input" accept=".json,.zip,.rar,.7z,.tar,.tar.gz,.tgz,application/json,application/zip,application/vnd.rar,application/x-rar-compressed,application/x-7z-compressed,application/x-tar,application/gzip" hidden>
+                        <input type="file" id="template-reuse-site-input" accept=".zip,.rar,.7z,.tar,.tar.gz,.tgz,application/zip,application/vnd.rar,application/x-rar-compressed,application/x-7z-compressed,application/x-tar,application/gzip" hidden>
                     </div>
                     <div class="migration-result pending" id="template-reuse-result" role="status">尚未选择内容来源。</div>
                 </section>
@@ -415,7 +426,13 @@
                     <p class="panel-desc">预览原站，分别调整首页、详情页和全部文章页的广告。</p>
                     <section id="template-reuse-config" class="template-reuse-source" hidden aria-label="模板复用样式配置">
                         <h3>样式配置</h3>
-                        <div class="template-reuse-theme-row"><label for="template-reuse-theme">主题配色</label><select id="template-reuse-theme"><option value="">保留模板原配色</option></select></div>
+                        <details class="template-reuse-theme-picker" open>
+                        <summary class="preset-heading"><strong>配色主题</strong><span id="template-reuse-theme-count" class="preset-count"></span><span id="template-reuse-theme-name" class="template-reuse-theme-name"></span></summary>
+                        <p class="group-hint">配色只影响颜色和背景，不会改变页面结构；点击卡片即可预览。</p>
+                        <div id="template-reuse-theme-grid" class="style-grid" role="group" aria-label="模板复用配色主题"></div>
+                        <!-- 保留既有字段作为主题状态入口，供导入/自动化使用；可见交互统一为颜色卡片。 -->
+                        <div hidden><label for="template-reuse-theme">主题配色</label><select id="template-reuse-theme"><option value="">保留模板原配色</option></select></div>
+                        </details>
                         <p class="group-hint" id="template-reuse-config-report" role="status"></p>
                     </section>
                     <label class="injection-site-label" for="ad-policy-preview-site">当前站点</label>
@@ -441,21 +458,22 @@
                         <input id="ad-policy-code-file" type="file" accept=".txt,.js" hidden>
                         <button type="button" class="btn-secondary" id="ad-policy-code-restore" disabled>恢复原站广告代码</button>
                     </div>
-                    <fieldset class="ad-policy-placement-mode">
-                        <legend>广告放置方式</legend>
-                        <label><input type="radio" name="ad-policy-placement-mode" value="fixed" checked> 固定放置</label>
-                        <label><input type="radio" name="ad-policy-placement-mode" value="manual"> 手动放置</label>
-                        <p class="group-hint">选择下方位置或在预览中放置。自定义内容位置保存为当前站点覆盖。</p>
-                    </fieldset>
-                    <div id="ad-policy-manual-controls" hidden>
-                        <p class="group-hint">在当前页面选择广告位后，点击预览中的放置按钮。</p>
-                        <div class="ad-policy-place-actions">
-                            <button type="button" class="btn-secondary" data-policy-place-slot="0">放置广告位 1</button>
-                            <button type="button" class="btn-secondary" data-policy-place-slot="1">放置广告位 2</button>
-                            <button type="button" class="btn-secondary" data-policy-place-slot="2">放置广告位 3</button>
-                            <button type="button" class="btn-secondary" id="ad-policy-place-cancel">取消放置</button>
+                    <section class="config-group ad-policy-placement-group" aria-labelledby="ad-policy-placement-title">
+                        <h4 class="group-title" id="ad-policy-placement-title">📢 广告容器</h4>
+                        <p class="group-desc">保留原站广告单元与位置，也可分别调整当前站点各类页面的广告容器。</p>
+                        <div class="normal-ad-mode-grid" role="radiogroup" aria-label="广告位放置方式">
+                            <label class="normal-ad-mode-card"><input type="radio" name="ad-policy-placement-mode" value="fixed" checked><span><strong>固定位置（默认）</strong><small>沿用当前广告策略及原站位置；首页、详情页与全部文章页分别保留配置。</small></span></label>
+                            <label class="normal-ad-mode-card"><input type="radio" name="ad-policy-placement-mode" value="manual"><span><strong>手动放置</strong><small>以当前广告位置为起点，分别调整每个广告在首页、详情页和全部文章页的位置。</small></span></label>
                         </div>
+                        <p class="group-hint" id="ad-policy-placement-note" role="status" aria-live="polite"></p>
+                    <div id="ad-policy-manual-controls" hidden>
+                        <p class="group-desc">选择广告容器后，点击预览中带名称的常用广告位。首页、详情页和全部文章页的位置分别独立；放置和移除只影响当前站点、当前页面类型。</p>
+                        <div id="ad-policy-slot-cards"></div>
+                        <label class="ad-policy-custom-toggle"><input type="checkbox" id="ad-policy-show-custom"> 显示更多自定义内容位置</label>
+                        <p id="ad-policy-placement-hint" class="ad-placement-hint" role="status" aria-live="polite" hidden>已选择广告，请点击预览区中带名称的常用广告位进行放置。</p>
+                        <button type="button" class="btn-secondary" id="ad-policy-place-cancel" hidden>取消放置</button>
                     </div>
+                    </section>
                     <!-- 既有策略编辑器在初始化时移入这里，保留原有控件与事件。 -->
                     <div id="ad-policy-config-content"></div>
                     </div>
@@ -526,13 +544,13 @@
                         <div class="config-group injection-policy-group">
                             <h4 class="group-title">广告位放置方式</h4>
                             <div class="normal-ad-mode-grid" role="radiogroup" aria-label="成品站广告位放置方式">
-                                <label class="normal-ad-mode-card"><input type="radio" name="injection-placement-mode" value="fixed" checked><span><strong>固定位置（默认）</strong><small>按首页和详情页规则自动寻找完整内容区块与卡片行。</small></span></label>
-                                <label class="normal-ad-mode-card"><input type="radio" name="injection-placement-mode" value="manual"><span><strong>手动放置</strong><small>在预览中选择常用位置，或点击上下内容之间的留白。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-placement-mode" value="fixed" checked><span><strong>固定位置（默认）</strong><small>Banner1 在导航栏下方，Banner2 在内容中间，Banner3 在页脚上方。</small></span></label>
+                                <label class="normal-ad-mode-card"><input type="radio" name="injection-placement-mode" value="manual"><span><strong>手动放置</strong><small>可任意调整三个 Banner；文章、工具和游戏详情分别继承各自设置。</small></span></label>
                             </div>
-                            <p class="group-hint" id="injection-fixed-note">首页：导航后、第一分类后、第二分类后。详情与列表页：导航后、内容中段完整卡片行之间、页脚前。无法安全定位时跳过并提示手动放置。</p>
+                            <p class="group-hint" id="injection-fixed-note">首页、详情和列表内容页均放置三个广告位：导航栏下方、正文中间、页脚上方。短页面也会保留正文间隔；位置或容器核验失败时阻止导出并说明原因。</p>
                             <div class="injection-fixed-warnings" id="injection-fixed-warnings" role="status" aria-live="polite"></div>
                             <div id="injection-manual-controls" hidden>
-                                <p class="group-hint">切换“首页/详情页”可分别放置。隐私、条款、关于和联系页不会加入广告。</p>
+                                <p class="group-hint">切换首页、文章详情、工具详情或游戏详情可分别放置。同类型页面沿用设置；结构不同时导出会调整到最近的安全内容间隙。隐私、条款、关于和联系页不会加入广告。</p>
                                 <div class="injection-policy-grid" id="injection-policy-grid"></div>
                             </div>
                         </div>
@@ -1396,6 +1414,9 @@
                             <button class="preview-tab active" data-page="home">首页</button>
                             <button class="preview-tab" data-page="all" hidden>全部文章</button>
                             <button class="preview-tab" data-page="detail">详情页</button>
+                            <button class="preview-tab" data-page="article" hidden>文章详情</button>
+                            <button class="preview-tab" data-page="tool" hidden>工具详情</button>
+                            <button class="preview-tab" data-page="game" hidden>游戏详情</button>
                             <button class="preview-tab" data-page="about">关于</button>
                             <button class="preview-tab" data-page="contact">联系</button>
                             <button class="preview-tab" data-page="privacy">隐私</button>
@@ -1559,7 +1580,7 @@
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
     <script src="js/ad-template-catalog.js?v=sha256-cf6d3c581fac227f"></script>
     <script src="js/export-preflight.js?v=20261008-ad-core-4"></script>
-    <script src="js/finished-site-ads.js?v=sha256-f58cf1502aab58bf"></script>
+    <script src="js/finished-site-ads.js?v=sha256-b9bc24a4110aa37c"></script>
     <script type="module" src="js/rar-import.js?v=20260928-rar-timeout-fallback-2"></script>
     <script src="js/site-motion.js?v=sha256-33f78618c8f736db"></script>
     <script src="js/archive-export.js?v=sha256-fe937497e58f8e9f"></script>
@@ -1569,12 +1590,12 @@
     <script src="js/editorial-template-versions.js?v=sha256-1285053290dbb209"></script>
     <script src="js/generator.js?v=sha256-8226b515e49fc73e"></script>
     <script src="js/zip-archive-worker-client.js?v=20260928-zip-worker-progress-1"></script>
-    <script src="js/ad-restoration.js?v=sha256-7d095054ca4f7871"></script>
+    <script src="js/ad-restoration.js?v=sha256-314e8f341e82a406"></script>
     <script src="js/batch-ad-builder.js?v=sha256-7225292915893648"></script>
 <script src="js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
 <script src="js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
 <script src="js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-<script type="module" src="js/app.js?v=sha256-16340d720edc52e4"></script>
+<script type="module" src="js/app.js?v=sha256-22e240a919535e82"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
   <script src="js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
   <script src="js/config-disclosures.js?v=20261012-reference-2"></script>

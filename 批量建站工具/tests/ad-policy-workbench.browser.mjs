@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 const hosts = ['zpau108a.synvexia.top', 'zpau108a.zentropy.top', 'zpau108b.synvexia.top'];
 const source = resolve(process.env.POLICY_FIXTURES || 'coverage/ad-page-isolation');
-const output = resolve('coverage/ad-policy-workbench');
+const output = resolve(process.env.POLICY_OUTPUT || 'coverage/ad-policy-workbench');
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, acceptDownloads: true });
@@ -99,9 +99,10 @@ try {
     await refresh(() => page.locator(active + ' [data-policy-field="outOfPage.anchor.all"]').uncheck());
     // 预览中的任意内容路径只改变本页、本站。
     await page.locator('[name="ad-policy-placement-mode"][value="manual"]').check();
+    await page.locator('#ad-policy-show-custom').check();
     await refresh(() => page.locator('[data-policy-place-slot="1"]').click());
-    await frame().locator('.sf-policy-place').first().waitFor();
-    await refresh(() => frame().locator('.sf-policy-place').first().click());
+    await frame().locator('.sf-policy-custom').first().waitFor();
+    await refresh(() => frame().locator('.sf-policy-custom').first().click());
     assert.match(await page.locator(active + ' [data-policy-field="slots.all.1.position"]').inputValue(), /^custom-after-/);
     await refresh(() => page.locator(active + ' [data-policy-field="slots.all.1.position"]').selectOption('content-middle'));
     await page.locator('#btn-next').click();

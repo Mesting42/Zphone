@@ -1,6 +1,6 @@
 # SiteFoundry Windows 应用
 
-当前源码版本为 **1.1.2**；本次仅推送源码，没有重新构建安装包。已交付的 1.0.1 安装包保持原文件名和哈希，不包含后续新旧模板和广告模板复用功能。历史报告和下方历史构建信息保留原版本语境。
+当前源码版本为 **1.1.3**；本次仅推送源码，没有重新构建安装包。已交付的 1.0.1 安装包保持原文件名和哈希，不包含后续新旧模板和广告模板复用功能。历史报告和下方历史构建信息保留原版本语境。
 
 此工程把现有工作台打包为 Windows 10 / Windows 11 的 x64 安装应用。采用 Electron 44.7.0、Chromium 和打包后的工作台；源码构建另带官方 Node 24.21.0 与 npm 10.9.4。使用者无需安装 Node、npm，也无需启动 5174 的浏览器服务。
 
@@ -20,7 +20,7 @@ npm run dist
 
 `stage` 从共享 `dist` 复制资源，打包模板解析器、Worker、WASM、本地字体、品牌图标、源码构建模块及 npm。首次准备 Windows Node 运行时会联网下载官方二进制，按官方 SHA-256 校验并记录来源和许可证；再次构建使用验证通过的缓存。
 
-输出目录：`apps/windows/release`。下一次按本源码构建时，安装包名称为 `SiteFoundry-1.1.2-Windows-x64-Setup.exe`；当前没有生成该文件。既有正式包仍为 `SiteFoundry-1.0.1-Windows-x64-Setup.exe`。Windows 源码中的应用、文件和构建版本统一为 `1.1.2`。
+输出目录：`apps/windows/release`。下一次按本源码构建时，安装包名称为 `SiteFoundry-1.1.3-Windows-x64-Setup.exe`；当前没有生成该文件。既有正式包仍为 `SiteFoundry-1.0.1-Windows-x64-Setup.exe`。Windows 源码中的应用、文件和构建版本统一为 `1.1.3`。
 
 ## 用户数据与更新
 

@@ -2,6 +2,21 @@
  * fields and append overflow, never rename or rebuild a category heading. */
 import { cardSelector, resolveLocal } from './template-reuse-content.js';
 
+/** Recognize only literal navigation handlers; never evaluate uploaded JS.
+ * Hero tiles commonly use this instead of an anchor around their content. */
+export function templateCardHref(card) {
+    const link = card.matches('a[href]') ? card : card.querySelector('a[href]');
+    if (link) return link.getAttribute('href') || '';
+    return String(card.getAttribute('onclick') || '').match(/^\s*(?:window\.)?location(?:\.href)?\s*=\s*(['"])([^'"]+)\1\s*;?\s*$/)?.[2] || '';
+}
+
+export function setTemplateCardHref(card, href) {
+    const old = templateCardHref(card);
+    if (card.matches('a[href]')) card.setAttribute('href', href);
+    card.querySelectorAll('a[href]').forEach(link => { if (link.getAttribute('href') === old) link.setAttribute('href', href); });
+    if (!card.matches('a[href]') && !card.querySelector('a[href]') && old) card.setAttribute('onclick', 'window.location.href=' + JSON.stringify(href));
+}
+
 /** Keep every original section capacity. Extra records belong at the tail,
  * so an ad after the first section still follows the same number of cards. */
 export function retainCategoryAllocation(categories, itemCount) {
@@ -20,19 +35,19 @@ export function templateListingCards(doc, owner, metadata) {
     const known = [...doc.querySelectorAll(cardSelector)].filter(node => !node.parentElement?.closest(cardSelector));
     const paths = new Set((metadata.detailPaths || []).map(path => path.toLowerCase()));
     const routeOf = link => {
-        let href = link.getAttribute('href') || '';
+        let href = templateCardHref(link);
         if (/^https?:\/\//i.test(href)) {
             try { const url = new URL(href); if (url.hostname !== metadata.detectedHost) return ''; href = url.pathname; } catch { return ''; }
         }
         return resolveLocal(href, owner, metadata.siteRoot).toLowerCase();
     };
-    const links = [...doc.querySelectorAll('a[href]')].filter(link => !link.closest('nav,header,footer') && paths.has(routeOf(link)));
+    const links = [...doc.querySelectorAll('a[href],[onclick]')].filter(link => !link.closest('nav,header,footer') && paths.has(routeOf(link)));
     for (const link of links) {
         if (known.some(card => card === link || card.contains(link))) continue;
         let card = link;
         // An image-only link can sit next to its title inside an article/li.
         // Stop as soon as a single-item content container is identified.
-        while (!card.querySelector('h2,h3,h4,[data-content-title],[class*="title"],[class*="name"]')) {
+        while (!card.querySelector('h1,h2,h3,h4,[data-content-title],[class*="title"],[class*="name"]')) {
             const parent = card.parentElement;
             if (!parent || /^(MAIN|BODY|SECTION)$/.test(parent.tagName)
                 || new Set(links.filter(item => parent.contains(item)).map(routeOf)).size !== 1) { card = null; break; }
@@ -47,7 +62,10 @@ export function templateListingCards(doc, owner, metadata) {
         }
         if (card && !known.some(node => node === card || node.contains(card))) known.push(card);
     }
-    return known.sort((a, b) => a === b ? 0 : a.compareDocumentPosition(b) & 4 ? -1 : 1);
+    // A document walk gives the same slot order in the browser and archive DOM
+    // parsers, including cards nested at different depths in separate sections.
+    const order = new Map([...doc.querySelectorAll('*')].map((node, index) => [node, index]));
+    return known.sort((a, b) => order.get(a) - order.get(b));
 }
 
 /** Replace only content text, retaining icon elements, inline wrappers and

@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" sizes="any" href="assets/sitefoundry-icon.svg?v=20261013-brand-1">
     <link rel="apple-touch-icon" sizes="180x180" href="assets/sitefoundry-apple-touch.png?v=20261013-brand-1">
     <link rel="stylesheet" href="css/config-disclosures.css?v=20261012-reference-2">
-    <link rel="stylesheet" href="css/tool.css?v=sha256-7e92c691ed57331a">
+    <link rel="stylesheet" href="css/tool.css?v=sha256-1a271777c91034fb">
     <link rel="stylesheet" href="css/liquid-glass.css?v=sha256-d5b2595235a35205">
     <link rel="stylesheet" href="css/field-mapping.css?v=sha256-1219396f95248285">
     <link rel="stylesheet" href="css/export-page.css?v=sha256-3378432a641129e7">
@@ -426,6 +426,12 @@
                     <p class="panel-desc">预览原站，分别调整首页、详情页和全部文章页的广告。</p>
                     <section id="template-reuse-config" class="template-reuse-source" hidden aria-label="模板复用样式配置">
                         <h3>样式配置</h3>
+                        <!-- 沿用普通建站的摘要配置；默认由各模板摘要决定行数。 -->
+                        <div class="config-item template-reuse-excerpt-config">
+                            <label for="template-reuse-excerpt-lines">摘要显示行数</label>
+                            <select id="template-reuse-excerpt-lines" aria-describedby="template-reuse-excerpt-hint"><option value="auto">跟随模板（默认）</option></select>
+                            <p class="group-hint" id="template-reuse-excerpt-hint">应用于主视觉和所有内容卡片。跟随模板保留各类摘要原有行数；原本没有摘要的卡片不新增摘要，详情正文不受影响。</p>
+                        </div>
                         <details class="template-reuse-theme-picker" open>
                         <summary class="preset-heading"><strong>配色主题</strong><span id="template-reuse-theme-count" class="preset-count"></span><span id="template-reuse-theme-name" class="template-reuse-theme-name"></span></summary>
                         <p class="group-hint">配色只影响颜色和背景，不会改变页面结构；点击卡片即可预览。</p>
@@ -1579,7 +1585,7 @@
     <script src="js/ad-migration.js?v=20261009-page-ad-isolation-1"></script>
     <script src="js/ad.js?v=20260924-ad-version-picker-1"></script>
     <script src="js/ad-template-catalog.js?v=sha256-cf6d3c581fac227f"></script>
-    <script src="js/export-preflight.js?v=20261008-ad-core-4"></script>
+    <script src="js/export-preflight.js?v=sha256-ea12f12336fdf560"></script>
     <script src="js/finished-site-ads.js?v=sha256-b9bc24a4110aa37c"></script>
     <script type="module" src="js/rar-import.js?v=20260928-rar-timeout-fallback-2"></script>
     <script src="js/site-motion.js?v=sha256-33f78618c8f736db"></script>
@@ -1590,12 +1596,12 @@
     <script src="js/editorial-template-versions.js?v=sha256-1285053290dbb209"></script>
     <script src="js/generator.js?v=sha256-8226b515e49fc73e"></script>
     <script src="js/zip-archive-worker-client.js?v=20260928-zip-worker-progress-1"></script>
-    <script src="js/ad-restoration.js?v=sha256-314e8f341e82a406"></script>
+    <script src="js/ad-restoration.js?v=sha256-f3c3b752825197e5"></script>
     <script src="js/batch-ad-builder.js?v=sha256-7225292915893648"></script>
 <script src="js/workflow-step-navigation.js?v=20260929-visited-step-navigation-1"></script>
 <script src="js/workflow-mode-indicator.js?v=20260929-workflow-mode-indicator-1"></script>
 <script src="js/dropdown-event-guards.js?v=20260929-dropdown-scroll-1"></script>
-<script type="module" src="js/app.js?v=sha256-22e240a919535e82"></script>
+<script type="module" src="js/app.js?v=sha256-a910a508fa999168"></script>
   <script src="js/jelly-button.js?v=20260918-9"></script>
   <script src="js/liquid-glass.js?v=20260929-workflow-mode-card-5"></script>
   <script src="js/config-disclosures.js?v=20261012-reference-2"></script>

@@ -10,6 +10,42 @@ const GameTemplateVersions = (function() {
 
     function isLegacy(config) { return config && config.templateVersion === 'legacy'; }
 
+    // Summary visibility belongs to cardFields, while cardDescLines stores only
+    // the limit. Keep the existing data model so old saved configurations work.
+    function cardSummaryValue(config) {
+        const fields = config.cardFields || [];
+        if (!fields.some(field => field === 'content' || field === 'excerpt')) return 'none';
+        const lines = String(config.cardDescLines);
+        return ['0', '1', '2', '3', '4'].includes(lines) ? lines : '2';
+    }
+
+    function setCardSummary(config, value) {
+        if (!['none', '0', '1', '2', '3', '4'].includes(value)) return;
+        const fields = (config.cardFields || []).slice();
+        if (value === 'none') {
+            config.cardFields = fields.filter(field => field !== 'content' && field !== 'excerpt');
+        } else {
+            // Preserve a source's existing excerpt mapping and field order.
+            if (!fields.some(field => field === 'content' || field === 'excerpt')) fields.push('content');
+            config.cardFields = fields;
+            config.cardDescLines = value;
+        }
+    }
+
+    function cardSummaryCSS(config) {
+        // Append after the original responsive rules: the copied mobile CSS
+        // hard-codes two lines at 768px and hides descriptions below 480px.
+        // The same override is used by preview and exported stylesheets.
+        const value = cardSummaryValue({ cardFields: config.structure.cardFields, cardDescLines: config.style.cardDescLines });
+        if (value === 'none') return '';
+        return '\n/* Legacy card summary: honor the selected limit at every viewport. */\n'
+            + '.item-card .card-desc {\n'
+            + '    display: ' + (value === '0' ? 'block' : '-webkit-box') + ';\n'
+            + '    -webkit-line-clamp: ' + (value === '0' ? 'unset' : value) + ';\n'
+            + '    -webkit-box-orient: vertical;\n'
+            + '    overflow: hidden;\n}\n';
+    }
+
     function switchVersion(config, version) {
         const previous = isLegacy(config) ? 'legacy' : 'current';
         const next = version === 'legacy' ? 'legacy' : 'current';
@@ -90,8 +126,10 @@ const GameTemplateVersions = (function() {
         // Prime the original font link before rendering any exported page.
         if (name !== 'generateCSS') LegacyGameTemplateSource.render('generateCSS', [config], config, options.adTemplates || {});
         const result = LegacyGameTemplateSource.render(name, args, renderingConfig, options.adTemplates || {});
-        if (name === 'generateCSS' || name === 'generateScriptJs') return result;
+        if (name === 'generateCSS') return result + cardSummaryCSS(config);
+        if (name === 'generateScriptJs') return result;
         let html = finishHTML(result, config, options);
+        if (name === 'generatePreviewHtml') html = html.replace('</style>', cardSummaryCSS(config) + '</style>');
         if (name === 'generateDetailHtml') {
             // Local source entries live beside the catalog, one level above
             // details/. This adjusts only relative asset URLs, not the layout.
@@ -194,5 +232,5 @@ document.addEventListener('click',function(event){
         if (buttonNote) { buttonNote.hidden = legacy; buttonNote.style.display = legacy ? 'none' : ''; }
     }
 
-    return { isLegacy, switchVersion, buildConfig, render, preview, syncControls };
+    return { isLegacy, switchVersion, buildConfig, render, preview, syncControls, cardSummaryValue, setCardSummary };
 })();

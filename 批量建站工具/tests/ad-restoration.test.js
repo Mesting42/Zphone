@@ -1383,6 +1383,38 @@ describe('batch ad restoration', () => {
     expect(files['js/ad.js']).toContain('zp0903a.example.pro-ANC');
   });
 
+  it.each(['manual', 'fixed'])('exports the compiled root of a wrapped vanilla bundler in %s mode', async (mode) => {
+    const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
+    const cleanDetail = detailHtml.replaceAll(wrongAd, '');
+    const entries = [
+      { path: 'site/package.json', text: JSON.stringify({ devDependencies: { vite: '7' }, scripts: { build: 'vite build' } }) },
+      { path: 'site/index.html', text: '<html><head></head><body><script type="module" src="/src/main.js"></script></body></html>' },
+      { path: 'site/src/main.js', text: 'import dependency from "bare-package";' },
+      { path: 'site/dist/index.html', text: cleanHome },
+      { path: 'site/dist/details/article1.html', text: cleanDetail },
+      { path: 'site/dist/assets/compiled.svg', text: '<svg></svg>' }
+    ];
+    const project = context.__restoration.classifyInjectableSiteEntries(entries, 'bundler-fixture');
+    expect(project).toMatchObject({ valid: true, kind: 'static-html', siteRoot: 'site/dist/', deploymentRoot: 'site/dist/', previewEntryPath: 'site/dist/index.html' });
+    const code = context.__restoration.inspectCodeText(oldAdJs, 'ad.js');
+    const batch = await context.__restoration.applyAdCodeBatch([{ id: 'site', name: 'bundler-fixture', entries, project }], [code], undefined,
+      { mode, version: 'v1.0.2.1', exportMode: 'static', policy: context.__restoration.createPolicy() });
+    const output = Object.fromEntries(batch.sites[0].entries.map(e => [e.path, new TextDecoder().decode(e.bytes)]));
+    expect(output['index.html']).toContain('div-gpt-ad-banner1');
+    expect(output['details/article1.html']).toContain('div-gpt-ad-banner3');
+    expect(output['assets/compiled.svg']).toBe('<svg></svg>');
+    expect(output['src/main.js']).toBeUndefined(); expect(output['package.json']).toBeUndefined();
+    expect(batch.results[0].verification.valid).toBe(true);
+  });
+
+  it('rejects unbuilt vanilla bundler source instead of exporting source-only HTML', () => {
+    const project = context.__restoration.classifyInjectableSiteEntries([
+      { path: 'package.json', text: JSON.stringify({ scripts: { build: 'vite build' } }) },
+      { path: 'index.html', text: '<html><head></head><body><script type="module" src="/src/main.js"></script></body></html>' }
+    ], 'unbuilt-bundler');
+    expect(project.valid).toBe(false); expect(project.errors[0].code).toBe('AD_INJECTION_STATIC_BUILD_REQUIRED');
+  });
+
   it('recognizes and injects common news routes only through the finished-site workflow', () => {
     const cleanHome = homeHtml.replace(/<script defer src="js\/ad\.js"><\/script>/g, '').replaceAll(wrongAd, '');
     const newsDetail = '<!doctype html><html><head></head><body><nav class="navbar"></nav><main><article><h1>News story</h1><div class="detail-content"><p>Body copy.</p></div></article><section class="related-articles"></section></main><footer></footer></body></html>';
@@ -2014,5 +2046,27 @@ describe('listing pages and multi-site policy archives', () => {
     const result = await context.__restoration.readSiteArchiveFiles([file]);
     expect(result.sites.map(s=>s.name)).toEqual(['alpha.test','beta.test','gamma.test']);
     expect(result.sites.every(s=>s.entries.some(e=>e.path==='index.html'))).toBe(true);
+  });
+});
+
+describe('historical native-lazy-load version labels', () => {
+  const inspect = runtime => context.__restoration.inspectSiteEntries([
+    {path:'index.html',text:homeHtml}, {path:'details/article1.html',text:detailHtml}, {path:'js/ad.js',text:runtime}
+  ], 'version-compatibility').adJsVersion;
+  it('recognizes the complete v1.0.2.1 feature combination with the old v1.0.2 header', () => {
+    const runtime=versionedAdJs('historical.example','v1.0.2.1').replace('ad.js v1.0.2.1','ad.js v1.0.2');
+    expect(inspect(runtime)).toBe('v1.0.2.1');
+  });
+  it('keeps real v1.0.2 and does not use commented options as active features', () => {
+    const runtime=versionedAdJs('real.example','v1.0.2');
+    expect(inspect(runtime)).toBe('v1.0.2');
+    expect(inspect(runtime+'\n/*\nconst enableLazyLoad = true;\n*/')).toBe('v1.0.2');
+  });
+  it.each(['enableInterstitialTriggers = false','navBar: enableInterstitialTriggers','if (gaMeasurementId)'])('does not promote an incomplete feature match missing %s', feature => {
+    const runtime=versionedAdJs('incomplete.example','v1.0.2.1').replace('ad.js v1.0.2.1','ad.js v1.0.2').replace(feature,'/* missing feature */');
+    expect(inspect(runtime)).toBe('v1.0.2');
+  });
+  it('continues rejecting conflicting version markers', () => {
+    expect(inspect(versionedAdJs('conflict.example','v1.0.2.1')+'\n// ad.js v1.0.2')).toBe('');
   });
 });

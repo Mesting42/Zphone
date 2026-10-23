@@ -8,6 +8,14 @@ vm.runInNewContext(source, context);
 const preflight = context.SiteExportPreflight;
 
 describe('export preflight', () => {
+  it.each(['&quot;', '&#34;', '&#x22;'])('checks actual CSS URLs after decoding %s in HTML style attributes', quote => {
+    const html='<section style="background-image:url('+quote+'assets/cover.webp'+quote+')"></section>';
+    const complete=preflight.inspectEntries({'index.html':html}, {paths:['index.html','assets/cover.webp']});
+    expect(complete.valid).toBe(true);
+    const missing=preflight.inspectEntries({'index.html':html});
+    expect(missing.valid).toBe(false);
+    expect(missing.errors.some(error=>error.reference==='assets/cover.webp')).toBe(true);
+  });
   it('resolves Browserify dependencies internally without hiding real missing modules', () => {
     const bundle = `(function(){return {1:[function(require,module,exports){require('./Scalar'); require('./missing');},{"./Scalar":2}],2:[function(require,module,exports){module.exports=1;},{}]};})();\nrequire('./outside');`;
     const report = preflight.inspectEntries({ 'index.html': '<script src="bundle.js"></script>', 'bundle.js': bundle });

@@ -1,9 +1,15 @@
 /** Static template reuse: plan routes, local data, related cards and images together.
  * Both preview and export consume this pure transformation; uploaded JS is never executed here. */
-import { entryText, textEntry, publicPage, titleSelector, bodySelector,
+import { entryText, textEntry, publicPage,
     resolveLocal, relativePath, createAssetMapper, renderBody } from './template-reuse-content.js';
 import { planTemplateGames, installTemplateGame } from './template-reuse-games.js';
-import { retainCategoryAllocation, templateListingCards, setTemplateText } from './template-reuse-layout.js';
+import { retainCategoryAllocation, templateListingCards, setTemplateText, templateCardHref, setTemplateCardHref } from './template-reuse-layout.js';
+import { findDetailRegions, replaceDetailBody } from './template-detail-regions.js';
+import { applyThemePalette } from './template-theme-palette.js';
+import { templateFeaturedRegions, templateDetailPath, featuredTitleSelector, featuredField, featuredHeadings, fillFeaturedMedia, fillTemplateCoverMedia } from './template-featured-content.js';
+import { markTemplateSummary, normalizeExcerptLines, applyTemplateSummaryLines } from './template-summary-lines.js';
+import { isFeaturedGameHomepage, installGameHomepageRenderer } from './template-game-home.js';
+export { applyThemePalette } from './template-theme-palette.js';
 export { parseContentJson, extractStaticSiteContent } from './template-reuse-content.js';
 const htmlFile = path => /\.html?$/i.test(path);
 const parse = entry => new DOMParser().parseFromString(entryText(entry), 'text/html');
@@ -40,7 +46,7 @@ export function inspectTemplate(site) {
     const byPath = new Map(entries.map(entry => [entry.path, entry]));
     const details = (metadata.detailPaths || []).filter(path => !publicPage(path));
     if (!details.length) throw new Error('模板没有可复用的内容详情页。');
-    const unsupported = details.filter(path => { const doc = parse(byPath.get(path)); return !first(doc, bodySelector) || !first(doc, titleSelector); });
+    const unsupported = details.filter(path => !findDetailRegions(parse(byPath.get(path))));
     if (unsupported.length) throw new Error('无法识别正文容器，不支持直接复用：' + unsupported.slice(0, 3).join('、'));
     const runtime = localRenderer(entries, metadata), home = byPath.get(metadata.homePath);
     if (!home) throw new Error('模板首页不存在。');
@@ -68,31 +74,43 @@ function setImage(node, item, outputPath, assets) {
     if (!item.image) { node.removeAttribute('src'); node.hidden = true; return; }
     node.removeAttribute('hidden'); node.setAttribute('src', assets.image(item.image, item.ownerPath, outputPath)); node.setAttribute('alt', item.title);
 }
-const cardLink = card => card.matches('a[href]') ? card : card.querySelector('a[href]');
-function fillCard(card, route, outputPath, assets) {
+function fillCard(card, route, outputPath, assets, featured = false) {
     const item = route.item;
-    setText(first(card, '[data-content-title],.card-title,.related-name,.post-title,[class*="title"],[class*="name"],h2,h3,h4'), item.title);
-    setText(first(card, '[data-content-summary],.card-desc,.related-excerpt,.excerpt,.summary,.description,p'), item.summary);
-    setText(card.querySelector('.related-genres,.card-genres,[data-content-category],.category,.tag'), item.category);
-    setImage(card.querySelector('img'), item, outputPath, assets);
-    const link = cardLink(card); if (link) link.setAttribute('href', relativePath(outputPath, route.path));
+    const field = selectors => featured ? featuredField(card, selectors) : first(card, selectors);
+    // Plain related links can use arbitrary short class names for their text.
+    // Fall back to direct text blocks, while known headings remain preferred.
+    const textBlocks = [...card.children].filter(node => !node.matches('img,svg,i,[aria-hidden="true"]') && node.textContent.trim());
+    const title = field(featured ? featuredTitleSelector : '[data-content-title],.card-title,.related-name,.post-title,[class*="title"],[class*="name"],h1,h2,h3,h4')
+        || (!featured ? (textBlocks.length ? textBlocks[0] : card.matches('a') ? card : null) : null);
+    setText(title, item.title);
+    if (featured) featuredHeadings(card).forEach(heading => { if (heading !== title) setText(heading, item.title); });
+    setText(markTemplateSummary(featuredField(card, '[data-content-summary],.card-desc,.related-excerpt,.excerpt,.summary,.description,p')), item.summary);
+    const source = field('[data-content-source],[class*="source"],[class$="-meta"]');
+    setText(source, item.raw.source || item.author || item.category);
+    if (card.matches('.related-card') && textBlocks.length === 2 && title === textBlocks[0] && !source) setText(textBlocks[1], item.raw.source || item.author || item.category || item.summary.slice(0, 160));
+    setText(field('.related-genres,.card-genres,[data-content-category],.category,.tag'), item.category);
+    if (!featured) setImage(card.querySelector('img'), item, outputPath, assets);
+    // Cover backgrounds belong to content too; keep every other style token.
+    (featured ? [] : [card, ...card.querySelectorAll('[style]')]).forEach(node => {
+        if (!/url\(/i.test(node.style?.getPropertyValue('background-image') || '')) return;
+        if (item.image) node.style.setProperty('background-image', 'url(' + JSON.stringify(assets.image(item.image, item.ownerPath, outputPath)) + ')');
+        else node.style.removeProperty('background-image');
+    });
+    setTemplateCardHref(card, relativePath(outputPath, route.path));
 }
 
-function fillDetail(entry, route, routes, assets, sourceRoutes, host, siteRoot, games) {
-    const doc = parse(entry), item = route.item, title = first(doc, titleSelector), oldTitle = title.textContent;
-    const body = first(doc, bodySelector);
-    // Preserve advertisements embedded in prose, including their paragraph gap.
-    const adSelector = '[id^="adv"],[id^="div-gpt-ad-banner"],[data-sitefoundry-ad]';
-    const ads = [...body.querySelectorAll(adSelector)].filter(node => !node.parentElement?.closest(adSelector))
-        .map(node => ({ node: node.cloneNode(true), index: [...body.children].indexOf(node) }));
-    body.innerHTML = renderBody(item, route.path, assets, sourceRoutes);
-    ads.forEach(({ node, index }) => body.insertBefore(node, body.children[Math.max(0, index)] || null));
+function fillDetail(entry, route, routes, assets, sourceRoutes, host, siteRoot, games, templateEntries) {
+    const doc = parse(entry), item = route.item, region = findDetailRegions(doc), { title, body } = region, oldTitle = title.textContent;
+    const summary = doc.querySelector('[data-content-summary],.standfirst,.article-summary');
+    const summaryIsBody = region.mode === 'blocks' && region.nodes.some(node => node === summary || node.contains(summary));
+    const contentAnchor = replaceDetailBody(region, renderBody(item, route.path, assets, sourceRoutes));
     setText(title, item.title);
-    setImage(first(doc, '[data-content-image],.detail-hero-image,.article-hero img'), item, route.path, assets);
-    for (const [selector, value] of [['[data-content-summary],.standfirst,.article-summary', item.summary], ['[data-content-author],.byline,.article-author', item.author], ['[data-content-date],time,.article-date', item.date], ['[data-content-category],.article-category', item.category]]) setText(doc.querySelector(selector), value);
-    const action = doc.querySelector('.action-btn');
-    if (action && !item.game) { if (/^https?:\/\//i.test(item.actionUrl)) action.setAttribute('href', item.actionUrl); else action.remove(); }
-    if (item.game) installTemplateGame(doc, item, route.path, games, body);
+    if (region.cover?.isConnected) fillTemplateCoverMedia(region.cover, item, route.path, assets, templateEntries, { siteRoot });
+    if (!summaryIsBody) setText(summary, item.summary);
+    for (const [selector, value] of [['[data-content-author],.byline,.article-author', item.author], ['[data-content-date],time,.article-date', item.date], ['[data-content-category],.article-category', item.category], ['[data-content-source],.article-source', item.raw.source || item.author || item.category]]) setText(doc.querySelector(selector), value);
+    const actions = new Set([...region.actions, ...doc.querySelectorAll('.action-btn')]);
+    if (!item.game) actions.forEach(action => { if (/^https?:\/\//i.test(item.actionUrl)) action.setAttribute('href', item.actionUrl); else action.remove(); });
+    if (item.game) installTemplateGame(doc, item, route.path, games, body, region.mode === 'blocks' ? contentAnchor : null);
     else doc.querySelectorAll('.game-frame-shell,.game-stage,[data-sitefoundry-game-player],style[data-sitefoundry-game-style]').forEach(node => node.remove());
     if (doc.title) doc.title = doc.title.includes(oldTitle) ? doc.title.replace(oldTitle, item.title) : item.title;
     doc.querySelectorAll('meta[name="description"],meta[property="og:description"]').forEach(node => node.setAttribute('content', item.summary));
@@ -132,23 +150,42 @@ function fillDetail(entry, route, routes, assets, sourceRoutes, host, siteRoot, 
     return textEntry(route.path, serialize(doc));
 }
 
-function fillListing(entry, routes, metadata, assets) {
+function fillListing(entry, routes, metadata, assets, entries) {
     const doc = parse(entry), byPath = new Map(routes.map(route => [route.path.toLowerCase(), route]));
-    const cards = templateListingCards(doc, entry.path, metadata);
+    const candidates = templateListingCards(doc, entry.path, metadata);
+    const featured = templateFeaturedRegions(doc, entry.path, metadata, candidates);
+    const cards = candidates.filter(card => !featured.some(region => region === card || region.contains(card) || card.contains(region)));
+    const uniqueGameHome = isFeaturedGameHomepage(entry.path, metadata, routes, featured);
+    const homepageCards = uniqueGameHome ? routes.slice(1) : null;
+    // Featured content always uses the first source record, even if the old
+    // template promoted another route. It never consumes a normal card slot.
+    for (const region of featured) {
+        fillCard(region, routes[0], entry.path, assets, true);
+        fillFeaturedMedia(region, routes[0].item, entry.path, assets, entries, metadata);
+    }
+    // Some templates show record one only in the feature, others repeat it in
+    // the grid. A set supports both without duplicating or skipping records.
+    const represented = new Set(featured.length ? [routes[0].path] : []);
     const models = new Map(); let cursor = 0;
+    // Capture the original final-card boundary before removing unused cards.
+    // Otherwise a short source could move newly bound content past a tail ad.
     cards.forEach(card => {
-        const parent = card.parentElement; if (!models.has(parent)) models.set(parent, card.cloneNode(true));
-        const path = resolveLocal(cardLink(card)?.getAttribute('href'), entry.path, metadata.siteRoot);
-        const route = path ? byPath.get(path.toLowerCase()) : routes[cursor++];
-        if (route) fillCard(card, route, entry.path, assets); else card.remove();
+        const parent = card.parentElement;
+        const previous = models.get(parent);
+        models.set(parent, { model: previous?.model || card.cloneNode(true), boundary: card.nextSibling });
     });
-    if (routes.length > cards.length && models.size) {
-        const [parent, model] = [...models.entries()].at(-1);
+    cards.forEach(card => {
+        const path = templateDetailPath(card, entry.path, metadata);
+        // Refill existing slots instead of deleting the first tile: section
+        // capacities and ads keep their original boundaries as games advance.
+        const route = uniqueGameHome ? homepageCards[cursor++] : path ? byPath.get(path.toLowerCase()) : routes[cursor++];
+        if (route) { represented.add(route.path); fillCard(card, route, entry.path, assets); } else card.remove();
+    });
+    if (routes.length > represented.size && models.size) {
+        const [parent, { model, boundary }] = [...models.entries()].at(-1);
         // Insert before the original trailing ad/decoration, never append after
         // it. All preceding section/card boundaries remain where they were.
-        const last = cards.filter(card => card.parentElement === parent).at(-1);
-        const boundary = last?.nextSibling || null;
-        routes.slice(cards.length).forEach(route => { const card = model.cloneNode(true); fillCard(card, route, entry.path, assets); parent.insertBefore(card, boundary); });
+        routes.filter(route => !represented.has(route.path)).forEach(route => { const card = model.cloneNode(true); fillCard(card, route, entry.path, assets); parent.insertBefore(card, boundary); });
     }
     return textEntry(entry.path, serialize(doc));
 }
@@ -177,22 +214,6 @@ function rendererData(renderer, routes, metadata, assets, games) {
     });
 }
 
-/** Colour-only tokens: no width, font, spacing, border radius or layout changes. */
-export function applyThemePalette(entries, palette, options = {}) {
-    if (!palette) return { entries, applied: false, warnings: [] };
-    const declarations = Object.entries(palette.vars || palette).filter(([key, value]) => /^--(?:color-[\w-]+|navbar-bg)$/.test(key) && !/[;{}<>]/.test(String(value))).map(([key, value]) => key + ':' + value).join(';');
-    if (!declarations) throw new Error('主题配色没有有效的颜色变量。');
-    const id = String(options.id || palette.id || 'palette').replace(/[^\w-]/g, '');
-    const css = ':root{' + declarations + '}body{background-color:var(--color-bg);color:var(--color-text)}.item-card,.post-card,.article-card{background-color:var(--color-card-bg);border-color:var(--color-border)}.navbar{background-color:var(--navbar-bg)}';
-    const output = entries.map(entry => {
-        if (!htmlFile(entry.path)) return entry;
-        const doc = parse(entry); doc.querySelectorAll('style[data-sitefoundry-template-theme]').forEach(node => node.remove());
-        const style = doc.createElement('style'); style.setAttribute('data-sitefoundry-template-theme', id); style.textContent = css; doc.head.appendChild(style);
-        return textEntry(entry.path, serialize(doc));
-    });
-    return { entries: output, applied: true, warnings: [] };
-}
-
 /** Return a full site copy; template entries and metadata are never mutated. */
 export function reuseTemplateSite(site, source, options = {}) {
     const items = source.contentItems || source.items || [];
@@ -204,7 +225,7 @@ export function reuseTemplateSite(site, source, options = {}) {
     const sourceRoutes = new Map(routes.filter(route => route.item.sourcePath).map(route => [route.item.sourcePath.toLowerCase(), route.path]));
     const oldDetails = new Set(inspection.details);
     const output = site.entries.filter(entry => !oldDetails.has(entry.path)).map(entry => ({ ...entry, bytes: entry.bytes ? new Uint8Array(entry.bytes) : undefined }));
-    for (const route of routes) output.push(fillDetail(byPath.get(route.templatePath), route, routes, assets, sourceRoutes, options.host || site.metadata.detectedHost, site.metadata.siteRoot, games));
+    for (const route of routes) output.push(fillDetail(byPath.get(route.templatePath), route, routes, assets, sourceRoutes, options.host || site.metadata.detectedHost, site.metadata.siteRoot, games, site.entries));
     const renderer = inspection.renderer;
     if (renderer) {
         output[output.findIndex(entry => entry.path === renderer.dataPath)] = textEntry(renderer.dataPath, JSON.stringify(rendererData(renderer, routes, site.metadata, assets, games), null, 2));
@@ -216,7 +237,7 @@ export function reuseTemplateSite(site, source, options = {}) {
     for (let index = 0; index < output.length; index++) {
         const entry = output[index];
         if (!htmlFile(entry.path) || publicPage(entry.path) || routes.some(route => route.path === entry.path)) continue;
-        if (templateListingCards(parse(entry), entry.path, site.metadata).length) output[index] = fillListing(entry, routes, site.metadata, assets);
+        if (templateListingCards(parse(entry), entry.path, site.metadata).length) output[index] = fillListing(entry, routes, site.metadata, assets, site.entries);
     }
     output.push(...assets.entries());
     if (games) output.push(...games.entries);
@@ -226,11 +247,19 @@ export function reuseTemplateSite(site, source, options = {}) {
         const pages = output.filter(entry => htmlFile(entry.path) && entry.path.startsWith(site.metadata.siteRoot) && !games?.entries.some(game => game.path === entry.path));
         output[sitemapIndex] = textEntry(output[sitemapIndex].path, '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + pages.map(entry => '<url><loc>https://' + host + '/' + entry.path.slice(site.metadata.siteRoot.length) + '</loc></url>').join('') + '</urlset>');
     }
-    const palette = applyThemePalette(output, source.palette, { id: source.paletteId });
+    const embedded = new Set([...(site.metadata.embeddedDocumentPaths || []), ...(games ? games.entries.map(entry => entry.path) : [])]);
+    const cardExcerptLines = normalizeExcerptLines(source.cardExcerptLines);
+    const summaries = applyTemplateSummaryLines(output, { cardExcerptLines,
+        paths: output.filter(entry => htmlFile(entry.path) && !embedded.has(entry.path) && !publicPage(entry.path)).map(entry => entry.path),
+        dynamic: renderer && /card-desc|data-content-summary|class=["'](?:excerpt|summary)/.test(renderer.source) ? { path: site.metadata.homePath,
+            originals: renderer.rows.map((row, index) => ({ id: String(row.id ?? row._index ?? index + 1), text: String(row[renderer.mapping.excerpt || 'excerpt'] || row[renderer.mapping.content || 'content'] || row.description || row.summary || '') })) } : null });
+    const homepage = installGameHomepageRenderer(summaries, renderer, site.metadata, routes);
+    const palette = applyThemePalette(homepage, source.palette, { id: source.paletteId,
+        paths: output.filter(entry => htmlFile(entry.path) && !embedded.has(entry.path)).map(entry => entry.path) });
     const report = { schema: 'sitefoundry-template-reuse/v2', sourceItems: items.length, detailPages: routes.length,
         removedOldPages: inspection.details.filter(path => !routes.some(route => route.path === path)).length,
         createdPages: routes.filter(route => !oldDetails.has(route.path)).length, copiedAssets: assets.entries().length,
-        localDataUpdated: !!renderer, paletteApplied: palette.applied, gameFiles: games ? games.entries.filter(entry => /\.html?$/i.test(entry.path)).length : 0,
+        localDataUpdated: !!renderer, cardExcerptLines, paletteApplied: palette.applied, gameFiles: games ? games.entries.filter(entry => /\.html?$/i.test(entry.path)).length : 0,
         siteType: games ? 'games' : 'editorial', warnings: [], routes: routes.map(route => ({ path: route.path, title: route.item.title })) };
     return { ...site, preserveTemplateLayout: true, entries: palette.entries, metadata: { ...site.metadata, detailPaths: routes.map(route => route.path) }, templateReuseReport: report };
 }

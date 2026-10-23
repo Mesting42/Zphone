@@ -76,7 +76,7 @@ export function planTemplateGames(source, site) {
 
 /** Reuse an existing native player when present, otherwise add a scoped player
  * inside the template's content area without changing global CSS or ad nodes. */
-export function installTemplateGame(doc, item, owner, plan, body) {
+export function installTemplateGame(doc, item, owner, plan, body, contentAnchor = null) {
     const entry = plan.url(item, owner);
     // Replace a previous template's cover-only stage before adding a player.
     // Otherwise a Poki fallback could retain the old game's cover and link.
@@ -89,7 +89,10 @@ export function installTemplateGame(doc, item, owner, plan, body) {
     if (!frame) {
         frame = doc.createElement('iframe');
         frame.setAttribute('data-sitefoundry-game-player', '');
-        body.insertBefore(frame, body.firstChild);
+        // A semantic article can also contain its heading and original ads.
+        // Insert at the resolved prose anchor, not ahead of that template shell.
+        const parent = contentAnchor?.parentNode || body;
+        parent.insertBefore(frame, contentAnchor || parent.firstChild);
         const style = doc.createElement('style');
         style.setAttribute('data-sitefoundry-game-style', '');
         style.textContent = 'iframe[data-sitefoundry-game-player]{display:block;width:100%;max-width:100%;height:70vh;min-height:320px;max-height:760px;border:0;margin:0 0 24px;background:#10141b}';

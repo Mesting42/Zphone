@@ -19,6 +19,13 @@ const remote = index => ({ title: 'Game ' + index, description: 'Game instructio
 const doc = (site, path) => new DOMParser().parseFromString(entryText(site.entries.find(entry => entry.path === path)), 'text/html');
 
 describe('game catalog template reuse', () => {
+    it('inserts a player at loose prose while retaining its heading and preceding ad', async () => {
+        const source=template();source.entries[1]=textEntry('details/article1.html','<html><head></head><body><article><div><h1>Old</h1><div id="adv2">Keep ad</div><p class="loose-copy">Old prose</p></div></article></body></html>');
+        const parsed=await gameCatalogContent({id:'builtin',games:[remote(1)]});
+        const page=doc(reuseTemplateSite(source,{contentItems:parsed.items}),'details/article1.html');
+        const frame=page.querySelector('iframe');expect(frame.previousElementSibling.id).toBe('adv2');expect(frame.nextElementSibling.tagName).toBe('P');
+        expect(page.querySelector('#adv2').previousElementSibling.tagName).toBe('H1');expect(frame.getAttribute('src')).toBe('https://games.example/1');
+    });
     it('normalizes game aliases and rejects unsafe entries and duplicate URLs', () => {
         expect(normalizeGameCatalog({ games: [{ name: 'Alias', gameUrl: 'https://games.example/1', image: 'https://covers.example/1.webp' }, remote(1), { ...remote(2), url: 'javascript:bad()' }] }, 'builtin').map(game => game.title)).toEqual(['Alias']);
         expect(normalizeGameCatalog([{ ...remote(1), url: '../outside.html' }], 'saved-local')).toEqual([]);
@@ -60,6 +67,14 @@ describe('game catalog template reuse', () => {
         const localHtml = atob(frame.getAttribute('src').split(',')[1]);
         expect(localHtml).toContain('data:text/javascript;base64,');
         expect(entryText(output.entries.find(entry => /puzzle\/index.html$/.test(entry.path)))).toContain('src="game.js"');
+        // A site palette belongs to the surrounding template. A bundled game
+        // owns its artwork/UI colors and must retain the same exported bytes.
+        const themed = reuseTemplateSite(template('outer/site/'), { ...parsed, contentItems: parsed.items,
+            paletteId: 'minimal', palette: { vars: { '--color-bg': '#fff', '--color-text': '#212529' } } });
+        for (const entry of output.entries.filter(entry => entry.path.includes('/template-reuse-games/'))) {
+            expect(themed.entries.find(candidate => candidate.path === entry.path).bytes).toEqual(entry.bytes);
+        }
+        expect(doc(themed, 'outer/site/details/article1.html').querySelector('[data-sitefoundry-template-theme-runtime]')).toBeTruthy();
     });
     it('blocks a missing local entry rather than exporting a broken player', async () => {
         const parsed = await gameCatalogContent({ id: 'saved-local', games: [{ ...remote(1), url: 'games/missing.html' }] });

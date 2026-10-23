@@ -674,6 +674,9 @@ import { gameCatalogContent } from './template-reuse-games.js';
     }
 
     var adRestorationRunning = false;
+    // Preserve the actual read failure for navigation; a structure/import
+    // failure must not be reported as a missing advertisement configuration.
+    var adRestorationReadError = '';
     var adInjectionRunning = false;
 
     function fileSelectionSummary(files, unit) {
@@ -1110,7 +1113,9 @@ import { gameCatalogContent } from './template-reuse-games.js';
     /** 卡片仅展示策略；选择/取消不改值，放置和移除才保存单站覆盖。 */
     function renderAdPolicyPlacementCards(pageType) {
         var site = activeAdPolicySite();
-        var metadata = site && (isTemplateReuseWorkflow() && appState.templateReuse.contentItems.length ? templateReuseSiteFor(site).metadata : site.metadata);
+        var reuseReady = isTemplateReuseWorkflow() && appState.templateReuse.contentItems.length
+            && !appState.templateReuse.error && site && !site.templateReuseError;
+        var metadata = site && (reuseReady ? templateReuseSiteFor(site).metadata : site.metadata);
         var page = pageType || (metadata && adPolicyPageType(appState.adPolicyPreviewPath, metadata));
         var manual = appState.adPolicyPlacementMode === 'manual';
         var placing = manual && appState.adPolicyPlacingSlot != null;
@@ -1189,14 +1194,14 @@ import { gameCatalogContent } from './template-reuse-games.js';
         var code = appState.adPolicyCodeOverrides[site.id];
         var host = code && code.detectedHost || site.metadata.detectedHost;
         var cached = site.templateReuseCache;
-        if (cached && cached.items === appState.templateReuse.contentItems && cached.palette === appState.templateReuse.palette && cached.host === host) return cached.result;
+        if (cached && cached.items === appState.templateReuse.contentItems && cached.palette === appState.templateReuse.palette && cached.cardExcerptLines === appState.templateReuse.cardExcerptLines && cached.host === host) return cached.result;
         var original = Object.assign({}, site, { entries: site.templateEntries || site.entries });
         var result = reuseTemplateSite(original, appState.templateReuse, { host: host });
         appState.templateReuse.report = result.templateReuseReport;
         var reportTarget = document.getElementById('template-reuse-config-report');
         if (reportTarget) reportTarget.textContent = result.templateReuseReport.detailPages + ' 个新详情页 · ' + result.templateReuseReport.copiedAssets + ' 张本地图片' + (result.templateReuseReport.gameFiles ? ' · ' + result.templateReuseReport.gameFiles + ' 个本地游戏页面' : '') + ' · 广告默认保留原位置及开关';
         result = retargetTemplateHost(result, host);
-        site.templateReuseCache = { items: appState.templateReuse.contentItems, palette: appState.templateReuse.palette, host: host, result: result };
+        site.templateReuseCache = { items: appState.templateReuse.contentItems, palette: appState.templateReuse.palette, cardExcerptLines: appState.templateReuse.cardExcerptLines, host: host, result: result };
         return result;
     }
 
@@ -1241,6 +1246,8 @@ import { gameCatalogContent } from './template-reuse-games.js';
             });
         }
         if (select) select.value = reuse.paletteId || '';
+        var excerptSelect = document.getElementById('template-reuse-excerpt-lines');
+        if (excerptSelect) excerptSelect.value = reuse.cardExcerptLines || 'auto';
         var grid = document.getElementById('template-reuse-theme-grid');
         var presets = typeof STYLE_PRESETS !== 'undefined' ? STYLE_PRESETS : [];
         if (grid) {
@@ -1258,7 +1265,7 @@ import { gameCatalogContent } from './template-reuse-games.js';
     var templateReuseImportToken = 0;
     function newTemplateReuseState() {
         return { siteType: 'editorial', gameCatalogId: 'builtin', contentItems: [], assets: [], gameFiles: {},
-            sourceNotice: null, sourceName: '', sourceKind: '', paletteId: '', palette: null, report: null,
+            sourceNotice: null, sourceName: '', sourceKind: '', paletteId: '', palette: null, cardExcerptLines: 'auto', report: null,
             sources: {}, readError: '', error: '', loading: false };
     }
 
@@ -1336,6 +1343,12 @@ import { gameCatalogContent } from './template-reuse-games.js';
         if (!isAdPolicyWorkflow() || appState.currentStep !== 4) return;
         var site = activeAdPolicySite();
         if (!site) return;
+        // An unsupported template remains listed for its ad recognition, but
+        // background preview/control refreshes must not attempt transformation.
+        if (isTemplateReuseWorkflow() && (appState.templateReuse.error || site.templateReuseError)) {
+            setPreviewDocument(previewErrorDocument(new Error(appState.templateReuse.error || site.templateReuseError)));
+            return;
+        }
         var previewSite = templateReuseSiteFor(site);
         var metadata = previewSite.metadata;
         var paths = appState.adPolicySites.length && previewSite.entries.filter(function(entry) { return /\.html?$/i.test(entry.path) && entry.path.indexOf(metadata.siteRoot) === 0 && !/(?:^|\/)vendor-games\//i.test(entry.path); }).map(function(entry) { return entry.path; });
@@ -1476,6 +1489,7 @@ import { gameCatalogContent } from './template-reuse-games.js';
         renderAdPolicySites();
 
         async function scanSource(mode, files) {
+            adRestorationReadError = '';
             var scanProgress = document.getElementById('restoration-scan-progress');
             var scanFill = document.getElementById('restoration-scan-progress-fill');
             var scanText = document.getElementById('restoration-scan-progress-text');
@@ -1499,7 +1513,11 @@ import { gameCatalogContent } from './template-reuse-games.js';
                 if (isTemplateReuseWorkflow()) {
                     appState.adPolicySites.forEach(function(site) {
                         site.templateEntries = (site.entries || []).map(function(entry) { return { path: entry.path, bytes: entry.bytes ? new Uint8Array(entry.bytes) : entry.bytes }; });
-                        inspectTemplate(site);
+                        // Ad recognition and template compatibility are separate
+                        // results. Keep the recognized site even if its content
+                        // structure is unsupported, so its real error survives.
+                        try { inspectTemplate(site); site.templateReuseError = ''; }
+                        catch (error) { site.templateReuseError = error.message; }
                     });
                 }
                 appState.adQuickCodes = [];
@@ -1530,6 +1548,7 @@ import { gameCatalogContent } from './template-reuse-games.js';
                 if (scanText) scanText.textContent = '已识别 ' + scan.sites.length + ' 个站点、' + scan.fileCount + ' 个文件';
                 renderAdPolicySites();
             } catch (error) {
+                adRestorationReadError = error.message;
                 appState.adPolicySites = [];
                 appState.adPolicySourceMode = '';
                 if (scanText) scanText.textContent = '目录识别未完成：' + error.message;
@@ -1599,6 +1618,26 @@ import { gameCatalogContent } from './template-reuse-games.js';
         if (templateSiteButton && templateSiteInput) templateSiteButton.addEventListener('click', function() { templateSiteInput.value = ''; templateSiteInput.click(); });
         if (templateSiteInput) templateSiteInput.addEventListener('change', function() { var file = this.files && this.files[0]; if (file) handleTemplateReuseContent(file, 'static'); });
         var templateTheme = document.getElementById('template-reuse-theme');
+        var templateExcerpt = document.getElementById('template-reuse-excerpt-lines');
+        if (templateExcerpt) {
+            // Copy the ordinary builder's option labels and values. Additional
+            // numeric choices extend the confirmed 1–10 range without changing
+            // the ordinary workflow's defaults or existing control state.
+            var ordinaryExcerpt = document.getElementById('card-excerpt-lines');
+            for (var lines = 1; lines <= 10; lines++) {
+                var sourceOption = ordinaryExcerpt && ordinaryExcerpt.querySelector('option[value="' + lines + '"]');
+                var option = sourceOption ? sourceOption.cloneNode(true) : new Option(lines + ' 行', String(lines));
+                option.removeAttribute('selected'); templateExcerpt.appendChild(option);
+            }
+            var fullOption = ordinaryExcerpt && ordinaryExcerpt.querySelector('option[value="none"]');
+            templateExcerpt.appendChild(fullOption ? fullOption.cloneNode(true) : new Option('完整显示（不截断）', 'none'));
+            templateExcerpt.value = appState.templateReuse.cardExcerptLines;
+            templateExcerpt.addEventListener('change', function() {
+                appState.templateReuse.cardExcerptLines = templateExcerpt.value;
+                updateTemplateReuseControls();
+                if (appState.currentStep === 4) updateAdPolicyPreview();
+            });
+        }
         document.getElementById('template-reuse-theme-grid').addEventListener('click', function(event) {
             var button = event.target.closest('[data-template-theme]');
             if (!button || adRestorationRunning) return;
@@ -4757,6 +4796,9 @@ import { gameCatalogContent } from './template-reuse-games.js';
             case 1:
                 if (isAdPolicyWorkflow()) {
                     if (isTemplateReuseWorkflow() && appState.templateReuse.loading) { showNotice('内容仍在读取中，请稍候。', '请等待读取完成'); return false; }
+                    if (adRestorationReadError) { showNotice(adRestorationReadError, '站点读取未完成'); return false; }
+                    if (adRestorationRunning) { showNotice('站点仍在读取和识别中，请稍候。', '请等待读取完成'); return false; }
+                    if (isTemplateReuseWorkflow() && validateTemplateReuse()) { showNotice(appState.templateReuse.error, '模板复用尚未通过校验'); return false; }
                     if (adRestorationRunning || !(appState.adPolicySites || []).some(function(site) { return site.metadata && site.metadata.valid && site.metadata.adJsVersion; })) {
                         showNotice('请上传可识别广告配置和 ad.js 版本的站点，并等待读取完成。', '还不能进入配置网站');
                         return false;

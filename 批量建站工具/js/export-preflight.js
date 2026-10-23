@@ -71,12 +71,13 @@
     }
 
     function decodeEntities(value) {
-        return String(value || '').replace(/&(?:amp|quot|apos|#39|#x27|#x2f|#47);/gi, function(entity) {
+        return String(value || '').replace(/&(?:amp|quot|apos|#(?:x[0-9a-f]+|\d+));/gi, function(entity) {
             const key = entity.toLowerCase();
             if (key === '&amp;') return '&';
             if (key === '&quot;') return '"';
-            if (key === '&apos;' || key === '&#39;' || key === '&#x27;') return "'";
-            return '/';
+            if (key === '&apos;') return "'";
+            const value = key.startsWith('&#x') ? parseInt(key.slice(3, -1), 16) : parseInt(key.slice(2, -1), 10);
+            return Number.isFinite(value) && value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : entity;
         });
     }
 
@@ -194,7 +195,10 @@
                 let srcsetMatch;
                 while ((srcsetMatch = srcsetPattern.exec(attrs.srcset))) refs.push({ url: srcsetMatch[1], kind: 'resource', source: path });
             }
-            if (attrs.style) collectCssReferences(path, attrs.style).forEach(function(ref) { refs.push(ref); });
+            // Browsers decode HTML entities before parsing a style attribute.
+            // Tokenize its actual CSS, so url(&quot;cover.webp&quot;) does not
+            // become a fictitious filename containing the quote entities.
+            if (attrs.style) collectCssReferences(path, decodeEntities(attrs.style)).forEach(function(ref) { refs.push(ref); });
         }
 
         styleBlocks.forEach(function(style) { collectCssReferences(path, style).forEach(function(ref) { refs.push(ref); }); });

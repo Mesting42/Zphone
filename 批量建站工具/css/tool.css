@@ -3523,6 +3523,14 @@ html:has(.domain-selection-panel.active) {
 .template-reuse-theme-row { display:flex;align-items:center;gap:12px;margin-top:10px;max-width:460px; }
 .template-reuse-theme-row label { color:#334155;font-size:12px;font-weight:700; }
 .template-reuse-theme-row select { flex:1;min-height:36px;border:1px solid #cbd5e1;border-radius:9px;padding:0 10px;background:#fff;color:#1e293b; }
+/* The reuse panel is narrower than the ordinary two-column settings grid.
+ * Stack this copied control so the selected value and hint remain readable. */
+.config-item.template-reuse-excerpt-config { display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:12px 0 16px; }
+.template-reuse-excerpt-config > label { flex:none;width:auto;margin:0;color:#173a68;font-size:13px;font-weight:600; }
+.template-reuse-excerpt-config > select,
+.template-reuse-excerpt-config > .select-shell { box-sizing:border-box;width:100%;min-width:0;flex:none; }
+.template-reuse-excerpt-config > select { min-height:40px; }
+.template-reuse-excerpt-config > .group-hint { margin:0; }
 .build-mode-card-template-reuse .build-mode-icon { color:#245ea9;background:rgba(37,94,169,.1); }
 .restoration-file-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; }
 .restoration-file-card { position:relative;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:12px;align-items:center;min-height:128px;padding:16px;border:1px solid #e0d8ed;border-radius:12px;background:#fff; }

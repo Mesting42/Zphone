@@ -354,6 +354,21 @@ const AdRestoration = (function() {
         const hasInitialFingerprint = /\bfunction\s+delayLoadBanner\s*\(/.test(text)
             && /\bnew\s+IntersectionObserver\s*\(/.test(text)
             && /\bconst\s+bannerPath1\s*=/.test(text);
+        // Some deployed native-lazy-load templates kept the old v1.0.2
+        // header. Promote only this complete known feature combination; real
+        // v1.0.2 (lazy loading off), custom versions and conflicting headers
+        // keep their existing interpretation.
+        const features = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+        const legacyNativeLazy = versions.length === 1 && versions[0] === 'v1.0.2'
+            && runtimeFormat === 'ad-unit' && !hasInitialFingerprint
+            && /^\s*(?:const|let|var)\s+enableLazyLoad\s*=\s*true\s*;/m.test(features)
+            && /^\s*(?:const|let|var)\s+enableInterstitialTriggers\s*=\s*false\s*;/m.test(features)
+            && /lazyLoad\s*:\s*\{[^}]*fetchMarginPercent\s*:/s.test(features)
+            && ['unhideWindow', 'navBar', 'inactivity', 'endOfArticle', 'continueReading'].every(function(trigger) {
+                return new RegExp('\\b' + trigger + '\\s*:\\s*enableInterstitialTriggers\\b').test(features);
+            })
+            && /if\s*\(\s*gaMeasurementId\s*\)/.test(features) && !/GA ID is empty/.test(features);
+        if (legacyNativeLazy) return 'v1.0.2.1';
         const catalog = typeof window !== 'undefined' && window.AdTemplateCatalog;
         const customVersions = versions.filter(function(version) { return catalog && catalog.getTemplate(version); });
         if (customVersions.length === 1 && !hasInitialFingerprint) return customVersions[0];
@@ -2128,8 +2143,35 @@ const AdRestoration = (function() {
         for (let index = 0; index < packageEntries.length; index++) {
             const packageEntry = packageEntries[index];
             const packageData = parsePackageEntry(packageEntry);
-            if (!packageUses(packageData, 'react') && !packageUses(packageData, 'react-dom')) continue;
             const root = packageEntry.path.replace(/package\.json$/i, '');
+            if (!packageUses(packageData, 'react') && !packageUses(packageData, 'react-dom')) {
+                // Vanilla bundler projects also have source-only HTML whose
+                // /src and /public URLs require a build server. Select their
+                // completed output, not the surrounding editable project.
+                const command = String(packageData && packageData.scripts && packageData.scripts.build || '');
+                const bundledStatic = /\bvite\s+build\b|\b(?:webpack|parcel|astro)\b/i.test(command);
+                if (!bundledStatic) continue;
+                const built = entries.filter(function(entry) {
+                    const relative = entry.path.indexOf(root) === 0 ? entry.path.slice(root.length) : '';
+                    return /^(?:dist|build|out|output|export|www|_site|\.output\/public|\.vercel\/output\/static)\/(?:client\/)?index\.html?$/i.test(relative)
+                        && /<head\b[\s\S]*?<\/head\s*>/i.test(entry.text) && /<body\b/i.test(entry.text)
+                        && !/<script\b[^>]*src=["'][^"']*\/src\/[^"']+\.(?:[cm]?jsx?|tsx?)/i.test(entry.text);
+                }).sort(function(a, b) {
+                    return a.path.split('/').length - b.path.split('/').length;
+                })[0];
+                if (!built) return {
+                    valid: false, kind: 'static-source', framework: '静态前端源码工程', siteRoot: root,
+                    entryPath: '', buildCommand: 'npm run build', warnings: [],
+                    errors: [issue('检测到需要打包的静态前端源码，但未找到可部署的构建产物。请先执行 npm run build，再上传 dist/build/out 目录。', 'AD_INJECTION_STATIC_BUILD_REQUIRED')]
+                };
+                const deploymentRoot = built.path.replace(/index\.html?$/i, '');
+                return {
+                    valid: true, kind: 'static-html', framework: '静态前端已构建产物（按静态 HTML 注入）',
+                    siteRoot: deploymentRoot, deploymentRoot: deploymentRoot, sourceRoot: root,
+                    entryPath: built.path, previewEntryPath: built.path, runtimePath: deploymentRoot + 'js/ad.js',
+                    runtimeSrc: '/js/ad.js', buildCommand: '已提供静态构建产物', errors: [], warnings: []
+                };
+            }
             if (packageUses(packageData, 'next')) {
                 const nextLayout = entries.find(function(entry) {
                     return entry.path.indexOf(root) === 0 && /(?:^|\/)(?:app\/layout|pages\/_document)\.(?:tsx?|jsx?)$/i.test(entry.path.slice(root.length));

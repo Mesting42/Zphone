@@ -30,6 +30,54 @@ function state(config) {
 }
 
 describe('independent new and legacy game templates', () => {
+    it('reflects visibility instead of showing a stale line limit, and enables mapped descriptions', () => {
+        const { versions, source } = createRuntime();
+        const config = { ...source.defaults(), templateVersion: 'legacy' };
+        expect(versions.cardSummaryValue(config)).toBe('none');
+        versions.setCardSummary(config, '2');
+        expect(config.cardFields).toEqual(['image', 'title', 'content']);
+        expect(versions.cardSummaryValue(config)).toBe('2');
+        versions.setCardSummary(config, 'none');
+        expect(config.cardFields).toEqual(['image', 'title']);
+        expect(config.cardDescLines).toBe('2');
+        config.cardFields = ['title', 'excerpt', 'image'];
+        versions.setCardSummary(config, '4');
+        expect(config.cardFields).toEqual(['title', 'excerpt', 'image']);
+        versions.setCardSummary(config, 'none');
+        expect(config.cardFields).toEqual(['title', 'image']);
+    });
+
+    it.each(['1', '2', '3', '4', '0'])('keeps enabled summary limit %s in preview and exported CSS after mobile rules', async value => {
+        const { versions, source, generator } = createRuntime();
+        const config = { ...source.defaults(), templateVersion: 'legacy' };
+        versions.setCardSummary(config, value);
+        const app = state(config);
+        const built = generator.buildConfig(app);
+        const preview = generator.generatePreviewHtml(app, 'home');
+        const { document } = parseHTML(preview);
+        expect(document.querySelector('.card-desc').textContent).toContain('A description.');
+        const css = versions.render('generateCSS', [built], built);
+        const override = css.slice(css.lastIndexOf('/* Legacy card summary:'));
+        expect(override).toContain('display: ' + (value === '0' ? 'block' : '-webkit-box'));
+        expect(override).toContain('-webkit-line-clamp: ' + (value === '0' ? 'unset' : value));
+        expect(document.querySelector('style').textContent).toBe(css);
+        const zip = await JSZip.loadAsync(await generator.exportWebsite(app, () => {}));
+        expect(await zip.file('website/css/style.css').async('string')).toBe(css);
+        expect(await zip.file('website/js/script.js').async('string')).toContain('"content"');
+        expect(app.config.cardFields).toEqual(['image', 'title', 'content']);
+    });
+
+    it('restores independent summary choices when switching template versions', () => {
+        const { versions } = createRuntime();
+        const current = { templateVersion: 'current', cardFields: ['image', 'title', 'content'], cardDescLines: '3' };
+        const legacy = versions.switchVersion(current, 'legacy');
+        expect(versions.cardSummaryValue(legacy)).toBe('none');
+        versions.setCardSummary(legacy, '4');
+        const restored = versions.switchVersion(legacy, 'current');
+        expect(versions.cardSummaryValue(restored)).toBe('3');
+        expect(versions.cardSummaryValue(versions.switchVersion(restored, 'legacy'))).toBe('4');
+    });
+
     it('preserves the copied source bytes and exposes only presentation/configuration', () => {
         const { source } = createRuntime();
         for (const [path, hash] of Object.entries(source.hashes)) {

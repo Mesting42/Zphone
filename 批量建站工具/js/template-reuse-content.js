@@ -1,9 +1,9 @@
 /** Content import and asset paths for template reuse. No uploaded code is executed. */
+import { findDetailRegions, detailBodyHtml } from './template-detail-regions.js';
+export { titleSelector, bodySelector } from './template-detail-regions.js';
 export const entryText = entry => typeof entry?.text === 'string' ? entry.text : new TextDecoder().decode(entry?.bytes || []);
 export const textEntry = (path, value) => ({ path, bytes: new TextEncoder().encode(value) });
-export const publicPage = path => /(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-(?:service|use))?|legal|cookie(?:-policy)?|404|disclaimer|editorial-policy)(?:\.|\/|$)/i.test(path);
-export const titleSelector = '[data-content-title],.detail-title,.article-title,.post-title,h1';
-export const bodySelector = '[data-content-body],.detail-content,.article-content,.post-content,.article-body,.entry-content';
+export const publicPage = path => /(?:^|\/)(?:about(?:-us)?|contact(?:-us)?|privacy(?:-policy)?|terms(?:-of-(?:service|use))?|(?:user-)?agreement|legal|cookie(?:-policy)?|404|disclaimer|accessibility|faq|editorial-(?:policy|standards)|sources?-methodology|corrections|copyright)(?:\.|\/|$)/i.test(path);
 export const cardSelector = '[data-article],[data-post],.item-card,.post-card,.article-card,.content-card,.story-card,.news-card,.game-card,.related-card';
 const cleanText = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 const escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -56,7 +56,7 @@ export function parseContentJson(value, options = {}) {
             image: stringField(row.cover || row.image || row.thumbnail || row.image_url || row.imageUrl || row.thumb),
             category: stringField(row.category || row.section || row.type || row.genres),
             author: stringField(row.author || row.byline), date: stringField(row.published || row.date || row.updated),
-            actionUrl: stringField(row.store_url || row.url), raw: { ...row },
+                actionUrl: stringField(row.store_url || row.source_url || row.sourceUrl || row.url), raw: { ...row },
             ownerPath: options.ownerPath || 'content.json', sourcePath: options.sourcePath || ''
         };
     });
@@ -68,13 +68,14 @@ export function extractStaticSiteContent(entries) {
     for (const entry of entries) {
         if (!/\.html?$/i.test(entry.path) || publicPage(entry.path)) continue;
         const doc = new DOMParser().parseFromString(entryText(entry), 'text/html');
-        const body = doc.querySelector(bodySelector), title = doc.querySelector(titleSelector);
-        if (body && title) {
-            items.push({ id: entry.path, title: cleanText(title.textContent), body: body.innerHTML,
+        const region = findDetailRegions(doc);
+        if (region) {
+            const { body, title } = region;
+            items.push({ id: entry.path, title: cleanText(title.textContent), body: detailBodyHtml(region),
                 summary: cleanText(doc.querySelector('[data-content-summary],.excerpt,.standfirst,.summary,meta[name="description"]')?.getAttribute('content') || body.textContent).slice(0, 800),
-                image: doc.querySelector('[data-content-image],.detail-hero-image,.article-hero img,article > img')?.getAttribute('src') || '',
+                image: region.image?.getAttribute('src') || '',
                 category: cleanText(doc.querySelector('[data-content-category],.article-category')?.textContent), author: '', date: '',
-                actionUrl: doc.querySelector('.action-btn')?.getAttribute('href') || '', raw: {}, ownerPath: entry.path, sourcePath: entry.path });
+                actionUrl: (doc.querySelector('.action-btn') || region.actions[0])?.getAttribute('href') || '', raw: {}, ownerPath: entry.path, sourcePath: entry.path });
         } else {
             // Card-only static exports are supported, without swallowing the whole main/nav/footer.
             for (const card of doc.querySelectorAll(cardSelector)) {

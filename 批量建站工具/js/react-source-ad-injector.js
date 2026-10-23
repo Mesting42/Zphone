@@ -2,6 +2,7 @@ import { parse } from '@babel/parser';
 import traverseModule from '@babel/traverse';
 import generateModule from '@babel/generator';
 import * as t from '@babel/types';
+import { installSourceBuildHook } from './react-source-build-hook.js';
 
 // React 源码修改器：仅在 Babel 能解析且能定位 <main> 的文件中写入 JSX。
 // 找不到安全锚点时返回报告，不以字符串替换破坏用户工程。
@@ -426,14 +427,17 @@ export function injectReactSource(entriesInput, project, config, policy, archive
             else entries.push({ path, bytes: bytes(source) });
         }
         upsert('public/js/ad.js', runtimeSource);
+        const buildHook = installSourceBuildHook(entries, project);
+        if (!buildHook.valid) return { valid: false, entries, errors: [issue(buildHook.message, buildHook.code)], warnings: [] };
         upsert('ad-injection.json', JSON.stringify({
             schema: 'sitefoundry-ad-injection/v3', generatedAt: new Date().toISOString(),
             source: archiveName || 'finished-site', framework: project.framework, adPaths: config,
             placementMode: settings.mode, adJsVersion: settings.version, policy,
-            build: 'React 源码已注入广告位运行时；安装依赖并生产构建后部署。'
+            build: 'React 源码已注入广告位运行时；npm run build 后自动核对并补齐静态产物的广告脚本。',
+            ...(buildHook.installed ? { sourceBuildHook: buildHook.path } : {})
         }, null, 2) + '\n');
         return { valid: true, entries, errors: [], warnings: [],
-            changedPages: [head.changed || head.verified], changedScripts: ['public/js/ad.js'], framework: project.framework };
+            changedPages: [head.changed || head.verified], changedScripts: ['public/js/ad.js', ...(buildHook.installed ? [buildHook.path] : [])], framework: project.framework };
     }
     const pages = choosePages(entries);
     if (!pages.length) return { valid: false, entries, errors: [issue('未找到 src/routes、src/pages 或 App.tsx 中可安全修改的 React 页面。', 'REACT_AD_PAGE_NOT_FOUND')], warnings: [] };
@@ -467,6 +471,8 @@ export function injectReactSource(entriesInput, project, config, policy, archive
     const runtime = String(runtimeSource || '');
     if (!runtime) return { valid: false, entries, errors: [issue('内置广告运行时不可用，未导出 React 源码。', 'REACT_AD_RUNTIME_UNAVAILABLE')], warnings };
     upsert('public/js/ad.js', runtime);
-    upsert('ad-injection.json', JSON.stringify({ schema: 'sitefoundry-ad-injection/v2', generatedAt: new Date().toISOString(), source: archiveName || 'finished-site', framework: project.framework, adPaths: config, policy, placementMode: 'manual', adJsVersion: settings && settings.version || 'v1.0.1', build: 'React 源码已修改：执行 npm install 后 npm run build；node_modules 不会被处理。' }, null, 2) + '\n');
-    return { valid: true, entries, errors: [], warnings, changedPages, verifiedPages, changedScripts: ['public/js/ad.js'], framework: project.framework };
+    const buildHook = installSourceBuildHook(entries, project);
+    if (!buildHook.valid) return { valid: false, entries, errors: [issue(buildHook.message, buildHook.code)], warnings };
+    upsert('ad-injection.json', JSON.stringify({ schema: 'sitefoundry-ad-injection/v2', generatedAt: new Date().toISOString(), source: archiveName || 'finished-site', framework: project.framework, adPaths: config, policy, placementMode: 'manual', adJsVersion: settings && settings.version || 'v1.0.1', ...(buildHook.installed ? { sourceBuildHook: buildHook.path } : {}), build: 'React 源码已修改：执行 npm install 后 npm run build；node_modules 不会被处理。' }, null, 2) + '\n');
+    return { valid: true, entries, errors: [], warnings, changedPages, verifiedPages, changedScripts: ['public/js/ad.js', ...(buildHook.installed ? [buildHook.path] : [])], framework: project.framework };
 }

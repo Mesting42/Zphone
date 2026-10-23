@@ -62,7 +62,7 @@ if (output !== previous) await writeFile(outputPath, output, 'utf8');
 const indexPath = resolve(appRoot, 'index.html');
 const previousIndex = await readFile(indexPath, 'utf8');
 let versionedIndex = previousIndex;
-for (const asset of ['js/template-packages.js', 'js/navbar-layout.js', 'js/generator.js', 'js/legacy-editorial-template-source.js', 'js/editorial-template-versions.js', 'js/finished-site-ads.js', 'js/app.js', 'js/archive-export.js', 'js/preview-image-cache.js', 'js/batch-ad-builder.js', 'js/ad-restoration.js', 'js/ad-template-catalog.js', 'js/native-platform.js', 'js/native-app-init.js', 'css/native-app.css', 'css/tool.css']) {
+for (const asset of ['js/template-packages.js', 'js/navbar-layout.js', 'js/generator.js', 'js/legacy-editorial-template-source.js', 'js/editorial-template-versions.js', 'js/finished-site-ads.js', 'js/app.js', 'js/archive-export.js', 'js/export-preflight.js', 'js/preview-image-cache.js', 'js/batch-ad-builder.js', 'js/ad-restoration.js', 'js/ad-template-catalog.js', 'js/native-platform.js', 'js/native-app-init.js', 'css/native-app.css', 'css/tool.css']) {
   const bytes = await readFile(resolve(appRoot, asset));
   const version = 'sha256-' + createHash('sha256').update(bytes).digest('hex').slice(0, 16);
   const escapedAsset = asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -78,7 +78,7 @@ if (versionedIndex !== previousIndex) await writeFile(indexPath, versionedIndex,
 const gameIndexPath = resolve(appRoot, 'game-builder/index.html');
 const previousGameIndex = await readFile(gameIndexPath, 'utf8');
 let gameIndex = previousGameIndex;
-for (const asset of ['js/generator.js', 'js/app.js', 'js/legacy-template-source.js', 'js/game-template-versions.js', 'css/tool.css', '../js/archive-export.js', '../js/preview-image-cache.js', '../js/navbar-layout.js', '../js/ad-template-catalog.js', '../js/native-platform.js', '../js/native-app-init.js', '../css/native-app.css']) {
+for (const asset of ['js/generator.js', 'js/app.js', 'js/legacy-template-source.js', 'js/game-template-versions.js', 'css/tool.css', '../js/archive-export.js', '../js/export-preflight.js', '../js/preview-image-cache.js', '../js/navbar-layout.js', '../js/ad-template-catalog.js', '../js/native-platform.js', '../js/native-app-init.js', '../css/native-app.css']) {
   const bytes = await readFile(resolve(appRoot, 'game-builder', asset));
   const version = 'sha256-' + createHash('sha256').update(bytes).digest('hex').slice(0, 16);
   const escapedAsset = asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

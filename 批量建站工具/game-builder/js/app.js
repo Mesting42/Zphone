@@ -1026,14 +1026,17 @@
 
         function catalogNameSuggestion() {
             return String(activeSourceLabel || '我的游戏目录')
-                .replace(/^本地 ZIP\s*·\s*/i, '')
+                .replace(/^本地 (?:ZIP|RAR|7Z)\s*·\s*/i, '')
                 .replace(/^本地内置\s*·\s*/i, '')
                 .slice(0, 60) || '我的游戏目录';
         }
 
         function updateSavedCatalogControls() {
             var selectedSavedId = savedIdFromValue(sourceSelect.value);
-            var importedCatalogActive = sourceSelect.value === 'json' && (activeSourceId === 'json' || activeSourceId === 'json-zip');
+            // RAR and 7z share the JSON/archive importer and support the same
+            // persistent catalogs as JSON and ZIP, including their image files.
+            var importedCatalogActive = sourceSelect.value === 'json'
+                && ['json', 'json-zip', 'json-archive'].indexOf(activeSourceId) !== -1;
             var visible = canPersistCatalogs() && (importedCatalogActive || !!selectedSavedId);
             savedOptions.hidden = !visible;
             if (!visible) return;
@@ -1084,21 +1087,14 @@
             });
         }
 
-        function readBlobAsDataUrl(blob) {
-            return new Promise(function(resolve, reject) {
-                var reader = new FileReader();
-                reader.onload = function() { resolve(String(reader.result || '')); };
-                reader.onerror = function() { reject(reader.error || new Error('本地封面读取失败。')); };
-                reader.readAsDataURL(blob);
-            });
-        }
-
         function restoreLocalImageDataUrls(localImages) {
             var entries = Object.entries(localImages || {}).filter(function(entry) {
                 return entry[1] && typeof entry[1].size === 'number';
             });
             return Promise.all(entries.map(function(entry) {
-                return readBlobAsDataUrl(entry[1]).then(function(dataUrl) {
+                // Older saved RAR/7z catalogs can retain generic Blob types.
+                // Restore their image MIME from the stored path as on import.
+                return readImageBlobAsDataUrl(entry[1], entry[0]).then(function(dataUrl) {
                     return [entry[0], dataUrl];
                 });
             })).then(function(pairs) {
@@ -1986,7 +1982,6 @@
             'hero-style': 'heroStyle',
             'detail-layout': 'detailLayout',
             'card-view-mode': 'cardViewMode',
-            'legacy-card-desc-lines': 'cardDescLines',
             'privacy-length': 'privacyLength',
             'terms-length': 'termsLength'
         };
@@ -2070,6 +2065,15 @@
         // 卡片展示字段
         updateCardFieldsConfig();
 
+        // Legacy summary choices change both visibility and line count. Updating
+        // the number alone cannot create a description omitted by cardFields.
+        document.getElementById('legacy-card-desc-lines').addEventListener('change', function() {
+            GameTemplateVersions.setCardSummary(appState.config, this.value);
+            updateCardFieldsConfig();
+            syncCardDescriptionMode();
+            updatePreview();
+        });
+
         var descriptionMode = document.getElementById('card-description-mode');
         if (descriptionMode) {
             descriptionMode.addEventListener('change', function() {
@@ -2115,6 +2119,13 @@
     }
 
     function syncCardDescriptionMode() {
+        // Reflect the actual enabled fields, including after version switching,
+        // random assembly and manual card-field changes.
+        var legacyControl = document.getElementById('legacy-card-desc-lines');
+        if (legacyControl) {
+            legacyControl.value = GameTemplateVersions.cardSummaryValue(appState.config);
+            refreshCustomConfigSelects(legacyControl);
+        }
         var control = document.getElementById('card-description-mode');
         if (!control) return;
         if ((appState.config.cardFields || []).indexOf('content') === -1) {
@@ -3164,7 +3175,7 @@
             'transition-speed', 'meta-bg', 'detail-img-style', 'privacy-length',
             'terms-length', 'category-title-style', 'category-title-align',
             'card-image-height', 'content-max-width', 'hero-style', 'detail-layout',
-            'card-view-mode', 'legacy-card-desc-lines'
+            'card-view-mode'
         ];
         var selectToConfig = {
             'navbar-layout': 'navbarLayout', 'footer-style': 'footerStyle',
@@ -3181,7 +3192,7 @@
             'terms-length': 'termsLength', 'category-title-style': 'categoryTitleStyle',
             'category-title-align': 'categoryTitleAlign', 'card-image-height': 'cardImageHeight',
             'content-max-width': 'contentMaxWidth', 'hero-style': 'heroStyle',
-            'detail-layout': 'detailLayout', 'card-view-mode': 'cardViewMode', 'legacy-card-desc-lines': 'cardDescLines'
+            'detail-layout': 'detailLayout', 'card-view-mode': 'cardViewMode'
         };
 
         selectIds.forEach(function(id) {

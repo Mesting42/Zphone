@@ -156,10 +156,15 @@ const GameZipImport = (function() {
         };
     }
 
-    function readFileAsDataUrl(file) {
+    function readFileAsDataUrl(file, path) {
         return new Promise(function(resolve, reject) {
             const reader = new FileReader();
-            reader.onload = function() { resolve(String(reader.result || '')); };
+            reader.onload = function() {
+                // Archive workers often return untyped Files. Opaque preview
+                // frames require image data URLs rather than parent Blob URLs,
+                // so use the same extension-based MIME contract as ZIP import.
+                resolve(String(reader.result || '').replace(/^data:[^;,]*/i, 'data:' + imageMimeType(path || file.name)));
+            };
             reader.onerror = function() { reject(reader.error || new Error('图片读取失败')); };
             reader.readAsDataURL(file);
         });
@@ -223,7 +228,7 @@ const GameZipImport = (function() {
             const outputName = filenameFromPath(normalizedThumb);
             if (outputNames[outputName] && outputNames[outputName] !== normalizedThumb) throw new Error('压缩包中有不同路径的同名图片，导出时会冲突：' + outputName);
             outputNames[outputName] = normalizedThumb;
-            localImageDataUrls[outputName] = await readFileAsDataUrl(entry.file);
+            localImageDataUrls[outputName] = await readFileAsDataUrl(entry.file, outputName);
         }
         if (missingImages.length) throw new Error('压缩包中缺少 ' + missingImages.length + ' 张引用图片：' + missingImages.slice(0, 3).join('、') + (missingImages.length > 3 ? ' 等' : ''));
         return { payload: chosen.payload, jsonPath: chosen.jsonPath, recordCount: chosen.records.length, localImageDataUrls: localImageDataUrls };
